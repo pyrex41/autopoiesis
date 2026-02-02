@@ -57,7 +57,7 @@ Current Phase: 3 (Snapshot System)
 - [x] Implement snapshot persistence to disk
 - [x] Implement branch DAG traversal
 - [x] Implement event compaction
-- [ ] Write snapshot system tests
+- [x] Write snapshot system tests
 
 ### Phase 4: Human Interface
 - [ ] Implement CLI-based session
