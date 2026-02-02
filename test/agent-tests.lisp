@@ -281,3 +281,117 @@
       ;; Content should be the same (order preserved)
       (is (equal (autopoiesis.agent:context-content ctx)
                  (autopoiesis.agent:context-content restored))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Built-in Capabilities Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test builtin-capabilities-registered
+  "Test that built-in capabilities are registered"
+  ;; The capabilities are registered when builtin-capabilities.lisp loads
+  ;; Use package-qualified symbols since registry uses EQUAL test
+  (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.agent::introspect))))
+  (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.agent::spawn))))
+  (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.agent::communicate))))
+  (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.agent::receive)))))
+
+(test introspect-requires-current-agent
+  "Test that introspect errors without *current-agent*"
+  (let ((autopoiesis.agent:*current-agent* nil))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.agent:capability-introspect :state))))
+
+(test introspect-capabilities
+  "Test introspecting agent capabilities"
+  (let ((agent (autopoiesis.agent:make-agent
+                :name "test-agent"
+                :capabilities '(cap-a cap-b))))
+    (autopoiesis.agent:with-current-agent (agent)
+      (let ((caps (autopoiesis.agent:capability-introspect :capabilities)))
+        (is (equal '(cap-a cap-b) caps))))))
+
+(test introspect-state
+  "Test introspecting agent state"
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (autopoiesis.agent:with-current-agent (agent)
+      (is (eq :initialized (autopoiesis.agent:capability-introspect :state)))
+      (autopoiesis.agent:start-agent agent)
+      (is (eq :running (autopoiesis.agent:capability-introspect :state))))))
+
+(test introspect-identity
+  "Test introspecting agent identity"
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (autopoiesis.agent:with-current-agent (agent)
+      (let ((identity (autopoiesis.agent:capability-introspect :identity)))
+        (is (equal (autopoiesis.agent:agent-id agent) (getf identity :id)))
+        (is (string= "test-agent" (getf identity :name)))))))
+
+(test introspect-all
+  "Test introspecting all agent info"
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (autopoiesis.agent:with-current-agent (agent)
+      (let ((all (autopoiesis.agent:capability-introspect :all)))
+        (is (not (null (getf all :identity))))
+        (is (not (null (member :state all))))
+        (is (not (null (member :capabilities all))))
+        (is (not (null (member :thoughts all))))))))
+
+(test spawn-capability
+  "Test spawning child agents via capability"
+  (let ((parent (autopoiesis.agent:make-agent :name "parent")))
+    (autopoiesis.agent:with-current-agent (parent)
+      (let ((child (autopoiesis.agent:capability-spawn "child")))
+        (is (not (null child)))
+        (is (string= "child" (autopoiesis.agent:agent-name child)))
+        (is (equal (autopoiesis.agent:agent-id parent)
+                   (autopoiesis.agent:agent-parent child)))
+        (is (member (autopoiesis.agent:agent-id child)
+                    (autopoiesis.agent:agent-children parent)
+                    :test #'equal))))))
+
+(test spawn-requires-current-agent
+  "Test that spawn errors without *current-agent*"
+  (let ((autopoiesis.agent:*current-agent* nil))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.agent:capability-spawn "child"))))
+
+(test message-creation
+  "Test message creation"
+  (let ((msg (autopoiesis.agent:make-message "sender-id" "receiver-id" '(hello world))))
+    (is (not (null (autopoiesis.agent:message-id msg))))
+    (is (string= "sender-id" (autopoiesis.agent:message-from msg)))
+    (is (string= "receiver-id" (autopoiesis.agent:message-to msg)))
+    (is (equal '(hello world) (autopoiesis.agent:message-content msg)))))
+
+(test communicate-and-receive
+  "Test sending and receiving messages between agents"
+  (let ((sender (autopoiesis.agent:make-agent :name "sender"))
+        (receiver (autopoiesis.agent:make-agent :name "receiver")))
+    ;; Clear any existing messages
+    (setf (gethash (autopoiesis.agent:agent-id receiver)
+                   autopoiesis.agent:*agent-mailboxes*)
+          nil)
+    ;; Send message from sender
+    (autopoiesis.agent:with-current-agent (sender)
+      (autopoiesis.agent:capability-communicate receiver '(hello from sender)))
+    ;; Receive as receiver
+    (autopoiesis.agent:with-current-agent (receiver)
+      (let ((messages (autopoiesis.agent:capability-receive :clear t)))
+        (is (= 1 (length messages)))
+        (is (equal '(hello from sender) (autopoiesis.agent:message-content (first messages))))
+        (is (equal (autopoiesis.agent:agent-id sender)
+                   (autopoiesis.agent:message-from (first messages))))
+        ;; Messages should be cleared
+        (is (null (autopoiesis.agent:capability-receive)))))))
+
+(test communicate-requires-current-agent
+  "Test that communicate errors without *current-agent*"
+  (let ((autopoiesis.agent:*current-agent* nil))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.agent:capability-communicate "target" '(message)))))
+
+(test receive-requires-current-agent
+  "Test that receive errors without *current-agent*"
+  (let ((autopoiesis.agent:*current-agent* nil))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.agent:capability-receive))))

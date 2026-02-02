@@ -83,4 +83,25 @@
    ;; Agent spawning
    #:spawn-agent
    #:spawn-with-snapshot
-   #:agent-lineage))
+   #:agent-lineage
+
+   ;; Built-in capabilities
+   #:*current-agent*
+   #:with-current-agent
+   #:capability-introspect
+   #:capability-spawn
+   #:capability-communicate
+   #:capability-receive
+   #:register-builtin-capabilities
+
+   ;; Message system
+   #:message
+   #:make-message
+   #:message-id
+   #:message-from
+   #:message-to
+   #:message-content
+   #:message-timestamp
+   #:send-message
+   #:receive-messages
+   #:*agent-mailboxes*))

@@ -40,7 +40,8 @@
        (:file "agent")
        (:file "cognitive-loop")
        (:file "spawner")
-       (:file "registry")))
+       (:file "registry")
+       (:file "builtin-capabilities")))
      (:module "snapshot"
       :serial t
       :depends-on ("core" "agent")
