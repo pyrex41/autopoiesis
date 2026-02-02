@@ -39,11 +39,15 @@
    #:capability-name
    #:capability-function
    #:capability-permissions
+   #:capability-description
    #:register-capability
    #:unregister-capability
    #:find-capability
    #:invoke-capability
    #:list-capabilities
+   #:defcapability
+   #:parse-defcapability-body
+   #:parse-capability-params
 
    ;; Agent spawning
    #:spawn-agent

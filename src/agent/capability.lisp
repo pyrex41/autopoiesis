@@ -64,3 +64,101 @@
       (error 'autopoiesis.core:autopoiesis-error
              :message (format nil "Unknown capability: ~a" name)))
     (apply (capability-function cap) args)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Capability Definition Macro
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun parse-defcapability-body (body)
+  "Parse the body of defcapability into (values doc options actual-body).
+
+   The body can contain:
+   - An optional docstring as the first element
+   - Keyword options (e.g., :cost 0.1 :latency :fast)
+   - A :body keyword followed by the implementation forms
+
+   Returns three values: docstring, options plist, and body forms."
+  (let ((doc (if (stringp (first body)) (pop body) ""))
+        (options nil)
+        (actual-body nil))
+    (loop while body
+          for item = (pop body)
+          do (cond
+               ;; :body keyword signals start of implementation
+               ((eq item :body)
+                (setf actual-body body
+                      body nil))
+               ;; Other keywords are options
+               ((keywordp item)
+                (push item options)
+                (push (pop body) options))
+               ;; Non-keyword means we hit the body without :body marker
+               (t
+                (push item actual-body)
+                (setf actual-body (nconc (nreverse actual-body) body)
+                      body nil))))
+    (values doc (nreverse options) actual-body)))
+
+(defun parse-capability-params (lambda-list)
+  "Parse a lambda list into capability parameter specifications.
+
+   Each parameter becomes a list of (name type &key required default).
+   - Required parameters: (name t :required t)
+   - Optional parameters: (name t) or (name t :default value)
+   - Keyword parameters: (name t) or (name t :default value)"
+  (let ((params nil)
+        (mode :required))
+    (dolist (item lambda-list (nreverse params))
+      (cond
+        ;; Lambda list keywords change the mode
+        ((member item '(&optional &key &rest &aux))
+         (setf mode item))
+        ;; In required mode
+        ((eq mode :required)
+         (push `(,item t :required t) params))
+        ;; In &optional mode
+        ((eq mode '&optional)
+         (if (consp item)
+             (push `(,(first item) t :default ,(second item)) params)
+             (push `(,item t) params)))
+        ;; In &key mode
+        ((eq mode '&key)
+         (if (consp item)
+             (push `(,(first item) t :default ,(second item)) params)
+             (push `(,item t) params)))
+        ;; &rest just captures the name
+        ((eq mode '&rest)
+         (push `(,item t :rest t) params))))))
+
+(defmacro defcapability (name lambda-list &body body-and-options)
+  "Define and register a new capability.
+
+   NAME is the symbol naming this capability.
+   LAMBDA-LIST is the parameter list for the capability function.
+   BODY-AND-OPTIONS contains an optional docstring, keyword options,
+   and the implementation body (either after :body or as remaining forms).
+
+   Options:
+     :permissions - List of permissions required to use this capability
+     :description - Human-readable description (overrides docstring)
+
+   Example:
+     (defcapability web-search (query &key (max-results 10))
+       \"Search the web for QUERY\"
+       :permissions (:network)
+       :body
+       (perform-web-search query :limit max-results))
+
+   Or without :body marker:
+     (defcapability add-numbers (a b)
+       \"Add two numbers\"
+       (+ a b))"
+  (multiple-value-bind (doc options body)
+      (parse-defcapability-body body-and-options)
+    (let ((permissions (getf options :permissions))
+          (description (getf options :description)))
+      `(register-capability
+        (make-capability ',name
+                         (lambda ,lambda-list ,@body)
+                         :permissions ',permissions
+                         :description ,(or description doc))))))

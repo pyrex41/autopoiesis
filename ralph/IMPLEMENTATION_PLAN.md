@@ -49,7 +49,7 @@ Current Phase: 2 (Agent Runtime - Remaining Features)
 ## Next Up (Priority Order)
 
 ### Phase 2: Agent Runtime (Remaining)
-- [ ] Create `defcapability` macro
+- [x] Create `defcapability` macro
 - [ ] Implement `context-window` class
 - [ ] Implement built-in capabilities (introspect, spawn, communicate)
 
