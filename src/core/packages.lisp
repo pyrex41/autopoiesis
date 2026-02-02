@@ -94,4 +94,5 @@
    ;; Utilities
    #:make-uuid
    #:get-precise-time
-   #:truncate-string))
+   #:truncate-string
+   #:sexpr-size))

@@ -31,6 +31,21 @@
       string
       (concatenate 'string (subseq string 0 (- max-length 3)) "...")))
 
+(defun sexpr-size (sexpr)
+  "Estimate the size of SEXPR in 'tokens' for context window management.
+   This is a rough heuristic: atoms count as 1, conses add their car and cdr sizes."
+  (typecase sexpr
+    (null 1)
+    (symbol 1)
+    (number 1)
+    (string (max 1 (ceiling (length sexpr) 4)))  ; ~4 chars per token
+    (cons (+ 1 (sexpr-size (car sexpr)) (sexpr-size (cdr sexpr))))
+    (array (+ 1 (loop for i below (array-total-size sexpr)
+                      sum (sexpr-size (row-major-aref sexpr i)))))
+    (hash-table (+ 1 (loop for k being the hash-keys of sexpr using (hash-value v)
+                           sum (+ (sexpr-size k) (sexpr-size v)))))
+    (t 1)))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Structural Equality
 ;;; ═══════════════════════════════════════════════════════════════════

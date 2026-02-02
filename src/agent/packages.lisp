@@ -49,6 +49,37 @@
    #:parse-defcapability-body
    #:parse-capability-params
 
+   ;; Context window
+   #:context-window
+   #:make-context-window
+   #:context-content
+   #:context-max-size
+   #:context-priority-queue
+   #:context-add
+   #:context-remove
+   #:context-focus
+   #:context-defocus
+   #:context-size
+   #:context-item-count
+   #:context-total-items
+   #:context-clear
+   #:context-to-sexpr
+   #:sexpr-to-context
+
+   ;; Priority queue (internal but exported for testing)
+   #:priority-queue
+   #:make-priority-queue
+   #:pqueue-push
+   #:pqueue-pop
+   #:pqueue-peek
+   #:pqueue-remove
+   #:pqueue-empty-p
+   #:pqueue-size
+   #:pqueue-map
+   #:pqueue-do
+   #:pqueue-items
+   #:pqueue-clear
+
    ;; Agent spawning
    #:spawn-agent
    #:spawn-with-snapshot

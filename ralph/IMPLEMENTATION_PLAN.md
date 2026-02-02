@@ -50,7 +50,7 @@ Current Phase: 2 (Agent Runtime - Remaining Features)
 
 ### Phase 2: Agent Runtime (Remaining)
 - [x] Create `defcapability` macro
-- [ ] Implement `context-window` class
+- [x] Implement `context-window` class
 - [ ] Implement built-in capabilities (introspect, spawn, communicate)
 
 ### Phase 3: Snapshot System

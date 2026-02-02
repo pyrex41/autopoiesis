@@ -36,6 +36,7 @@
       :components
       ((:file "packages")
        (:file "capability")
+       (:file "context-window")
        (:file "agent")
        (:file "cognitive-loop")
        (:file "spawner")
