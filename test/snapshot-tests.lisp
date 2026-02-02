@@ -196,3 +196,202 @@
                (dolist (id ids)
                  (is (autopoiesis.snapshot:snapshot-exists-p id store2))))))
       (cleanup-temp-store temp-path))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; DAG Traversal Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test dag-collect-ancestors
+  "Test collecting ancestors of a snapshot"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create a chain: root -> child1 -> child2
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let* ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id))
+                      (child2-id (autopoiesis.snapshot:snapshot-id child2)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 ;; Test ancestors of child2
+                 (let ((ancestors (autopoiesis.snapshot:collect-ancestor-ids child2-id store)))
+                   (is (= 2 (length ancestors)))
+                   (is (string= child1-id (first ancestors)))
+                   (is (string= root-id (second ancestors))))
+                 ;; Root has no ancestors
+                 (let ((ancestors (autopoiesis.snapshot:collect-ancestor-ids root-id store)))
+                   (is (null ancestors)))))))
+      (cleanup-temp-store temp-path))))
+
+(test dag-find-common-ancestor
+  "Test finding common ancestor of two snapshots"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create a diamond: root -> (branch-a, branch-b)
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((branch-a (autopoiesis.snapshot:make-snapshot '(:branch-a t) :parent root-id))
+                    (branch-a-id (autopoiesis.snapshot:snapshot-id branch-a))
+                    (branch-b (autopoiesis.snapshot:make-snapshot '(:branch-b t) :parent root-id))
+                    (branch-b-id (autopoiesis.snapshot:snapshot-id branch-b)))
+               (autopoiesis.snapshot:save-snapshot branch-a store)
+               (autopoiesis.snapshot:save-snapshot branch-b store)
+               ;; Common ancestor should be root
+               (let ((ancestor (autopoiesis.snapshot:find-common-ancestor branch-a-id branch-b-id store)))
+                 (is (not (null ancestor)))
+                 (is (string= root-id (autopoiesis.snapshot:snapshot-id ancestor))))
+               ;; Same snapshot - common ancestor is itself
+               (let ((ancestor (autopoiesis.snapshot:find-common-ancestor branch-a-id branch-a-id store)))
+                 (is (not (null ancestor)))
+                 (is (string= branch-a-id (autopoiesis.snapshot:snapshot-id ancestor)))))))
+      (cleanup-temp-store temp-path))))
+
+(test dag-find-path
+  "Test finding path between snapshots"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create chain: root -> child1 -> child2
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let* ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id))
+                      (child2-id (autopoiesis.snapshot:snapshot-id child2)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 ;; Forward path: root -> child2
+                 (let ((path (autopoiesis.snapshot:find-path root-id child2-id store)))
+                   (is (not (null path)))
+                   (is (= 3 (length path)))
+                   (is (string= root-id (first path)))
+                   (is (string= child2-id (third path))))
+                 ;; Backward path: child2 -> root
+                 (let ((path (autopoiesis.snapshot:find-path child2-id root-id store)))
+                   (is (not (null path)))
+                   (is (= 3 (length path)))
+                   (is (string= child2-id (first path)))
+                   (is (string= root-id (third path))))
+                 ;; Same snapshot
+                 (let ((path (autopoiesis.snapshot:find-path root-id root-id store)))
+                   (is (not (null path)))
+                   (is (= 1 (length path))))))))
+      (cleanup-temp-store temp-path))))
+
+(test dag-distance
+  "Test calculating distance between snapshots"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create chain: root -> child1 -> child2
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let* ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id))
+                      (child2-id (autopoiesis.snapshot:snapshot-id child2)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 (is (= 0 (autopoiesis.snapshot:dag-distance root-id root-id store)))
+                 (is (= 1 (autopoiesis.snapshot:dag-distance root-id child1-id store)))
+                 (is (= 2 (autopoiesis.snapshot:dag-distance root-id child2-id store)))))))
+      (cleanup-temp-store temp-path))))
+
+(test dag-ancestor-predicates
+  "Test is-ancestor-p and is-descendant-p"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child (autopoiesis.snapshot:make-snapshot '(:child t) :parent root-id))
+                    (child-id (autopoiesis.snapshot:snapshot-id child)))
+               (autopoiesis.snapshot:save-snapshot child store)
+               (is (autopoiesis.snapshot:is-ancestor-p root-id child-id store))
+               (is (not (autopoiesis.snapshot:is-ancestor-p child-id root-id store)))
+               (is (autopoiesis.snapshot:is-descendant-p child-id root-id store))
+               (is (not (autopoiesis.snapshot:is-descendant-p root-id child-id store))))))
+      (cleanup-temp-store temp-path))))
+
+(test dag-depth
+  "Test calculating DAG depth"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let* ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id))
+                      (child2-id (autopoiesis.snapshot:snapshot-id child2)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 (is (= 0 (autopoiesis.snapshot:dag-depth root-id store)))
+                 (is (= 1 (autopoiesis.snapshot:dag-depth child1-id store)))
+                 (is (= 2 (autopoiesis.snapshot:dag-depth child2-id store)))))))
+      (cleanup-temp-store temp-path))))
+
+(test dag-find-root
+  "Test finding root snapshot"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child (autopoiesis.snapshot:make-snapshot '(:child t) :parent root-id))
+                    (child-id (autopoiesis.snapshot:snapshot-id child)))
+               (autopoiesis.snapshot:save-snapshot child store)
+               ;; Find root from child
+               (let ((found-root (autopoiesis.snapshot:find-root child-id store)))
+                 (is (not (null found-root)))
+                 (is (string= root-id (autopoiesis.snapshot:snapshot-id found-root))))
+               ;; Find root from root
+               (let ((found-root (autopoiesis.snapshot:find-root root-id store)))
+                 (is (not (null found-root)))
+                 (is (string= root-id (autopoiesis.snapshot:snapshot-id found-root)))))))
+      (cleanup-temp-store temp-path))))
+
+(test dag-walk-ancestors
+  "Test walking ancestors"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let* ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id))
+                      (child2-id (autopoiesis.snapshot:snapshot-id child2))
+                      (visited nil))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 ;; Walk from child2 up
+                 (autopoiesis.snapshot:walk-ancestors
+                  child2-id
+                  (lambda (snap)
+                    (push (autopoiesis.snapshot:snapshot-id snap) visited))
+                  store)
+                 (is (= 3 (length visited)))
+                 ;; Order: child2, child1, root
+                 (is (string= child2-id (third visited)))
+                 (is (string= root-id (first visited)))))))
+      (cleanup-temp-store temp-path))))

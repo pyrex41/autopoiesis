@@ -65,6 +65,21 @@
    #:snapshot-diff
    #:snapshot-patch
    #:find-snapshot
+   #:*current-snapshot*
+
+   ;; DAG traversal
+   #:collect-ancestor-ids
+   #:find-common-ancestor
+   #:find-path
+   #:dag-distance
+   #:is-ancestor-p
+   #:is-descendant-p
+   #:dag-depth
+   #:find-root
+   #:find-branch-point
+   #:walk-ancestors
+   #:walk-descendants
+   #:find-snapshots-between
 
    ;; Event log
    #:event
