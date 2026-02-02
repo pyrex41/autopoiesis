@@ -395,3 +395,110 @@
                  (is (string= child2-id (third visited)))
                  (is (string= root-id (first visited)))))))
       (cleanup-temp-store temp-path))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Event Compaction Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test event-compaction-basic
+  "Test basic event compaction"
+  (let ((log (make-array 0 :adjustable t :fill-pointer 0))
+        (state '(:current-state (a b c))))
+    ;; Add some events
+    (autopoiesis.snapshot:append-event
+     (autopoiesis.snapshot:make-event :event-1 '(data 1))
+     :log log)
+    (autopoiesis.snapshot:append-event
+     (autopoiesis.snapshot:make-event :event-2 '(data 2))
+     :log log)
+    (autopoiesis.snapshot:append-event
+     (autopoiesis.snapshot:make-event :event-3 '(data 3))
+     :log log)
+    ;; Verify we have 3 events
+    (is (= 3 (autopoiesis.snapshot:event-log-count :log log)))
+    ;; Compact all events
+    (let ((checkpoint (autopoiesis.snapshot:compact-events
+                       log
+                       (lambda () state))))
+      ;; Checkpoint should exist
+      (is (not (null checkpoint)))
+      ;; State should be captured
+      (is (equal state (autopoiesis.snapshot:checkpoint-state checkpoint)))
+      ;; Event count should be recorded
+      (is (= 3 (autopoiesis.snapshot:checkpoint-event-count checkpoint)))
+      ;; Log should be empty
+      (is (= 0 (autopoiesis.snapshot:event-log-count :log log))))))
+
+(test event-compaction-keep-recent
+  "Test event compaction with keep-recent"
+  (let ((log (make-array 0 :adjustable t :fill-pointer 0))
+        (state '(:current-state t)))
+    ;; Add 5 events
+    (loop for i from 1 to 5
+          do (autopoiesis.snapshot:append-event
+              (autopoiesis.snapshot:make-event :test-event (list :num i))
+              :log log))
+    ;; Keep 2 recent events
+    (let ((checkpoint (autopoiesis.snapshot:compact-events
+                       log
+                       (lambda () state)
+                       :keep-recent 2)))
+      (is (not (null checkpoint)))
+      ;; 3 events should have been compacted
+      (is (= 3 (autopoiesis.snapshot:checkpoint-event-count checkpoint)))
+      ;; 2 events should remain
+      (is (= 2 (autopoiesis.snapshot:event-log-count :log log)))
+      ;; Remaining events should be the last 2
+      (let ((remaining-events nil))
+        (autopoiesis.snapshot:replay-events
+         (lambda (e) (push e remaining-events))
+         :log log)
+        (is (= 2 (length remaining-events)))))))
+
+(test event-compaction-empty-log
+  "Test compaction of empty log returns nil"
+  (let ((log (make-array 0 :adjustable t :fill-pointer 0)))
+    (let ((checkpoint (autopoiesis.snapshot:compact-events
+                       log
+                       (lambda () '(:state)))))
+      (is (null checkpoint)))))
+
+(test event-compaction-keep-all
+  "Test compaction with keep-recent >= log size"
+  (let ((log (make-array 0 :adjustable t :fill-pointer 0)))
+    ;; Add 3 events
+    (loop for i from 1 to 3
+          do (autopoiesis.snapshot:append-event
+              (autopoiesis.snapshot:make-event :test i)
+              :log log))
+    ;; Keep more than we have
+    (let ((checkpoint (autopoiesis.snapshot:compact-events
+                       log
+                       (lambda () '(:state))
+                       :keep-recent 10)))
+      ;; Should still create checkpoint
+      (is (not (null checkpoint)))
+      ;; But all events should remain
+      (is (= 3 (autopoiesis.snapshot:event-log-count :log log))))))
+
+(test checkpoint-creation
+  "Test checkpoint class creation"
+  (let ((state '(:full-state (thoughts actions decisions)))
+        (checkpoint (autopoiesis.snapshot:make-checkpoint
+                     '(:full-state (thoughts actions decisions))
+                     :event-count 42)))
+    (is (not (null (autopoiesis.snapshot:checkpoint-id checkpoint))))
+    (is (not (null (autopoiesis.snapshot:checkpoint-timestamp checkpoint))))
+    (is (equal state (autopoiesis.snapshot:checkpoint-state checkpoint)))
+    (is (= 42 (autopoiesis.snapshot:checkpoint-event-count checkpoint)))))
+
+(test clear-event-log
+  "Test clearing the event log"
+  (let ((log (make-array 0 :adjustable t :fill-pointer 0)))
+    (loop for i from 1 to 5
+          do (autopoiesis.snapshot:append-event
+              (autopoiesis.snapshot:make-event :test i)
+              :log log))
+    (is (= 5 (autopoiesis.snapshot:event-log-count :log log)))
+    (autopoiesis.snapshot:clear-event-log :log log)
+    (is (= 0 (autopoiesis.snapshot:event-log-count :log log)))))

@@ -84,9 +84,20 @@
    ;; Event log
    #:event
    #:make-event
+   #:event-id
    #:event-type
    #:event-timestamp
    #:event-data
    #:append-event
    #:replay-events
-   #:compact-events))
+   #:compact-events
+   #:event-log-count
+   #:clear-event-log
+
+   ;; Checkpoint
+   #:checkpoint
+   #:make-checkpoint
+   #:checkpoint-id
+   #:checkpoint-timestamp
+   #:checkpoint-state
+   #:checkpoint-event-count))
