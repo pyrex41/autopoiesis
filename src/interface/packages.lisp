@@ -51,5 +51,27 @@
    #:make-session
    #:session-user
    #:session-agent
+   #:session-id
+   #:session-navigator
+   #:session-viewport
+   #:session-command-history
    #:start-session
-   #:end-session))
+   #:end-session
+   #:find-session
+   #:list-sessions
+   #:*current-session*
+   #:*active-sessions*
+
+   ;; CLI session
+   #:cli-command
+   #:parse-cli-command
+   #:command-name
+   #:command-args
+   #:execute-cli-command
+   #:run-cli-session
+   #:cli-interact
+   #:cli-display-header
+   #:cli-display-state
+   #:cli-display-help
+   #:session-to-sexpr
+   #:session-summary))
