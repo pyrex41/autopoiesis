@@ -1,7 +1,7 @@
 # Autopoiesis Implementation Plan
 
 Last updated: 2026-02-02
-Current Phase: 2 (Agent Runtime - Remaining Features)
+Current Phase: 3 (Snapshot System)
 
 ## Completed
 
@@ -54,7 +54,7 @@ Current Phase: 2 (Agent Runtime - Remaining Features)
 - [x] Implement built-in capabilities (introspect, spawn, communicate)
 
 ### Phase 3: Snapshot System
-- [ ] Implement snapshot persistence to disk
+- [x] Implement snapshot persistence to disk
 - [ ] Implement branch DAG traversal
 - [ ] Implement event compaction
 - [ ] Write snapshot system tests
@@ -109,6 +109,7 @@ Current Phase: 2 (Agent Runtime - Remaining Features)
 - packages.lisp
 - snapshot.lisp
 - content-store.lisp
+- persistence.lisp
 - branch.lisp
 - diff-engine.lisp
 - event-log.lisp

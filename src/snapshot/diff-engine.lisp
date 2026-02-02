@@ -23,34 +23,12 @@
     (make-snapshot new-state :parent (snapshot-id snapshot))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Snapshot Navigation
+;;; Snapshot Navigation (wrappers for persistence layer)
 ;;; ═══════════════════════════════════════════════════════════════════
 
-(defvar *snapshot-store* (make-hash-table :test 'equal)
-  "Store of all snapshots by ID.")
+;; Note: find-snapshot is a compatibility wrapper that uses load-snapshot
+;; from the persistence layer.
 
-(defun find-snapshot (id &key (store *snapshot-store*))
-  "Find a snapshot by ID."
-  (gethash id store))
-
-(defun store-snapshot (snapshot &key (store *snapshot-store*))
-  "Store a snapshot."
-  (setf (gethash (snapshot-id snapshot) store) snapshot))
-
-(defun snapshot-ancestors (snapshot &key (store *snapshot-store*))
-  "Return list of ancestor snapshots."
-  (let ((ancestors nil)
-        (current (snapshot-parent snapshot)))
-    (loop while current
-          do (let ((parent (find-snapshot current :store store)))
-               (when parent
-                 (push parent ancestors)
-                 (setf current (snapshot-parent parent)))))
-    (nreverse ancestors)))
-
-(defun snapshot-descendants (snapshot &key (store *snapshot-store*))
-  "Return list of direct child snapshots."
-  (let ((id (snapshot-id snapshot)))
-    (loop for snap being the hash-values of store
-          when (equal (snapshot-parent snap) id)
-            collect snap)))
+(defun find-snapshot (id &optional (store *snapshot-store*))
+  "Find a snapshot by ID. Wrapper around load-snapshot."
+  (load-snapshot id store))

@@ -49,6 +49,7 @@
       ((:file "packages")
        (:file "snapshot")
        (:file "content-store")
+       (:file "persistence")
        (:file "event-log")
        (:file "branch")
        (:file "diff-engine")

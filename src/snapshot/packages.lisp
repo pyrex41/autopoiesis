@@ -26,6 +26,28 @@
    #:store-delete
    #:store-gc
 
+   ;; Snapshot persistence
+   #:snapshot-store
+   #:make-snapshot-store
+   #:initialize-store
+   #:*snapshot-store*
+   #:save-snapshot
+   #:load-snapshot
+   #:delete-snapshot
+   #:snapshot-exists-p
+   #:snapshot-to-sexpr
+   #:sexpr-to-snapshot
+   #:list-snapshots
+   #:find-snapshot-by-timestamp
+   #:snapshot-children
+   #:snapshot-ancestors
+   #:snapshot-descendants
+   #:save-store-index
+   #:load-store-index
+   #:rebuild-store-index
+   #:clear-snapshot-cache
+   #:close-store
+
    ;; Branch management
    #:branch
    #:make-branch
@@ -43,8 +65,6 @@
    #:snapshot-diff
    #:snapshot-patch
    #:find-snapshot
-   #:snapshot-ancestors
-   #:snapshot-descendants
 
    ;; Event log
    #:event
