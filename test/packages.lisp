@@ -17,4 +17,5 @@
    #:interface-tests
    #:integration-tests
    #:e2e-tests
-   #:security-tests))
+   #:security-tests
+   #:monitoring-tests))

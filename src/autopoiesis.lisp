@@ -13,6 +13,7 @@
   (:use #:autopoiesis.integration)
   (:use #:autopoiesis.viz)
   (:use #:autopoiesis.security)
+  (:use #:autopoiesis.monitoring)
 
   ;; Reexport core
   (:export
@@ -80,6 +81,13 @@
    #:+resource-snapshot+ #:+resource-agent+ #:+resource-capability+
    #:+resource-extension+ #:+resource-file+ #:+resource-network+
    #:permission-matrix #:make-permission-matrix #:matrix-check)
+
+  ;; Reexport monitoring
+  (:export
+   #:start-monitoring-server #:stop-monitoring-server
+   #:monitoring-server-running-p
+   #:record-metric #:get-metric #:get-all-metrics
+   #:increment-counter #:set-gauge #:observe-histogram)
 
   ;; System utilities
   (:export

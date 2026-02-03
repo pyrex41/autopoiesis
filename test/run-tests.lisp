@@ -21,6 +21,7 @@
   (run! 'integration-tests)
   (run! 'viz-tests)
   (run! 'security-tests)
+  (run! 'monitoring-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -55,3 +56,7 @@
 (defun test-security ()
   "Run only security tests."
   (run! 'security-tests))
+
+(defun test-monitoring ()
+  "Run only monitoring tests."
+  (run! 'monitoring-tests))

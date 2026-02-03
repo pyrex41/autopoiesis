@@ -19,7 +19,8 @@
                #:flexi-streams   ; For binary streams
                #:babel           ; For UTF-8 encoding
                #:dexador         ; For HTTP client
-               #:cl-charms)      ; For ncurses terminal UI
+               #:cl-charms       ; For ncurses terminal UI
+               #:hunchentoot)    ; For HTTP server (monitoring endpoints)
   :components
   ((:module "src"
     :components
@@ -110,8 +111,14 @@
        (:file "permissions")
        (:file "audit")
        (:file "validation")))
+     (:module "monitoring"
+      :serial t
+      :depends-on ("core" "agent" "snapshot")
+      :components
+      ((:file "packages")
+       (:file "endpoints")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security")))))
+     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security" "monitoring")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; Holodeck 3D visualization subsystem (Phase 8)
@@ -173,6 +180,7 @@
      (:file "e2e-tests")
      (:file "viz-tests")
      (:file "security-tests")
+     (:file "monitoring-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
