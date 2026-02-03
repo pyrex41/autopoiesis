@@ -336,6 +336,147 @@
       (is (= 9.0 (position3d-x e2))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Parallel ECS Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite parallel-ecs-tests
+  :in holodeck-tests
+  :description "Tests for parallel ECS system execution")
+
+(in-suite parallel-ecs-tests)
+
+(test parallel-ecs-update-single-group
+  "Test parallel-ecs-update with a single work unit group."
+  (let ((counter 0)
+        (lock (bordeaux-threads:make-lock "test-lock")))
+    (parallel-ecs-update
+     (list (list (lambda ()
+                   (bordeaux-threads:with-lock-held (lock)
+                     (incf counter))))))
+    (is (= 1 counter))))
+
+(test parallel-ecs-update-multiple-groups
+  "Test parallel-ecs-update with sequential groups."
+  (let ((results nil)
+        (lock (bordeaux-threads:make-lock "test-lock")))
+    ;; Group 1 runs first, then group 2
+    (parallel-ecs-update
+     (list (list (lambda ()
+                   (bordeaux-threads:with-lock-held (lock)
+                     (push :first results))))
+           (list (lambda ()
+                   (bordeaux-threads:with-lock-held (lock)
+                     (push :second results))))))
+    ;; Results should be in reverse order (push adds to front)
+    (is (equal '(:second :first) results))))
+
+(test parallel-ecs-update-parallel-group
+  "Test that work units in a parallel group both execute."
+  (let ((results nil)
+        (lock (bordeaux-threads:make-lock "test-lock")))
+    ;; Both work units run in parallel
+    (parallel-ecs-update
+     (list (list (lambda ()
+                   (bordeaux-threads:with-lock-held (lock)
+                     (push :a results)))
+                 (lambda ()
+                   (bordeaux-threads:with-lock-held (lock)
+                     (push :b results))))))
+    ;; Both should have run (order may vary due to parallelism)
+    (is (= 2 (length results)))
+    (is (member :a results))
+    (is (member :b results))))
+
+(test parallel-ecs-disabled-runs-sequentially
+  "Test that disabling parallel execution still works correctly."
+  (let ((*parallel-ecs-enabled* nil)
+        (results nil))
+    ;; Even with multiple work units, they run sequentially when disabled
+    (parallel-ecs-update
+     (list (list (lambda () (push :a results))
+                 (lambda () (push :b results)))))
+    ;; Both should have run in order
+    (is (equal '(:b :a) results))))
+
+(test run-systems-optimized-executes-all
+  "Test run-systems-optimized convenience function."
+  (init-holodeck-storage)
+  (let ((*delta-time* 1.0)
+        (*elapsed-time* 0.0)
+        (*camera-position* (3d-vectors:vec3 0.0 0.0 0.0))
+        (e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 0.0 :y 0.0 :z 0.0)
+    (make-velocity3d e :dx 7.0 :dy 0.0 :dz 0.0)
+    (make-scale3d e)
+    (make-visual-style e)
+    (make-detail-level e :low-distance 50.0 :cull-distance 100.0)
+    (run-systems-optimized)
+    ;; Movement ran
+    (is (= 7.0 (position3d-x e)))
+    ;; LOD ran (distance 7 < 50)
+    (is (eq :high (detail-level-current e)))))
+
+(test analyze-system-dependencies-returns-groups
+  "Test that analyze-system-dependencies returns proper grouping."
+  (let ((groups (analyze-system-dependencies)))
+    ;; Should return at least 2 groups
+    (is (>= (length groups) 2))
+    ;; First group should contain movement-system
+    (is (member 'movement-system (first groups)))
+    ;; Second group should contain pulse-system and lod-system
+    (is (member 'pulse-system (second groups)))
+    (is (member 'lod-system (second groups)))))
+
+(test parallel-ecs-multiple-entities
+  "Test ECS systems with multiple entities via run-systems-optimized."
+  (init-holodeck-storage)
+  (let ((*delta-time* 1.0)
+        (*elapsed-time* 0.0)
+        (*camera-position* (3d-vectors:vec3 0.0 0.0 0.0)))
+    (let ((e1 (cl-fast-ecs:make-entity))
+          (e2 (cl-fast-ecs:make-entity))
+          (e3 (cl-fast-ecs:make-entity)))
+      ;; Entity 1: close, moving
+      (make-position3d e1 :x 0.0 :y 0.0 :z 0.0)
+      (make-velocity3d e1 :dx 1.0 :dy 0.0 :dz 0.0)
+      (make-scale3d e1)
+      (make-visual-style e1)
+      (make-detail-level e1 :low-distance 50.0 :cull-distance 100.0)
+      ;; Entity 2: medium distance
+      (make-position3d e2 :x 75.0 :y 0.0 :z 0.0)
+      (make-velocity3d e2)
+      (make-scale3d e2)
+      (make-visual-style e2)
+      (make-detail-level e2 :low-distance 50.0 :cull-distance 100.0)
+      ;; Entity 3: far
+      (make-position3d e3 :x 150.0 :y 0.0 :z 0.0)
+      (make-velocity3d e3)
+      (make-scale3d e3)
+      (make-visual-style e3)
+      (make-detail-level e3 :low-distance 50.0 :cull-distance 100.0)
+      ;; Run all systems
+      (run-systems-optimized)
+      ;; Check results
+      (is (= 1.0 (position3d-x e1)))
+      (is (eq :high (detail-level-current e1)))
+      (is (eq :low (detail-level-current e2)))
+      (is (eq :culled (detail-level-current e3))))))
+
+(test parallel-ecs-error-handling
+  "Test that errors in parallel work units are properly reported."
+  (signals error
+    (parallel-ecs-update
+     (list (list (lambda () (error "Test error")))))))
+
+(test parallel-ecs-work-unit-count
+  "Test that parallel-ecs-update returns correct count."
+  (let ((count (parallel-ecs-update
+                (list (list (lambda () nil)
+                            (lambda () nil))
+                      (list (lambda () nil))))))
+    (is (= 3 count))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Window Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 

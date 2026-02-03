@@ -92,6 +92,13 @@
    #:pulse-system
    #:lod-system
 
+   ;; Parallel system execution
+   #:*parallel-ecs-enabled*
+   #:parallel-ecs-update
+   #:run-work-units-parallel
+   #:analyze-system-dependencies
+   #:run-systems-optimized
+
    ;; Entity creation helpers
    #:make-snapshot-entity
    #:make-connection-entity
