@@ -977,3 +977,288 @@ out vec4 color;")))
       ;; Fork material has purple color, so red and blue should be significant
       (is (> r 0.1))
       (is (> b 0.1)))))
+
+;;; ===================================================================
+;;; Mesh Primitive Tests
+;;; ===================================================================
+
+(def-suite mesh-tests
+  :in holodeck-tests
+  :description "Tests for mesh primitives (sphere, octahedron, branching-node)")
+
+(in-suite mesh-tests)
+
+;; --- Mesh Primitive Class ---
+
+(test mesh-primitive-creation
+  "Test that mesh-primitive can be created with all slots."
+  (let ((mesh (make-sphere-mesh :lod 0)))
+    (is (eq :sphere (mesh-name mesh)))
+    (is (= 0 (mesh-lod mesh)))
+    (is (arrayp (mesh-vertices mesh)))
+    (is (arrayp (mesh-normals mesh)))
+    (is (arrayp (mesh-indices mesh)))
+    (is (> (mesh-vertex-count mesh) 0))
+    (is (> (mesh-triangle-count mesh) 0))))
+
+(test mesh-primitive-print-object
+  "Test that mesh print-object produces readable output."
+  (let* ((mesh (make-sphere-mesh :lod 2))
+         (str (format nil "~A" mesh)))
+    (is (search "SPHERE" str))
+    (is (search "LOD=2" str))
+    (is (search "verts=" str))
+    (is (search "tris=" str))))
+
+;; --- Normalize Helper ---
+
+(test normalize-xyz-unit-vector
+  "Test normalizing an already-unit vector."
+  (multiple-value-bind (x y z) (normalize-xyz 1.0 0.0 0.0)
+    (is (< (abs (- x 1.0)) 0.001))
+    (is (< (abs y) 0.001))
+    (is (< (abs z) 0.001))))
+
+(test normalize-xyz-non-unit
+  "Test normalizing a non-unit vector."
+  (multiple-value-bind (x y z) (normalize-xyz 3.0 4.0 0.0)
+    (is (< (abs (- x 0.6)) 0.001))
+    (is (< (abs (- y 0.8)) 0.001))
+    (is (< (abs z) 0.001))
+    ;; Length should be 1.0
+    (is (< (abs (- (sqrt (+ (* x x) (* y y) (* z z))) 1.0)) 0.001))))
+
+(test normalize-xyz-zero-vector
+  "Test normalizing a zero vector returns default up."
+  (multiple-value-bind (x y z) (normalize-xyz 0.0 0.0 0.0)
+    (is (= 0.0 x))
+    (is (= 1.0 y))
+    (is (= 0.0 z))))
+
+;; --- Sphere Mesh ---
+
+(test sphere-mesh-lod-0
+  "Test sphere mesh at LOD 0 (minimal detail)."
+  (let ((mesh (make-sphere-mesh :lod 0)))
+    (is (eq :sphere (mesh-name mesh)))
+    (is (= 0 (mesh-lod mesh)))
+    ;; LOD 0 has 4x4 segments = (4+1)*(4+1) = 25 vertices
+    (is (= 25 (mesh-vertex-count mesh)))
+    ;; 4*4*2 = 32 triangles
+    (is (= 32 (mesh-triangle-count mesh)))
+    ;; Vertex array should have 3 floats per vertex
+    (is (= (* 25 3) (length (mesh-vertices mesh))))
+    ;; Normal array same size
+    (is (= (* 25 3) (length (mesh-normals mesh))))
+    ;; Index array has 3 indices per triangle
+    (is (= (* 32 3) (length (mesh-indices mesh))))))
+
+(test sphere-mesh-lod-increases-detail
+  "Test that higher LOD levels produce more geometry."
+  (let ((lod0 (make-sphere-mesh :lod 0))
+        (lod1 (make-sphere-mesh :lod 1))
+        (lod2 (make-sphere-mesh :lod 2))
+        (lod3 (make-sphere-mesh :lod 3)))
+    (is (< (mesh-vertex-count lod0) (mesh-vertex-count lod1)))
+    (is (< (mesh-vertex-count lod1) (mesh-vertex-count lod2)))
+    (is (< (mesh-vertex-count lod2) (mesh-vertex-count lod3)))
+    (is (< (mesh-triangle-count lod0) (mesh-triangle-count lod1)))
+    (is (< (mesh-triangle-count lod1) (mesh-triangle-count lod2)))
+    (is (< (mesh-triangle-count lod2) (mesh-triangle-count lod3)))))
+
+(test sphere-mesh-radius
+  "Test that sphere radius scales vertices."
+  (let ((small (make-sphere-mesh :lod 0 :radius 0.5))
+        (large (make-sphere-mesh :lod 0 :radius 2.0)))
+    ;; Max vertex extent of large should be ~4x small
+    (let ((small-max (loop for i below (length (mesh-vertices small))
+                           maximize (abs (aref (mesh-vertices small) i))))
+          (large-max (loop for i below (length (mesh-vertices large))
+                           maximize (abs (aref (mesh-vertices large) i)))))
+      (is (< (abs (- (/ large-max small-max) 4.0)) 0.1)))))
+
+(test sphere-mesh-normals-unit-length
+  "Test that sphere normals are approximately unit length."
+  (let ((mesh (make-sphere-mesh :lod 1)))
+    (dotimes (i (mesh-vertex-count mesh))
+      (let* ((ni (* i 3))
+             (nx (aref (mesh-normals mesh) ni))
+             (ny (aref (mesh-normals mesh) (+ ni 1)))
+             (nz (aref (mesh-normals mesh) (+ ni 2)))
+             (len (sqrt (+ (* nx nx) (* ny ny) (* nz nz)))))
+        (is (< (abs (- len 1.0)) 0.01))))))
+
+;; --- Octahedron Mesh ---
+
+(test octahedron-mesh-lod-0
+  "Test octahedron mesh at LOD 0 (base octahedron)."
+  (let ((mesh (make-octahedron-mesh :lod 0)))
+    (is (eq :octahedron (mesh-name mesh)))
+    (is (= 0 (mesh-lod mesh)))
+    ;; Base octahedron: 6 vertices, 8 faces
+    (is (= 6 (mesh-vertex-count mesh)))
+    (is (= 8 (mesh-triangle-count mesh)))))
+
+(test octahedron-mesh-lod-increases-detail
+  "Test that higher LODs subdivide the octahedron."
+  (let ((lod0 (make-octahedron-mesh :lod 0))
+        (lod1 (make-octahedron-mesh :lod 1))
+        (lod2 (make-octahedron-mesh :lod 2)))
+    ;; Each subdivision quadruples faces
+    (is (= 8 (mesh-triangle-count lod0)))
+    (is (= 32 (mesh-triangle-count lod1)))
+    (is (= 128 (mesh-triangle-count lod2)))
+    ;; Vertices should increase
+    (is (< (mesh-vertex-count lod0) (mesh-vertex-count lod1)))
+    (is (< (mesh-vertex-count lod1) (mesh-vertex-count lod2)))))
+
+(test octahedron-mesh-normals-unit-length
+  "Test that octahedron normals are approximately unit length."
+  (let ((mesh (make-octahedron-mesh :lod 1)))
+    (dotimes (i (mesh-vertex-count mesh))
+      (let* ((ni (* i 3))
+             (nx (aref (mesh-normals mesh) ni))
+             (ny (aref (mesh-normals mesh) (+ ni 1)))
+             (nz (aref (mesh-normals mesh) (+ ni 2)))
+             (len (sqrt (+ (* nx nx) (* ny ny) (* nz nz)))))
+        (is (< (abs (- len 1.0)) 0.01))))))
+
+(test octahedron-mesh-vertices-on-sphere
+  "Test that octahedron vertices lie on a sphere of given radius."
+  (let* ((radius 1.5)
+         (mesh (make-octahedron-mesh :lod 1 :radius radius)))
+    ;; All vertices should be at distance ~radius from origin
+    (dotimes (i (mesh-vertex-count mesh))
+      (let* ((vi (* i 3))
+             (x (aref (mesh-vertices mesh) vi))
+             (y (aref (mesh-vertices mesh) (+ vi 1)))
+             (z (aref (mesh-vertices mesh) (+ vi 2)))
+             (dist (sqrt (+ (* x x) (* y y) (* z z)))))
+        (is (< (abs (- dist radius)) 0.01))))))
+
+;; --- Branching Node Mesh ---
+
+(test branching-node-mesh-creation
+  "Test branching-node mesh creation."
+  (let ((mesh (make-branching-node-mesh :lod 2)))
+    (is (eq :branching-node (mesh-name mesh)))
+    (is (= 2 (mesh-lod mesh)))
+    (is (> (mesh-vertex-count mesh) 0))
+    (is (> (mesh-triangle-count mesh) 0))))
+
+(test branching-node-mesh-more-complex-than-sphere
+  "Test that branching-node has more geometry than a sphere at same LOD."
+  (let ((branch (make-branching-node-mesh :lod 1))
+        (sphere (make-sphere-mesh :lod 1)))
+    ;; Branching node has central body + 3 prongs, so more triangles
+    (is (> (mesh-triangle-count branch) (mesh-triangle-count sphere)))))
+
+(test branching-node-mesh-lod-increases-detail
+  "Test that higher LODs produce more geometry."
+  (let ((lod0 (make-branching-node-mesh :lod 0))
+        (lod2 (make-branching-node-mesh :lod 2)))
+    (is (< (mesh-vertex-count lod0) (mesh-vertex-count lod2)))
+    (is (< (mesh-triangle-count lod0) (mesh-triangle-count lod2)))))
+
+;; --- Mesh Factory ---
+
+(test make-mesh-for-type-sphere
+  "Test factory function creates sphere."
+  (let ((mesh (make-mesh-for-type :sphere :lod 1)))
+    (is (eq :sphere (mesh-name mesh)))
+    (is (= 1 (mesh-lod mesh)))))
+
+(test make-mesh-for-type-octahedron
+  "Test factory function creates octahedron."
+  (let ((mesh (make-mesh-for-type :octahedron :lod 2)))
+    (is (eq :octahedron (mesh-name mesh)))
+    (is (= 2 (mesh-lod mesh)))))
+
+(test make-mesh-for-type-branching-node
+  "Test factory function creates branching-node."
+  (let ((mesh (make-mesh-for-type :branching-node :lod 0)))
+    (is (eq :branching-node (mesh-name mesh)))
+    (is (= 0 (mesh-lod mesh)))))
+
+(test make-mesh-for-type-unknown-signals-error
+  "Test factory function signals error for unknown type."
+  (signals error
+    (make-mesh-for-type :nonexistent)))
+
+;; --- Mesh Registry ---
+
+(test mesh-registry-operations
+  "Test register, find, list, and clear operations."
+  (clear-mesh-registry)
+  ;; Initially empty
+  (is (null (list-meshes)))
+  (is (null (find-mesh :sphere 2)))
+  ;; Register a mesh
+  (let ((mesh (make-sphere-mesh :lod 2)))
+    (register-mesh mesh)
+    (is (eq mesh (find-mesh :sphere 2)))
+    (is (member (cons :sphere 2) (list-meshes) :test #'equal)))
+  ;; Clear
+  (clear-mesh-registry)
+  (is (null (find-mesh :sphere 2))))
+
+(test mesh-registry-multiple-lods
+  "Test registering same mesh type at different LODs."
+  (clear-mesh-registry)
+  (let ((s0 (make-sphere-mesh :lod 0))
+        (s1 (make-sphere-mesh :lod 1))
+        (s2 (make-sphere-mesh :lod 2)))
+    (register-mesh s0)
+    (register-mesh s1)
+    (register-mesh s2)
+    (is (eq s0 (find-mesh :sphere 0)))
+    (is (eq s1 (find-mesh :sphere 1)))
+    (is (eq s2 (find-mesh :sphere 2)))
+    (is (= 3 (length (list-meshes)))))
+  (clear-mesh-registry))
+
+(test register-holodeck-meshes-registers-all
+  "Test that register-holodeck-meshes registers all standard meshes."
+  (clear-mesh-registry)
+  (let ((pairs (register-holodeck-meshes)))
+    ;; 3 types * 4 LOD levels = 12 meshes
+    (is (= 12 (length pairs)))
+    ;; All types present
+    (is (find-mesh :sphere 0))
+    (is (find-mesh :sphere 3))
+    (is (find-mesh :octahedron 0))
+    (is (find-mesh :octahedron 3))
+    (is (find-mesh :branching-node 0))
+    (is (find-mesh :branching-node 3)))
+  (clear-mesh-registry))
+
+;; --- LOD Mesh ID ---
+
+(test lod-mesh-id-returns-cons
+  "Test that lod-mesh-id returns a (type . lod) cons."
+  (let ((id (lod-mesh-id :sphere 2)))
+    (is (consp id))
+    (is (eq :sphere (car id)))
+    (is (= 2 (cdr id)))))
+
+;; --- Array Consistency ---
+
+(test mesh-array-sizes-consistent
+  "Test that vertex/normal/index array sizes are consistent for all types."
+  (dolist (mesh-type '(:sphere :octahedron :branching-node))
+    (dotimes (lod 4)
+      (let ((mesh (make-mesh-for-type mesh-type :lod lod)))
+        ;; Vertices: 3 floats per vertex
+        (is (= (* (mesh-vertex-count mesh) 3)
+               (length (mesh-vertices mesh))))
+        ;; Normals: same size as vertices
+        (is (= (length (mesh-vertices mesh))
+               (length (mesh-normals mesh))))
+        ;; Indices: 3 per triangle
+        (is (= (* (mesh-triangle-count mesh) 3)
+               (length (mesh-indices mesh))))
+        ;; All indices should be valid vertex references
+        (let ((max-idx (1- (mesh-vertex-count mesh))))
+          (dotimes (i (length (mesh-indices mesh)))
+            (is (>= (aref (mesh-indices mesh) i) 0))
+            (is (<= (aref (mesh-indices mesh) i) max-idx))))))))

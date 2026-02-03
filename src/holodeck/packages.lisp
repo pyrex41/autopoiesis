@@ -178,6 +178,28 @@
    #:compute-energy-flow
    #:compute-beam-color
 
+   ;; Mesh primitives
+   #:mesh-primitive
+   #:mesh-name
+   #:mesh-vertices
+   #:mesh-normals
+   #:mesh-indices
+   #:mesh-lod
+   #:mesh-vertex-count
+   #:mesh-triangle-count
+   #:register-mesh
+   #:find-mesh
+   #:list-meshes
+   #:clear-mesh-registry
+   #:*mesh-registry*
+   #:normalize-xyz
+   #:make-sphere-mesh
+   #:make-octahedron-mesh
+   #:make-branching-node-mesh
+   #:make-mesh-for-type
+   #:lod-mesh-id
+   #:register-holodeck-meshes
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck

@@ -118,7 +118,8 @@
      (:file "components")
      (:file "systems")
      (:file "window")
-     (:file "shaders")))))
+     (:file "shaders")
+     (:file "meshes")))))
 
 ;;; Holodeck test system
 (asdf:defsystem #:autopoiesis/holodeck-test
