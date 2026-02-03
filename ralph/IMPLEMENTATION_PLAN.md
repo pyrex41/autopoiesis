@@ -234,7 +234,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement `check-permission` and `with-permission-check`
 - [x] Implement audit logging with rotation
 - [x] Implement input validation framework
-- [ ] Security test sandbox escape attempts
+- [x] Security test sandbox escape attempts
 
 #### 10.3: Reliability
 - [ ] Implement error recovery with restarts

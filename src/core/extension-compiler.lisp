@@ -169,7 +169,9 @@
     error warn
     ;; Misc safe operations
     zerop plusp minusp oddp evenp
-    boundp fboundp)
+    boundp fboundp
+    ;; Constants
+    t nil)
   "Symbols allowed in sandboxed agent code.
    This is the complete whitelist for :strict sandbox level.")
 

