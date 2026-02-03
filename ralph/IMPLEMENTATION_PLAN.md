@@ -50,7 +50,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 
 ### Phase 7.1: Package and Foundation Setup
 - [x] Create `src/viz/packages.lisp` with package definitions for visualization subsystem
-- [ ] Add `cl-charms` dependency to `autopoiesis.asd` for ncurses bindings
+- [x] Add `cl-charms` dependency to `autopoiesis.asd` for ncurses bindings
 - [ ] Create `src/viz/util.lisp` with terminal utility functions (color codes, cursor movement)
 - [ ] Create `src/viz/config.lisp` with visualization configuration (colors, symbols, dimensions)
 

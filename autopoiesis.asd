@@ -18,7 +18,8 @@
                #:ironclad        ; For hashing
                #:flexi-streams   ; For binary streams
                #:babel           ; For UTF-8 encoding
-               #:dexador)        ; For HTTP client
+               #:dexador         ; For HTTP client
+               #:cl-charms)      ; For ncurses terminal UI
   :components
   ((:module "src"
     :components
@@ -105,6 +106,7 @@
      (:file "snapshot-tests")
      (:file "interface-tests")
      (:file "integration-tests")
+     (:file "e2e-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
