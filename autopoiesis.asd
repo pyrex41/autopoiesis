@@ -78,6 +78,7 @@
        (:file "session")
        (:file "mcp-client")
        (:file "tool-registry")
+       (:file "builtin-tools")
        (:file "config")))
      ;; Main package that reexports everything
      (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration")))))

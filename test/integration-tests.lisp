@@ -1023,3 +1023,254 @@
                  (cdr (assoc :uri (second resources)))))
       (is (equal "custom://internal/resource"
                  (cdr (assoc :uri (third resources))))))))
+
+;;; ===================================================================
+;;; Built-in Tools Tests
+;;; ===================================================================
+
+;;; Note: defcapability registers capabilities under their symbol name in the
+;;; package where they're defined (autopoiesis.integration). So we use
+;;; 'autopoiesis.integration::read-file instead of :read-file.
+
+(test list-builtin-tools
+  "Test listing all builtin tools"
+  (let ((tools (autopoiesis.integration:list-builtin-tools)))
+    ;; Should return a list of tool names
+    (is (listp tools))
+    (is (>= (length tools) 10))  ; Should have at least 10+ tools
+    ;; Check key tools are present (symbols in autopoiesis.integration)
+    (is (member 'autopoiesis.integration::read-file tools))
+    (is (member 'autopoiesis.integration::write-file tools))
+    (is (member 'autopoiesis.integration::web-fetch tools))
+    (is (member 'autopoiesis.integration::run-command tools))
+    (is (member 'autopoiesis.integration::git-status tools))))
+
+(test register-builtin-tools
+  "Test registering builtin tools in capability registry"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Initially empty
+    (is (= 0 (hash-table-count test-registry)))
+    ;; Register tools
+    (let ((registered (autopoiesis.integration:register-builtin-tools
+                       :registry test-registry)))
+      ;; Should return list of registered names
+      (is (listp registered))
+      (is (> (length registered) 0))
+      ;; Check tools are in registry (using correct symbols)
+      (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.integration::read-file :registry test-registry))))
+      (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.integration::write-file :registry test-registry))))
+      (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.integration::web-fetch :registry test-registry))))
+      (is (not (null (autopoiesis.agent:find-capability 'autopoiesis.integration::run-command :registry test-registry)))))
+    ;; Unregister
+    (autopoiesis.integration:unregister-builtin-tools :registry test-registry)
+    ;; Should be empty again
+    (is (null (autopoiesis.agent:find-capability 'autopoiesis.integration::read-file :registry test-registry)))))
+
+(test builtin-file-read-capability
+  "Test read-file capability"
+  ;; The capability should be defined by defcapability
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::read-file)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::read-file (autopoiesis.agent:capability-name cap)))
+    ;; Should have a description
+    (is (> (length (autopoiesis.agent:capability-description cap)) 0))))
+
+(test builtin-file-write-capability
+  "Test write-file capability"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::write-file)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::write-file (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-web-fetch-capability
+  "Test web-fetch capability"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::web-fetch)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::web-fetch (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-run-command-capability
+  "Test run-command capability"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::run-command)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::run-command (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-read-file-execution
+  "Test actually executing read-file on a temp file"
+  (let ((test-file (merge-pathnames "autopoiesis-test-read.txt"
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           ;; Create test file
+           (with-open-file (out test-file :direction :output
+                                          :if-exists :supersede)
+             (format out "Line 1~%Line 2~%Line 3~%"))
+           ;; Use the capability
+           (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::read-file))
+                  (result (funcall (autopoiesis.agent:capability-function cap)
+                                   :path (namestring test-file))))
+             (is (stringp result))
+             (is (search "Line 1" result))
+             (is (search "Line 2" result))
+             (is (search "Line 3" result))))
+      ;; Cleanup
+      (when (probe-file test-file)
+        (delete-file test-file)))))
+
+(test builtin-read-file-with-line-range
+  "Test read-file with start-line and end-line"
+  (let ((test-file (merge-pathnames "autopoiesis-test-range.txt"
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           ;; Create test file with multiple lines
+           (with-open-file (out test-file :direction :output
+                                          :if-exists :supersede)
+             (format out "Line 1~%Line 2~%Line 3~%Line 4~%Line 5~%"))
+           ;; Read only lines 2-4
+           (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::read-file))
+                  (result (funcall (autopoiesis.agent:capability-function cap)
+                                   :path (namestring test-file)
+                                   :start-line 2
+                                   :end-line 4)))
+             (is (stringp result))
+             (is (not (search "Line 1" result)))
+             (is (search "Line 2" result))
+             (is (search "Line 3" result))
+             (is (search "Line 4" result))
+             (is (not (search "Line 5" result)))))
+      ;; Cleanup
+      (when (probe-file test-file)
+        (delete-file test-file)))))
+
+(test builtin-read-file-nonexistent
+  "Test read-file returns error for nonexistent file"
+  (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::read-file))
+         (result (funcall (autopoiesis.agent:capability-function cap)
+                          :path "/nonexistent/path/to/file.txt")))
+    (is (stringp result))
+    (is (search "Error" result))))
+
+(test builtin-write-file-execution
+  "Test actually executing write-file on a temp file"
+  (let ((test-file (merge-pathnames "autopoiesis-test-write.txt"
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           ;; Use the capability to write
+           (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::write-file))
+                  (content "Test content for write")
+                  (result (funcall (autopoiesis.agent:capability-function cap)
+                                   :path (namestring test-file)
+                                   :content content)))
+             (is (stringp result))
+             (is (search "Successfully wrote" result))
+             ;; Verify file was written
+             (is (probe-file test-file))
+             (with-open-file (in test-file)
+               (is (equal content (read-line in))))))
+      ;; Cleanup
+      (when (probe-file test-file)
+        (delete-file test-file)))))
+
+(test builtin-file-exists-p-execution
+  "Test file-exists-p capability"
+  (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::file-exists-p))
+         (existing-result (funcall (autopoiesis.agent:capability-function cap)
+                                   :path (namestring (truename ".")))))
+    (is (equal "true" existing-result)))
+  (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::file-exists-p))
+         (nonexistent-result (funcall (autopoiesis.agent:capability-function cap)
+                                      :path "/definitely/does/not/exist")))
+    (is (equal "false" nonexistent-result))))
+
+(test builtin-list-directory-execution
+  "Test list-directory capability"
+  (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::list-directory))
+         (result (funcall (autopoiesis.agent:capability-function cap)
+                          :path (namestring (uiop:temporary-directory)))))
+    (is (stringp result))
+    ;; Should either list files or say no files
+    (is (or (> (length result) 0)
+            (search "No files" result)))))
+
+(test builtin-run-command-execution
+  "Test run-command capability with simple echo"
+  (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::run-command))
+         (result (funcall (autopoiesis.agent:capability-function cap)
+                          :command "echo 'Hello World'")))
+    (is (stringp result))
+    (is (search "Hello World" result))))
+
+(test builtin-run-command-with-directory
+  "Test run-command with working-directory"
+  (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::run-command))
+         (result (funcall (autopoiesis.agent:capability-function cap)
+                          :command "pwd"
+                          :working-directory "/tmp")))
+    (is (stringp result))
+    (is (search "/tmp" result))))
+
+(test builtin-run-command-exit-code
+  "Test run-command reports non-zero exit code"
+  (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::run-command))
+         (result (funcall (autopoiesis.agent:capability-function cap)
+                          :command "false")))  ; false always exits with 1
+    (is (stringp result))
+    (is (search "Exit code:" result))))
+
+(test builtin-git-status-capability
+  "Test git-status capability is defined"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::git-status)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::git-status (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-git-diff-capability
+  "Test git-diff capability is defined"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::git-diff)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::git-diff (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-git-log-capability
+  "Test git-log capability is defined"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::git-log)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::git-log (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-grep-files-capability
+  "Test grep-files capability is defined"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::grep-files)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::grep-files (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-glob-files-capability
+  "Test glob-files capability is defined"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::glob-files)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::glob-files (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-delete-file-tool-capability
+  "Test delete-file-tool capability is defined"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::delete-file-tool)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::delete-file-tool (autopoiesis.agent:capability-name cap)))))
+
+(test builtin-delete-file-execution
+  "Test delete-file-tool capability execution"
+  (let ((test-file (merge-pathnames "autopoiesis-test-delete.txt"
+                                    (uiop:temporary-directory))))
+    ;; Create file first
+    (with-open-file (out test-file :direction :output :if-exists :supersede)
+      (write-string "to be deleted" out))
+    (is (probe-file test-file))
+    ;; Delete it
+    (let* ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::delete-file-tool))
+           (result (funcall (autopoiesis.agent:capability-function cap)
+                            :path (namestring test-file))))
+      (is (stringp result))
+      (is (search "Successfully deleted" result))
+      (is (null (probe-file test-file))))))
+
+(test builtin-web-head-capability
+  "Test web-head capability is defined"
+  (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::web-head)))
+    (is (not (null cap)))
+    (is (eq 'autopoiesis.integration::web-head (autopoiesis.agent:capability-name cap)))))

@@ -108,4 +108,23 @@
    #:sexpr-to-claude-session
    #:sync-claude-session-tools
    #:generate-system-prompt
-   #:*claude-session-registry*))
+   #:*claude-session-registry*
+
+   ;; Built-in tools
+   #:read-file
+   #:write-file
+   #:list-directory
+   #:file-exists-p
+   #:delete-file-tool
+   #:glob-files
+   #:grep-files
+   #:web-fetch
+   #:web-head
+   #:run-command
+   #:git-status
+   #:git-diff
+   #:git-log
+   #:register-builtin-tools
+   #:unregister-builtin-tools
+   #:list-builtin-tools
+   #:*builtin-tools-registered*))

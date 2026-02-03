@@ -1,7 +1,7 @@
 # Autopoiesis Implementation Plan
 
 Last updated: 2026-02-02
-Current Phase: 5 (Claude Integration)
+Current Phase: 6 (MCP Integration)
 
 ## Completed
 
@@ -52,7 +52,7 @@ Current Phase: 5 (Claude Integration)
 - [x] Implement MCP server management (stdio transport)
 - [x] Implement MCP protocol (initialize, tools/list, tools/call)
 - [x] Implement MCP resource handling (resources/list, resources/read)
-- [ ] Implement built-in tools (file, web, shell)
+- [x] Implement built-in tools (file, web, shell)
 - [ ] Implement integration event system
 - [ ] Write MCP integration tests (mocked)
 
@@ -143,6 +143,7 @@ Current Phase: 5 (Claude Integration)
 - session.lisp
 - mcp-client.lisp
 - tool-registry.lisp
+- builtin-tools.lisp
 - config.lisp
 
 ### test/

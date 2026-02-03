@@ -49,6 +49,7 @@
    #:defcapability
    #:parse-defcapability-body
    #:parse-capability-params
+   #:*capability-registry*
 
    ;; Context window
    #:context-window
