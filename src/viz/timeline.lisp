@@ -88,6 +88,43 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
 (render-snapshot-node timeline row col snap)
     (force-output *standard-output*))))
 
+(defun snapshot-branch (snapshot)
+  "Get branch name from SNAPSHOT metadata."
+  (getf (snapshot-metadata snapshot) :branch "main"))
+
+(defun earliest-fork-timestamp (timeline branch-name)
+  "Earliest fork timestamp for BRANCH-NAME."
+  (let ((min-time nil))
+    (dolist (snap-id (gethash branch-name (timeline-branches timeline)))
+      (let* ((snap (find-snapshot timeline snap-id))
+             (parent-id (snapshot-parent snap)))
+        (when parent-id
+          (let ((parent-snap (find-snapshot timeline parent-id)))
+            (when (and parent-snap (not (string= branch-name (snapshot-branch parent-snap))))
+              (let ((fork-time (snapshot-timestamp snap)))
+                (if min-time
+                    (setf min-time (min min-time fork-time))
+                    (setf min-time fork-time))))))))
+    min-time))
+
+(defun compute-branch-layout (timeline)
+  "Assign y-positions to branches. Returns alist (branch . y)."
+  (let ((layout '(("main" . 10))))
+    (let ((fork-data nil))
+      (maphash (lambda (bname _) 
+                 (unless (string= bname "main")
+                   (let ((fork-time (earliest-fork-timestamp timeline bname)))
+                     (when fork-time
+                       (push (list bname fork-time) fork-data)))))
+               (timeline-branches timeline))
+      (setf fork-data (sort fork-data #'< :key #'second))
+      (loop for (bname . _) in fork-data
+            for i from 0
+            for offset = (* (if (evenp i) -1 1) (+ 4 (* (floor i 2) 4)))
+            for y = (max 2 (min 22 (+ 10 offset)))
+            do (push (cons bname y) layout)))
+    layout))
+
 (defun find-snapshot (timeline id)
   "Find snapshot by ID in TIMELINE."
   (find id (timeline-snapshots timeline)

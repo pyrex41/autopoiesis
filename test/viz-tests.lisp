@@ -109,3 +109,24 @@
     (let ((preview (autopoiesis.viz:render-thought-preview thought :expanded t :width 20)))
       (is (> (length preview) 0))
       (is (every #'(lambda (line) (<= (length line) 20)) preview)))))
+
+(test compute-branch-layout-basic
+  (let* ((main-snap1 (make-instance 'autopoiesis.snapshot:snapshot
+                                    :id "main1" :timestamp 1.0d0
+                                    :metadata '(:branch "main")))
+         (fork-snap (make-instance 'autopoiesis.snapshot:snapshot
+                                   :id "fork1" :timestamp 1.5d0
+                                   :parent "main1"
+                                   :metadata '(:branch "branch1")))
+         (main-snap2 (make-instance 'autopoiesis.snapshot:snapshot
+                                    :id "main2" :timestamp 2.0d0
+                                    :metadata '(:branch "main")))
+         (timeline (autopoiesis.viz:make-timeline
+                    :snapshots (list main-snap1 fork-snap main-snap2)
+                    :current "main2")))
+    (let ((branches (autopoiesis.viz:timeline-branches timeline)))
+      (setf (gethash "main" branches) (list "main1" "main2")
+            (gethash "branch1" branches) (list "fork1")))
+    (let ((layout (autopoiesis.viz:compute-branch-layout timeline)))
+      (is (= 10 (cdr (assoc "main" layout :test #'string=))))
+      (is (= 6 (cdr (assoc "branch1" layout :test #'string=)))))))

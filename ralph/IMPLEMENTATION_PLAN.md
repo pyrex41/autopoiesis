@@ -83,7 +83,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Implement status bar with current position, branch name, help hints
 
 ### Phase 7.7: Branch Visualization
-- [ ] Implement `compute-branch-layout` (assign y-positions to branches)
+- [x] Implement \`compute-branch-layout\` (assign y-positions to branches)
 - [ ] Implement `render-branch-labels` (show branch names at fork points)
 - [ ] Implement branch switching in UI (Tab or number keys)
 
