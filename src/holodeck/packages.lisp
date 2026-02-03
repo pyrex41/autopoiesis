@@ -486,4 +486,28 @@
    #:camera-movement-bindings
    #:navigation-bindings
    #:branching-bindings
-   #:view-mode-bindings))
+   #:view-mode-bindings
+
+   ;; Ray picking
+   #:pick-ray
+   #:make-pick-ray
+   #:pick-ray-origin
+   #:pick-ray-direction
+   #:screen-to-world-ray
+   #:ray-sphere-intersect-p
+   #:ray-intersects-entity-p
+   #:entity-pick-radius
+   #:entity-pick-center
+   #:*default-pick-radius*
+   #:pick-entity
+   #:pick-entity-at-screen-pos
+
+   ;; Selection and hover state
+   #:*selected-entity*
+   #:select-entity
+   #:deselect-entity
+   #:selected-entity
+   #:*hovered-entity*
+   #:set-hovered-entity
+   #:hovered-entity
+   #:update-hover-from-mouse))

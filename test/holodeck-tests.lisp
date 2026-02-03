@@ -3101,6 +3101,275 @@ out vec4 color;")))
     (is (= 200.0 (input-handler-prev-mouse-y handler)))))
 
 ;;; ===================================================================
+;;; Ray Picking Tests
+;;; ===================================================================
+
+(def-suite ray-picking-tests
+  :in holodeck-tests
+  :description "Tests for ray picking and entity selection")
+
+(in-suite ray-picking-tests)
+
+;;; --- Pick Ray Structure ---
+
+(test pick-ray-creation
+  "Test that pick-ray can be created with origin and direction."
+  (let ((ray (make-pick-ray :origin (3d-vectors:vec3 1.0 2.0 3.0)
+                            :direction (3d-vectors:vec3 0.0 0.0 -1.0))))
+    (is (typep ray 'pick-ray))
+    (is (= 1.0 (3d-vectors:vx (pick-ray-origin ray))))
+    (is (= 2.0 (3d-vectors:vy (pick-ray-origin ray))))
+    (is (= 3.0 (3d-vectors:vz (pick-ray-origin ray))))
+    (is (= 0.0 (3d-vectors:vx (pick-ray-direction ray))))
+    (is (= 0.0 (3d-vectors:vy (pick-ray-direction ray))))
+    (is (= -1.0 (3d-vectors:vz (pick-ray-direction ray))))))
+
+;;; --- Ray-Sphere Intersection ---
+
+(test ray-sphere-hit-direct
+  "Test ray-sphere intersection when ray passes through center."
+  (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.0 0.0 10.0)
+                            :direction (3d-vectors:vec3 0.0 0.0 -1.0)))
+        (center (3d-vectors:vec3 0.0 0.0 0.0))
+        (radius 1.0))
+    (multiple-value-bind (hit-p distance)
+        (ray-sphere-intersect-p ray center radius)
+      (is (eq t hit-p))
+      ;; Distance should be 10 - 1 = 9 (ray origin to near intersection)
+      (is (< (abs (- distance 9.0)) 0.001)))))
+
+(test ray-sphere-hit-offset
+  "Test ray-sphere intersection when ray grazes sphere edge."
+  (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.5 0.0 10.0)
+                            :direction (3d-vectors:vec3 0.0 0.0 -1.0)))
+        (center (3d-vectors:vec3 0.0 0.0 0.0))
+        (radius 1.0))
+    (multiple-value-bind (hit-p distance)
+        (ray-sphere-intersect-p ray center radius)
+      (is (eq t hit-p))
+      (is (numberp distance)))))
+
+(test ray-sphere-miss
+  "Test ray-sphere intersection when ray misses sphere."
+  (let ((ray (make-pick-ray :origin (3d-vectors:vec3 5.0 0.0 10.0)
+                            :direction (3d-vectors:vec3 0.0 0.0 -1.0)))
+        (center (3d-vectors:vec3 0.0 0.0 0.0))
+        (radius 1.0))
+    (multiple-value-bind (hit-p distance)
+        (ray-sphere-intersect-p ray center radius)
+      (is (not hit-p))
+      (is (null distance)))))
+
+(test ray-sphere-behind-origin
+  "Test ray-sphere intersection when sphere is behind ray origin."
+  (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.0 0.0 10.0)
+                            :direction (3d-vectors:vec3 0.0 0.0 1.0)))  ; pointing away
+        (center (3d-vectors:vec3 0.0 0.0 0.0))
+        (radius 1.0))
+    (multiple-value-bind (hit-p distance)
+        (ray-sphere-intersect-p ray center radius)
+      (is (not hit-p))
+      (is (null distance)))))
+
+(test ray-sphere-origin-inside
+  "Test ray-sphere intersection when ray origin is inside sphere."
+  (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.0 0.0 0.0)
+                            :direction (3d-vectors:vec3 0.0 0.0 -1.0)))
+        (center (3d-vectors:vec3 0.0 0.0 0.0))
+        (radius 5.0))
+    (multiple-value-bind (hit-p distance)
+        (ray-sphere-intersect-p ray center radius)
+      (is (eq t hit-p))
+      ;; Distance should be 5 (to far intersection, since near is behind)
+      (is (< (abs (- distance 5.0)) 0.001)))))
+
+;;; --- Screen to World Ray ---
+
+(test screen-to-world-ray-orbit-camera-center
+  "Test screen-to-world-ray for orbit camera at screen center."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 30.0))
+         (ray (screen-to-world-ray cam 400.0 300.0 800 600)))
+    (is (typep ray 'pick-ray))
+    ;; Ray origin should be at camera position
+    (let ((cam-pos (camera-position cam))
+          (ray-origin (pick-ray-origin ray)))
+      (is (< (abs (- (3d-vectors:vx ray-origin) (3d-vectors:vx cam-pos))) 0.001))
+      (is (< (abs (- (3d-vectors:vy ray-origin) (3d-vectors:vy cam-pos))) 0.001))
+      (is (< (abs (- (3d-vectors:vz ray-origin) (3d-vectors:vz cam-pos))) 0.001)))
+    ;; Direction should be roughly toward target (negative Z when theta=0, phi=0)
+    (let ((dir (pick-ray-direction ray)))
+      (is (< (3d-vectors:vz dir) 0.0)))))
+
+(test screen-to-world-ray-fly-camera-center
+  "Test screen-to-world-ray for fly camera at screen center."
+  (let* ((cam (make-fly-camera :position (3d-vectors:vec3 0.0 5.0 30.0)
+                               :yaw 0.0 :pitch 0.0))
+         (ray (screen-to-world-ray cam 400.0 300.0 800 600)))
+    (is (typep ray 'pick-ray))
+    ;; Ray origin should be at camera position
+    (let ((cam-pos (fly-camera-position-vec cam))
+          (ray-origin (pick-ray-origin ray)))
+      (is (< (abs (- (3d-vectors:vx ray-origin) (3d-vectors:vx cam-pos))) 0.001))
+      (is (< (abs (- (3d-vectors:vy ray-origin) (3d-vectors:vy cam-pos))) 0.001))
+      (is (< (abs (- (3d-vectors:vz ray-origin) (3d-vectors:vz cam-pos))) 0.001)))))
+
+;;; --- Entity Picking ---
+
+(test entity-pick-center-with-position
+  "Test entity-pick-center returns position3d values."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 5.0 :y 10.0 :z 15.0)
+    (let ((center (entity-pick-center e)))
+      (is (= 5.0 (3d-vectors:vx center)))
+      (is (= 10.0 (3d-vectors:vy center)))
+      (is (= 15.0 (3d-vectors:vz center))))))
+
+(test entity-pick-radius-with-scale
+  "Test entity-pick-radius uses scale3d."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-scale3d e :sx 2.0 :sy 3.0 :sz 1.0)
+    ;; Should use max of scales (3.0) times default radius (1.0)
+    (is (= 3.0 (entity-pick-radius e)))))
+
+(test entity-pick-radius-default
+  "Test entity-pick-radius returns default when no scale."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    ;; No scale3d component, should return default
+    (is (= *default-pick-radius* (entity-pick-radius e)))))
+
+(test ray-intersects-entity-p-hit
+  "Test ray-intersects-entity-p when ray hits entity."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 0.0 :y 0.0 :z 0.0)
+    (make-scale3d e :sx 1.0 :sy 1.0 :sz 1.0)
+    (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.0 0.0 10.0)
+                              :direction (3d-vectors:vec3 0.0 0.0 -1.0))))
+      (multiple-value-bind (hit-p distance)
+          (ray-intersects-entity-p ray e)
+        (is (eq t hit-p))
+        (is (numberp distance))))))
+
+(test ray-intersects-entity-p-miss
+  "Test ray-intersects-entity-p when ray misses entity."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 100.0 :y 0.0 :z 0.0)
+    (make-scale3d e :sx 1.0 :sy 1.0 :sz 1.0)
+    (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.0 0.0 10.0)
+                              :direction (3d-vectors:vec3 0.0 0.0 -1.0))))
+      (multiple-value-bind (hit-p distance)
+          (ray-intersects-entity-p ray e)
+        (is (not hit-p))
+        (is (null distance))))))
+
+(test pick-entity-nearest
+  "Test pick-entity returns nearest entity when multiple hit."
+  (init-holodeck-storage)
+  (let ((e1 (cl-fast-ecs:make-entity))
+        (e2 (cl-fast-ecs:make-entity)))
+    ;; e1 at z=0, e2 at z=5 (closer to ray origin at z=10)
+    (make-position3d e1 :x 0.0 :y 0.0 :z 0.0)
+    (make-scale3d e1 :sx 1.0 :sy 1.0 :sz 1.0)
+    (make-interactive e1)
+    (make-position3d e2 :x 0.0 :y 0.0 :z 5.0)
+    (make-scale3d e2 :sx 1.0 :sy 1.0 :sz 1.0)
+    (make-interactive e2)
+    (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.0 0.0 10.0)
+                              :direction (3d-vectors:vec3 0.0 0.0 -1.0))))
+      (multiple-value-bind (picked distance)
+          (pick-entity ray (list e1 e2))
+        ;; e2 is closer (at z=5), should be picked
+        (is (= e2 picked))
+        (is (< distance 6.0))))))  ; distance to e2 is about 5-1=4
+
+(test pick-entity-no-hit
+  "Test pick-entity returns NIL when no entities hit."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 100.0 :y 0.0 :z 0.0)
+    (make-scale3d e :sx 1.0 :sy 1.0 :sz 1.0)
+    (make-interactive e)
+    (let ((ray (make-pick-ray :origin (3d-vectors:vec3 0.0 0.0 10.0)
+                              :direction (3d-vectors:vec3 0.0 0.0 -1.0))))
+      (multiple-value-bind (picked distance)
+          (pick-entity ray (list e))
+        (is (null picked))
+        (is (null distance))))))
+
+;;; --- Selection State ---
+
+(test select-entity-sets-state
+  "Test select-entity updates interactive component and global."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-interactive e)
+    (select-entity e)
+    (is (eq e (selected-entity)))
+    (is (interactive-selected-p e))))
+
+(test select-entity-deselects-previous
+  "Test select-entity deselects previously selected entity."
+  (init-holodeck-storage)
+  (let ((e1 (cl-fast-ecs:make-entity))
+        (e2 (cl-fast-ecs:make-entity)))
+    (make-interactive e1)
+    (make-interactive e2)
+    (select-entity e1)
+    (is (interactive-selected-p e1))
+    (select-entity e2)
+    (is (not (interactive-selected-p e1)))
+    (is (interactive-selected-p e2))
+    (is (eq e2 (selected-entity)))))
+
+(test deselect-entity-clears-state
+  "Test deselect-entity clears selection."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-interactive e)
+    (select-entity e)
+    (deselect-entity)
+    (is (null (selected-entity)))
+    (is (not (interactive-selected-p e)))))
+
+;;; --- Hover State ---
+
+(test set-hovered-entity-updates-state
+  "Test set-hovered-entity updates interactive component."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-interactive e)
+    (set-hovered-entity e)
+    (is (eq e (hovered-entity)))
+    (is (interactive-hover-p e))))
+
+(test set-hovered-entity-clears-previous
+  "Test set-hovered-entity clears previous hover."
+  (init-holodeck-storage)
+  (let ((e1 (cl-fast-ecs:make-entity))
+        (e2 (cl-fast-ecs:make-entity)))
+    (make-interactive e1)
+    (make-interactive e2)
+    (set-hovered-entity e1)
+    (is (interactive-hover-p e1))
+    (set-hovered-entity e2)
+    (is (not (interactive-hover-p e1)))
+    (is (interactive-hover-p e2))))
+
+(test set-hovered-entity-nil-clears
+  "Test set-hovered-entity with NIL clears hover."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-interactive e)
+    (set-hovered-entity e)
+    (set-hovered-entity nil)
+    (is (null (hovered-entity)))
+    (is (not (interactive-hover-p e)))))
+
+;;; ===================================================================
 ;;; HUD Panel System Tests
 ;;; ===================================================================
 

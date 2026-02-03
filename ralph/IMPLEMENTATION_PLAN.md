@@ -183,8 +183,8 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 
 #### 8.5: Input Handling
 - [x] Define holodeck key bindings (WASD fly, []/step, F/fork, etc.)
-- [ ] Implement ray picking for entity selection
-- [ ] Implement `screen-to-world-ray` for mouse interaction
+- [x] Implement ray picking for entity selection
+- [x] Implement `screen-to-world-ray` for mouse interaction
 - [ ] Handle keyboard and mouse events
 
 #### 8.6: Main Loop
