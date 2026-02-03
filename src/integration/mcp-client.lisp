@@ -233,6 +233,7 @@
           (progn
             (mcp-initialize server)
             (mcp-discover-tools server)
+            (mcp-discover-resources server)
             ;; Register in global registry
             (register-mcp-server server))
         (error (e)

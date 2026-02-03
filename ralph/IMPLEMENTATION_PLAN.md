@@ -51,7 +51,7 @@ Current Phase: 5 (Claude Integration)
 ### Phase 6: MCP Integration
 - [x] Implement MCP server management (stdio transport)
 - [x] Implement MCP protocol (initialize, tools/list, tools/call)
-- [ ] Implement MCP resource handling (resources/list, resources/read)
+- [x] Implement MCP resource handling (resources/list, resources/read)
 - [ ] Implement built-in tools (file, web, shell)
 - [ ] Implement integration event system
 - [ ] Write MCP integration tests (mocked)

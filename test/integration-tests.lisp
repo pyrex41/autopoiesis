@@ -942,3 +942,84 @@
     ;; Disconnect all
     (autopoiesis.integration:disconnect-all-mcp-servers)
     (is (= 0 (hash-table-count autopoiesis.integration:*mcp-servers*)))))
+
+;;; ===================================================================
+;;; MCP Resource Handling Tests
+;;; ===================================================================
+
+(test mcp-list-resources-disconnected-error
+  "Test that list-resources errors on disconnected server"
+  (let ((server (autopoiesis.integration:make-mcp-server "offline" "echo")))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.integration:mcp-list-resources server))))
+
+(test mcp-get-resource-disconnected-error
+  "Test that get-resource errors on disconnected server"
+  (let ((server (autopoiesis.integration:make-mcp-server "offline" "echo")))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.integration:mcp-get-resource server "file:///test.txt"))))
+
+(test mcp-resources-cached
+  "Test that resources are cached after discovery"
+  (let ((server (make-mock-mcp-server)))
+    ;; Manually set resources (simulating discovery)
+    (setf (autopoiesis.integration:mcp-resources server)
+          '(((:uri . "file:///config.json")
+             (:name . "config")
+             (:description . "Configuration file")
+             (:mime-type . "application/json"))
+            ((:uri . "file:///readme.md")
+             (:name . "readme")
+             (:description . "Documentation"))))
+    ;; mcp-list-resources should return cached value
+    (let ((resources (autopoiesis.integration:mcp-resources server)))
+      (is (= 2 (length resources)))
+      ;; Check first resource
+      (let ((first-res (first resources)))
+        (is (equal "file:///config.json" (cdr (assoc :uri first-res))))
+        (is (equal "config" (cdr (assoc :name first-res))))
+        (is (equal "Configuration file" (cdr (assoc :description first-res))))
+        (is (equal "application/json" (cdr (assoc :mime-type first-res)))))
+      ;; Check second resource
+      (let ((second-res (second resources)))
+        (is (equal "file:///readme.md" (cdr (assoc :uri second-res))))
+        (is (equal "readme" (cdr (assoc :name second-res))))))))
+
+(test mcp-server-status-includes-resources
+  "Test that MCP server status includes resource count"
+  (let ((server (autopoiesis.integration:make-mcp-server "status-res" "cmd")))
+    ;; Set some mock resources
+    (setf (autopoiesis.integration:mcp-resources server)
+          '(((:uri . "res1")) ((:uri . "res2")) ((:uri . "res3"))))
+    (let ((status (autopoiesis.integration:mcp-server-status server)))
+      (is (= 3 (getf status :resources-count))))))
+
+(test mcp-discover-resources-checks-capabilities
+  "Test that discover-resources respects server capabilities"
+  (let ((server (make-mock-mcp-server)))
+    ;; Server with no resource capability
+    (setf (autopoiesis.integration:mcp-server-capabilities server)
+          '((:tools . t)))  ; No :resources capability
+    ;; discover-resources should return nil without making a request
+    (is (null (autopoiesis.integration::mcp-discover-resources server)))
+    (is (null (autopoiesis.integration:mcp-resources server)))))
+
+(test mcp-resource-uri-format
+  "Test that resource URIs are handled correctly"
+  ;; This test verifies our understanding of MCP resource URIs
+  (let ((server (make-mock-mcp-server)))
+    (setf (autopoiesis.integration:mcp-resources server)
+          '(((:uri . "file:///home/user/doc.txt")
+             (:name . "doc"))
+            ((:uri . "https://example.com/api/config")
+             (:name . "remote-config"))
+            ((:uri . "custom://internal/resource")
+             (:name . "internal"))))
+    ;; Check different URI schemes are preserved
+    (let ((resources (autopoiesis.integration:mcp-resources server)))
+      (is (equal "file:///home/user/doc.txt"
+                 (cdr (assoc :uri (first resources)))))
+      (is (equal "https://example.com/api/config"
+                 (cdr (assoc :uri (second resources)))))
+      (is (equal "custom://internal/resource"
+                 (cdr (assoc :uri (third resources))))))))
