@@ -61,8 +61,8 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Implement render-branch-connections for fork visualization (vertical lines, corners)
 
 ### Phase 7.3: Timeline Renderer
-- [ ] Implement `snapshot-glyph` function (map snapshot type to ASCII symbol: ○ ◆ ● □ etc.)
-- [ ] Implement `render-snapshot-node` with type-based coloring
+- [x] Implement `snapshot-glyph` function (map snapshot type to ASCII symbol: ○ ◆ ● □ etc.)
+- [x] Implement `render-snapshot-node` with type-based coloring
 - [ ] Implement `render-timeline` main function combining rows, branches, legend
 
 ### Phase 7.4: Snapshot Detail Panel
