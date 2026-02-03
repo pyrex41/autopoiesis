@@ -85,10 +85,28 @@
 
    ;; Extension compiler
    #:extension
+   #:extension-name
+   #:extension-id
+   #:extension-source
+   #:extension-compiled
+   #:extension-author
+   #:extension-created
+   #:extension-dependencies
+   #:extension-provides
+   #:extension-sandbox-level
+   #:extension-invocations
+   #:extension-errors
+   #:extension-status
    #:compile-extension
    #:install-extension
    #:uninstall-extension
    #:find-extension
+   #:list-extensions
+   #:execute-extension
+   #:register-extension
+   #:invoke-extension
+   #:clear-extension-registry
+   #:*extension-registry*
    #:validate-extension-code
    #:validate-extension-source
    ;; Sandbox configuration

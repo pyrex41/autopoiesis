@@ -457,3 +457,168 @@
     ;; This may or may not error depending on SBCL's handling of THE
     ;; The important thing is it doesn't throw - it returns values
     (is (or ext (listp errors)))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Extension Registry Tests (Phase 9.1)
+;;; ─────────────────────────────────────────────────────────────────
+
+(test extension-class-slots
+  "Test extension class has all required slots"
+  (let ((ext (make-instance 'autopoiesis.core::extension
+                            :name "test-ext"
+                            :source '(+ 1 2))))
+    ;; Basic slots
+    (is (equal "test-ext" (autopoiesis.core:extension-name ext)))
+    (is (equal '(+ 1 2) (autopoiesis.core:extension-source ext)))
+    ;; New slots
+    (is (null (autopoiesis.core:extension-id ext)))
+    (is (= 0 (autopoiesis.core:extension-invocations ext)))
+    (is (= 0 (autopoiesis.core:extension-errors ext)))
+    (is (eq :pending (autopoiesis.core:extension-status ext)))))
+
+(test register-extension-basic
+  "Test register-extension creates and registers an extension"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Register a simple extension
+    (multiple-value-bind (ext errors)
+        (autopoiesis.core:register-extension
+         "agent-001"
+         '(+ 10 20)
+         :registry test-registry)
+      (is-true ext)
+      (is (null errors))
+      ;; Check extension properties
+      (is (stringp (autopoiesis.core:extension-id ext)))
+      (is (equal "agent-001" (autopoiesis.core:extension-author ext)))
+      (is (eq :validated (autopoiesis.core:extension-status ext)))
+      (is (= 0 (autopoiesis.core:extension-invocations ext)))
+      (is (= 0 (autopoiesis.core:extension-errors ext)))
+      ;; Check it's in the registry
+      (is (eq ext (gethash (autopoiesis.core:extension-id ext) test-registry))))))
+
+(test register-extension-with-name
+  "Test register-extension with custom name"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    (multiple-value-bind (ext errors)
+        (autopoiesis.core:register-extension
+         "agent-002"
+         '(* 5 5)
+         :name "multiply-five"
+         :registry test-registry)
+      (is-true ext)
+      (is (null errors))
+      (is (equal "multiply-five" (autopoiesis.core:extension-name ext))))))
+
+(test register-extension-rejects-invalid-code
+  "Test register-extension rejects invalid code"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Try to register code with eval
+    (multiple-value-bind (ext errors)
+        (autopoiesis.core:register-extension
+         "agent-003"
+         '(eval '(+ 1 2))
+         :registry test-registry)
+      (is (null ext))
+      (is (not (null errors)))
+      (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors))
+      ;; Registry should be empty
+      (is (= 0 (hash-table-count test-registry))))))
+
+(test invoke-extension-basic
+  "Test invoke-extension executes registered extension"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Register an extension
+    (multiple-value-bind (ext errors)
+        (autopoiesis.core:register-extension
+         "agent-004"
+         '(+ 100 200)
+         :registry test-registry)
+      (declare (ignore errors))
+      ;; Invoke it
+      (let ((result (autopoiesis.core:invoke-extension
+                     (autopoiesis.core:extension-id ext)
+                     :registry test-registry)))
+        (is (= 300 result))
+        ;; Check invocation counter
+        (is (= 1 (autopoiesis.core:extension-invocations ext)))))))
+
+(test invoke-extension-multiple-times
+  "Test invoke-extension tracks multiple invocations"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    (multiple-value-bind (ext errors)
+        (autopoiesis.core:register-extension
+         "agent-005"
+         '(list 1 2 3)
+         :registry test-registry)
+      (declare (ignore errors))
+      (let ((ext-id (autopoiesis.core:extension-id ext)))
+        ;; Invoke multiple times
+        (autopoiesis.core:invoke-extension ext-id :registry test-registry)
+        (autopoiesis.core:invoke-extension ext-id :registry test-registry)
+        (autopoiesis.core:invoke-extension ext-id :registry test-registry)
+        ;; Check counter
+        (is (= 3 (autopoiesis.core:extension-invocations ext)))))))
+
+(test invoke-extension-not-found
+  "Test invoke-extension signals error for unknown extension"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.core:invoke-extension
+       "nonexistent-id"
+       :registry test-registry))))
+
+(test invoke-extension-not-validated
+  "Test invoke-extension rejects non-validated extensions"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Create an extension manually with :pending status
+    (let ((ext (make-instance 'autopoiesis.core::extension
+                              :name "pending-ext"
+                              :id "pending-id"
+                              :source '(+ 1 1)
+                              :compiled (compile nil '(lambda () (+ 1 1)))
+                              :status :pending)))
+      (setf (gethash "pending-id" test-registry) ext)
+      ;; Should fail because status is :pending
+      (signals autopoiesis.core:autopoiesis-error
+        (autopoiesis.core:invoke-extension "pending-id" :registry test-registry)))))
+
+(test invoke-extension-auto-disable-on-errors
+  "Test invoke-extension auto-disables extension after too many errors"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Create an extension that always errors
+    (let ((ext (make-instance 'autopoiesis.core::extension
+                              :name "error-ext"
+                              :id "error-id"
+                              :source '(error "intentional error")
+                              :compiled (compile nil '(lambda () (error "intentional error")))
+                              :status :validated)))
+      (setf (gethash "error-id" test-registry) ext)
+      ;; Invoke and catch errors 4 times
+      (dotimes (i 4)
+        (handler-case
+            (autopoiesis.core:invoke-extension "error-id" :registry test-registry)
+          (autopoiesis.core:autopoiesis-error () nil)))
+      ;; After 4 errors, status should be :rejected
+      (is (eq :rejected (autopoiesis.core:extension-status ext)))
+      (is (= 4 (autopoiesis.core:extension-errors ext))))))
+
+(test clear-extension-registry
+  "Test clear-extension-registry removes all extensions"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Register some extensions
+    (autopoiesis.core:register-extension "agent" '(+ 1 1) :registry test-registry)
+    (autopoiesis.core:register-extension "agent" '(+ 2 2) :registry test-registry)
+    (is (= 2 (hash-table-count test-registry)))
+    ;; Clear
+    (autopoiesis.core:clear-extension-registry :registry test-registry)
+    (is (= 0 (hash-table-count test-registry)))))
+
+(test list-extensions
+  "Test list-extensions returns all registered extensions"
+  (let ((test-registry (make-hash-table :test 'equal)))
+    ;; Register some extensions
+    (autopoiesis.core:register-extension "agent" '(+ 1 1) :name "ext1" :registry test-registry)
+    (autopoiesis.core:register-extension "agent" '(+ 2 2) :name "ext2" :registry test-registry)
+    (let ((exts (autopoiesis.core:list-extensions :registry test-registry)))
+      (is (= 2 (length exts)))
+      (is (every (lambda (e) (typep e 'autopoiesis.core::extension)) exts)))))

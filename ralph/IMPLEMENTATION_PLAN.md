@@ -201,8 +201,8 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Define sandbox rules (*allowed-packages*, *forbidden-symbols*, *allowed-special-forms*)
 - [x] Implement `validate-extension-code` walker
 - [x] Implement `compile-extension` with error handling
-- [ ] Create extension registry and `extension` class
-- [ ] Implement `register-extension` and `invoke-extension`
+- [x] Create extension registry and `extension` class
+- [x] Implement `register-extension` and `invoke-extension`
 
 #### 9.2: Agent-Written Capabilities
 - [ ] Create `agent-capability` class extending `capability`
