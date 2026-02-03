@@ -200,7 +200,7 @@
    #:lod-mesh-id
    #:register-holodeck-meshes
 
-   ;; Rendering
+   ;; Rendering - snapshot entities
    #:snapshot-type-to-mesh-type
    #:detail-level-to-mesh-lod
    #:render-snapshot-entity
@@ -221,6 +221,23 @@
    #:track-snapshot-entity
    #:collect-snapshot-render-descriptions
    #:compute-snapshot-entity-color
+
+   ;; Rendering - connection entities
+   #:render-connection-entity
+   #:conn-desc-entity
+   #:conn-desc-visible-p
+   #:conn-desc-from-position
+   #:conn-desc-to-position
+   #:conn-desc-midpoint
+   #:conn-desc-connection-kind
+   #:conn-desc-material
+   #:conn-desc-color
+   #:conn-desc-energy-flow
+   #:*connection-entities*
+   #:reset-connection-entities
+   #:track-connection-entity
+   #:collect-connection-render-descriptions
+   #:compute-connection-beam-color
 
    ;; Lifecycle
    #:*holodeck*

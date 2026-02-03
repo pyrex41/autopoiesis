@@ -54,7 +54,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Implement energy-beam shader (animated flow)
 - [x] Create mesh primitives (sphere, octahedron, branching-node)
 - [x] Implement `render-snapshot-entity` with LOD
-- [ ] Implement `render-connection-entity` with energy beams
+- [x] Implement `render-connection-entity` with energy beams
 
 ### Phase 7.1: Package and Foundation Setup
 - [x] Create `src/viz/packages.lisp` with package definitions for visualization subsystem
@@ -166,7 +166,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement energy-beam shader (animated flow)
 - [x] Create mesh primitives (sphere, octahedron, branching-node)
 - [x] Implement `render-snapshot-entity` with LOD
-- [ ] Implement `render-connection-entity` with energy beams
+- [x] Implement `render-connection-entity` with energy beams
 
 #### 8.3: Camera System
 - [ ] Implement `orbit-camera` class with spherical coordinates

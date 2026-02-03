@@ -1541,3 +1541,254 @@ out vec4 color;")))
         (dolist (d descs)
           (is (render-desc-visible-p d))))))
   (clear-mesh-registry))
+
+;;; ===================================================================
+;;; Connection Rendering Tests
+;;; ===================================================================
+
+(def-suite connection-rendering-tests
+  :in holodeck-tests
+  :description "Tests for render-connection-entity with energy beams")
+
+(in-suite connection-rendering-tests)
+
+;; --- Basic Connection Rendering ---
+
+(test render-connection-entity-basic
+  "Test that render-connection-entity produces a valid description."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :decision :x 10.0 :y 5.0 :z 0.0)))
+    (let* ((conn (make-connection-entity e1 e2 :kind :parent-child))
+           (desc (render-connection-entity conn)))
+      ;; Should produce a valid description
+      (is (not (null desc)))
+      (is (conn-desc-visible-p desc))
+      ;; From position should match e1
+      (is (equal '(0.0 0.0 0.0) (conn-desc-from-position desc)))
+      ;; To position should match e2
+      (is (equal '(10.0 5.0 0.0) (conn-desc-to-position desc)))
+      ;; Midpoint should be halfway
+      (is (equal '(5.0 2.5 0.0) (conn-desc-midpoint desc)))
+      ;; Connection kind preserved
+      (is (eq :parent-child (conn-desc-connection-kind desc))))))
+
+(test render-connection-entity-has-material
+  "Test that connection render description includes energy-beam-material."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let* ((conn (make-connection-entity e1 e2 :kind :temporal))
+           (desc (render-connection-entity conn)))
+      (is (not (null (conn-desc-material desc))))
+      (is (typep (conn-desc-material desc) 'energy-beam-material)))))
+
+(test render-connection-entity-has-color
+  "Test that connection render description includes color."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let* ((conn (make-connection-entity e1 e2))
+           (desc (render-connection-entity conn))
+           (color (conn-desc-color desc)))
+      (is (= 4 (length color)))
+      ;; All color components in [0,1]
+      (dolist (c color)
+        (is (>= c 0.0))
+        (is (<= c 1.0))))))
+
+(test render-connection-entity-has-energy-flow
+  "Test that connection render description includes energy flow value."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let* ((conn (make-connection-entity e1 e2))
+           (desc (render-connection-entity conn))
+           (flow (conn-desc-energy-flow desc)))
+      (is (numberp flow))
+      (is (>= flow 0.0))
+      (is (<= flow 1.0)))))
+
+(test render-connection-entity-invalid-endpoint
+  "Test that connections with invalid endpoints return NIL."
+  (init-holodeck-storage)
+  (let ((entity (cl-fast-ecs:make-entity)))
+    (make-connection entity :from-entity -1 :to-entity -1 :kind :parent-child)
+    (make-position3d entity)
+    (make-visual-style entity)
+    (is (null (render-connection-entity entity)))))
+
+;; --- Connection Kind Affects Material ---
+
+(test render-connection-entity-fork-kind
+  "Test that fork connections get fork-type energy beam material."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :fork :x 10.0 :y 0.0 :z 5.0)))
+    (let* ((conn (make-connection-entity e1 e2 :kind :fork))
+           (desc (render-connection-entity conn))
+           (mat (conn-desc-material desc)))
+      ;; Fork material should have faster flow
+      (is (> (beam-material-flow-speed mat) 1.0))
+      ;; Fork material should have higher pulse intensity
+      (is (> (beam-material-pulse-intensity mat) 0.7)))))
+
+(test render-connection-entity-merge-kind
+  "Test that merge connections get merge-type energy beam material."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let* ((conn (make-connection-entity e1 e2 :kind :merge))
+           (desc (render-connection-entity conn))
+           (mat (conn-desc-material desc))
+           (color (beam-material-color mat)))
+      ;; Merge material should have green-dominant color
+      (is (> (second color) (first color))))))
+
+(test render-connection-entity-kinds-produce-different-colors
+  "Test that different connection kinds produce different beam colors."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let* ((conn-pc (make-connection-entity e1 e2 :kind :parent-child))
+           (conn-fk (make-connection-entity e1 e2 :kind :fork))
+           (desc-pc (render-connection-entity conn-pc))
+           (desc-fk (render-connection-entity conn-fk)))
+      ;; Different kinds should give different colors
+      (is (not (equal (conn-desc-color desc-pc)
+                      (conn-desc-color desc-fk)))))))
+
+;; --- Midpoint Updates Entity Position ---
+
+(test render-connection-entity-updates-position
+  "Test that rendering updates the connection entity's position to midpoint."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 20.0 :y 10.0 :z 6.0)))
+    (let ((conn (make-connection-entity e1 e2)))
+      ;; Position starts at 0,0,0 (from make-connection-entity default)
+      (is (= 0.0 (position3d-x conn)))
+      ;; After rendering, position should be updated to midpoint
+      (render-connection-entity conn)
+      (is (= 10.0 (position3d-x conn)))
+      (is (= 5.0 (position3d-y conn)))
+      (is (= 3.0 (position3d-z conn))))))
+
+;; --- Time Affects Energy Flow ---
+
+(test render-connection-entity-time-affects-flow
+  "Test that different times produce different energy flow values."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let ((conn (make-connection-entity e1 e2)))
+      (let* ((desc1 (render-connection-entity conn :time 0.0))
+             (desc2 (render-connection-entity conn :time 0.5)))
+        ;; Different times should produce different energy flow
+        (is (not (= (conn-desc-energy-flow desc1)
+                    (conn-desc-energy-flow desc2))))))))
+
+;; --- Connection Description Accessors ---
+
+(test conn-desc-accessors-complete
+  "Test that all connection render description accessors work."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 1.0 :y 2.0 :z 3.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 4.0 :y 5.0 :z 6.0)))
+    (let* ((conn (make-connection-entity e1 e2 :kind :branch))
+           (desc (render-connection-entity conn)))
+      (is (= conn (conn-desc-entity desc)))
+      (is (eq t (conn-desc-visible-p desc)))
+      (is (listp (conn-desc-from-position desc)))
+      (is (= 3 (length (conn-desc-from-position desc))))
+      (is (listp (conn-desc-to-position desc)))
+      (is (= 3 (length (conn-desc-to-position desc))))
+      (is (listp (conn-desc-midpoint desc)))
+      (is (= 3 (length (conn-desc-midpoint desc))))
+      (is (eq :branch (conn-desc-connection-kind desc)))
+      (is (typep (conn-desc-material desc) 'energy-beam-material))
+      (is (listp (conn-desc-color desc)))
+      (is (= 4 (length (conn-desc-color desc))))
+      (is (numberp (conn-desc-energy-flow desc))))))
+
+;; --- Connection Entity Tracking ---
+
+(test connection-entity-tracking
+  "Test tracking and collecting connection entity render descriptions."
+  (init-holodeck-storage)
+  (reset-connection-entities)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0))
+        (e3 (make-snapshot-entity "s3" :decision :x 10.0 :y 0.0 :z 0.0)))
+    (let ((c1 (make-connection-entity e1 e2 :kind :parent-child))
+          (c2 (make-connection-entity e2 e3 :kind :parent-child)))
+      (track-connection-entity c1)
+      (track-connection-entity c2)
+      (let ((descs (collect-connection-render-descriptions)))
+        (is (= 2 (length descs)))
+        (dolist (d descs)
+          (is (conn-desc-visible-p d)))))))
+
+(test reset-connection-entities-clears-list
+  "Test that reset-connection-entities clears the tracking list."
+  (init-holodeck-storage)
+  (reset-connection-entities)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (track-connection-entity (make-connection-entity e1 e2))
+    (is (= 1 (length *connection-entities*)))
+    (reset-connection-entities)
+    (is (null *connection-entities*))))
+
+;; --- CPU-Side Connection Beam Color ---
+
+(test compute-connection-beam-color-returns-values
+  "Test that compute-connection-beam-color returns R G B A."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let ((conn (make-connection-entity e1 e2 :kind :temporal)))
+      (multiple-value-bind (r g b a)
+          (compute-connection-beam-color conn 0.5 :time 0.0)
+        (is (numberp r))
+        (is (numberp g))
+        (is (numberp b))
+        (is (numberp a))
+        ;; All in [0,1]
+        (is (>= r 0.0)) (is (<= r 1.0))
+        (is (>= g 0.0)) (is (<= g 1.0))
+        (is (>= b 0.0)) (is (<= b 1.0))
+        (is (>= a 0.0)) (is (<= a 1.0))))))
+
+(test compute-connection-beam-color-varies-with-progress
+  "Test that beam color varies along the connection."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let ((conn (make-connection-entity e1 e2)))
+      (multiple-value-bind (r1 g1 b1 a1)
+          (compute-connection-beam-color conn 0.0 :time 0.0)
+        (declare (ignore r1 g1 b1))
+        (multiple-value-bind (r2 g2 b2 a2)
+            (compute-connection-beam-color conn 0.5 :time 0.0)
+          (declare (ignore r2 g2 b2))
+          ;; Different progress should give different alpha at least
+          (is (not (= a1 a2))))))))
+
+(test compute-connection-beam-color-kind-affects-output
+  "Test that different connection kinds produce different beam colors."
+  (init-holodeck-storage)
+  (let ((e1 (make-snapshot-entity "s1" :snapshot :x 0.0 :y 0.0 :z 0.0))
+        (e2 (make-snapshot-entity "s2" :snapshot :x 5.0 :y 0.0 :z 0.0)))
+    (let ((conn-temporal (make-connection-entity e1 e2 :kind :temporal))
+          (conn-fork (make-connection-entity e1 e2 :kind :fork)))
+      (multiple-value-bind (tr tg tb ta)
+          (compute-connection-beam-color conn-temporal 0.5 :time 0.0)
+        (declare (ignore ta))
+        (multiple-value-bind (fr fg fb fa)
+            (compute-connection-beam-color conn-fork 0.5 :time 0.0)
+          (declare (ignore fa))
+          ;; Temporal (blue) and fork (purple) should differ
+          (is (not (and (< (abs (- tr fr)) 0.01)
+                        (< (abs (- tg fg)) 0.01)
+                        (< (abs (- tb fb)) 0.01)))))))))

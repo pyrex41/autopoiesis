@@ -1,16 +1,16 @@
-;;;; rendering.lisp - Snapshot entity rendering with LOD support
+;;;; rendering.lisp - Entity rendering with LOD support
 ;;;;
-;;;; Implements render-snapshot-entity which produces render descriptions
-;;;; for snapshot entities at different levels of detail.  The render
-;;;; description is a property list containing all data needed to draw
-;;;; the entity, either on the GPU or via CPU-side headless rendering.
+;;;; Implements render-snapshot-entity and render-connection-entity which
+;;;; produce render descriptions for snapshot and connection entities.
+;;;; Render descriptions are property lists containing all data needed to
+;;;; draw entities, either on the GPU or via CPU-side headless rendering.
 ;;;;
 ;;;; LOD levels map to detail-level component values:
 ;;;;   :culled - Entity not visible, returns NIL
 ;;;;   :low    - Minimal geometry, no label, reduced glow
 ;;;;   :high   - Full detail mesh, label visible, full material effects
 ;;;;
-;;;; Phase 8.2 - Rendering (render-snapshot-entity with LOD)
+;;;; Phase 8.2 - Rendering
 
 (in-package #:autopoiesis.holodeck)
 
@@ -227,3 +227,156 @@
          (material (make-hologram-material-for-type snap-type))
          (py (position3d-y entity)))
     (compute-hologram-color material normal-dot-view py time)))
+
+;;; ===================================================================
+;;; Connection Render Description Structure
+;;; ===================================================================
+;;;
+;;; A connection render description is a property list with the following keys:
+;;;   :entity         - The connection entity ID
+;;;   :visible-p      - Whether the connection should be drawn
+;;;   :from-position  - (x y z) world position of source node
+;;;   :to-position    - (x y z) world position of target node
+;;;   :midpoint       - (x y z) midpoint for position queries
+;;;   :connection-kind - :parent-child, :fork, :branch, :merge
+;;;   :material       - energy-beam-material instance
+;;;   :color          - (r g b a) base color for the beam
+;;;   :energy-flow    - Current energy flow value at midpoint [0,1]
+
+(defun render-connection-entity (entity &key (time *elapsed-time*))
+  "Produce a render description plist for a connection ENTITY.
+   Uses the entity's connection component to determine the from/to
+   endpoints (by reading position3d of the referenced entities) and
+   the connection kind to select an appropriate energy-beam-material.
+
+   Returns a property list suitable for passing to a rendering backend,
+   or NIL if either endpoint entity is missing or culled."
+  (let* ((from-id (connection-from-entity entity))
+         (to-id (connection-to-entity entity))
+         (kind (connection-kind entity)))
+    ;; If either endpoint is invalid, don't render
+    (when (or (< from-id 0) (< to-id 0))
+      (return-from render-connection-entity nil))
+    (let* (;; Read positions from the endpoint entities
+           (from-x (position3d-x from-id))
+           (from-y (position3d-y from-id))
+           (from-z (position3d-z from-id))
+           (to-x (position3d-x to-id))
+           (to-y (position3d-y to-id))
+           (to-z (position3d-z to-id))
+           ;; Midpoint for the connection's own position
+           (mid-x (* 0.5 (+ from-x to-x)))
+           (mid-y (* 0.5 (+ from-y to-y)))
+           (mid-z (* 0.5 (+ from-z to-z)))
+           ;; Select energy beam material based on connection kind
+           (material (make-energy-beam-material-for-connection-type kind))
+           ;; Base color from material
+           (beam-color (beam-material-color material))
+           (color-r (coerce (first beam-color) 'single-float))
+           (color-g (coerce (second beam-color) 'single-float))
+           (color-b (coerce (third beam-color) 'single-float))
+           (color-a (coerce (fourth beam-color) 'single-float))
+           ;; Compute energy flow at midpoint for preview/CPU rendering
+           (energy-flow (compute-energy-flow
+                         0.5 time
+                         (beam-material-flow-speed material)
+                         (beam-material-flow-scale material))))
+      ;; Update the connection entity's own position to the midpoint
+      (setf (position3d-x entity) (coerce mid-x 'single-float))
+      (setf (position3d-y entity) (coerce mid-y 'single-float))
+      (setf (position3d-z entity) (coerce mid-z 'single-float))
+      (list :entity entity
+            :visible-p t
+            :from-position (list from-x from-y from-z)
+            :to-position (list to-x to-y to-z)
+            :midpoint (list mid-x mid-y mid-z)
+            :connection-kind kind
+            :material material
+            :color (list color-r color-g color-b color-a)
+            :energy-flow energy-flow))))
+
+;;; ===================================================================
+;;; Connection Render Description Accessors
+;;; ===================================================================
+
+(defun conn-desc-entity (desc)
+  "Get the entity from a connection render description."
+  (getf desc :entity))
+
+(defun conn-desc-visible-p (desc)
+  "Get visibility flag from a connection render description."
+  (getf desc :visible-p))
+
+(defun conn-desc-from-position (desc)
+  "Get (x y z) source position from a connection render description."
+  (getf desc :from-position))
+
+(defun conn-desc-to-position (desc)
+  "Get (x y z) target position from a connection render description."
+  (getf desc :to-position))
+
+(defun conn-desc-midpoint (desc)
+  "Get (x y z) midpoint from a connection render description."
+  (getf desc :midpoint))
+
+(defun conn-desc-connection-kind (desc)
+  "Get connection kind keyword from a connection render description."
+  (getf desc :connection-kind))
+
+(defun conn-desc-material (desc)
+  "Get energy-beam-material from a connection render description."
+  (getf desc :material))
+
+(defun conn-desc-color (desc)
+  "Get (r g b a) color from a connection render description."
+  (getf desc :color))
+
+(defun conn-desc-energy-flow (desc)
+  "Get energy flow value [0,1] from a connection render description."
+  (getf desc :energy-flow))
+
+;;; ===================================================================
+;;; Connection Entity Tracking
+;;; ===================================================================
+
+(defvar *connection-entities* nil
+  "List of entity IDs that represent connections.
+   Maintained by track-connection-entity and used by
+   collect-connection-render-descriptions.")
+
+(defun reset-connection-entities ()
+  "Clear the tracked connection entity list."
+  (setf *connection-entities* nil))
+
+(defun track-connection-entity (entity)
+  "Add ENTITY to the tracked connection entity list."
+  (pushnew entity *connection-entities*)
+  entity)
+
+;;; ===================================================================
+;;; Connection Batch Rendering Helper
+;;; ===================================================================
+
+(defun collect-connection-render-descriptions ()
+  "Produce render descriptions for all tracked connection entities.
+   Connections with invalid endpoints are excluded from the result."
+  (let ((descriptions nil))
+    (dolist (entity *connection-entities*)
+      (let ((desc (render-connection-entity entity)))
+        (when desc
+          (push desc descriptions))))
+    (nreverse descriptions)))
+
+;;; ===================================================================
+;;; CPU-Side Connection Color Computation
+;;; ===================================================================
+
+(defun compute-connection-beam-color (entity progress
+                                      &key (time *elapsed-time*))
+  "Compute the CPU-side energy beam color for a connection ENTITY at
+   a given PROGRESS point along the beam (0.0 = start, 1.0 = end).
+   TIME is the animation time for flow effects.
+   Returns four values: R G B A."
+  (let* ((kind (connection-kind entity))
+         (material (make-energy-beam-material-for-connection-type kind)))
+    (compute-beam-color material progress time)))
