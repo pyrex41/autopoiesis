@@ -211,7 +211,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement `promote-capability` workflow
 
 #### 9.3: Learning System
-- [ ] Define `experience` and `heuristic` classes
+- [x] Define `experience` and `heuristic` classes
 - [ ] Implement `extract-patterns` from experiences
 - [ ] Implement `extract-action-sequences` (n-gram analysis)
 - [ ] Implement `generate-heuristic` from patterns

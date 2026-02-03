@@ -650,3 +650,298 @@
       (is (eq :findable (autopoiesis.agent:capability-name found))))
     ;; Not found case
     (is (null (autopoiesis.agent:find-agent-capability agent :nonexistent)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Learning System Tests - Experience
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test experience-creation
+  "Test basic experience creation"
+  (let ((exp (autopoiesis.agent:make-experience
+              :task-type :code-review
+              :context '(file "test.lisp")
+              :actions '((read-file "test.lisp") (analyze-code))
+              :outcome :success
+              :agent-id "agent-123"
+              :metadata '(:duration 5.0))))
+    (is (not (null (autopoiesis.agent:experience-id exp))))
+    (is (eq :code-review (autopoiesis.agent:experience-task-type exp)))
+    (is (equal '(file "test.lisp") (autopoiesis.agent:experience-context exp)))
+    (is (equal '((read-file "test.lisp") (analyze-code))
+               (autopoiesis.agent:experience-actions exp)))
+    (is (eq :success (autopoiesis.agent:experience-outcome exp)))
+    (is (string= "agent-123" (autopoiesis.agent:experience-agent-id exp)))
+    (is (equal '(:duration 5.0) (autopoiesis.agent:experience-metadata exp)))
+    (is (numberp (autopoiesis.agent:experience-timestamp exp)))))
+
+(test experience-serialization
+  "Test experience serialization and deserialization"
+  (let* ((exp (autopoiesis.agent:make-experience
+               :task-type :debugging
+               :context '(error "null pointer")
+               :actions '((trace-stack) (fix-bug))
+               :outcome :success
+               :agent-id "agent-456"))
+         (sexpr (autopoiesis.agent:experience-to-sexpr exp))
+         (restored (autopoiesis.agent:sexpr-to-experience sexpr)))
+    (is (eq :experience (first sexpr)))
+    (is (not (null restored)))
+    (is (equal (autopoiesis.agent:experience-id exp)
+               (autopoiesis.agent:experience-id restored)))
+    (is (eq (autopoiesis.agent:experience-task-type exp)
+            (autopoiesis.agent:experience-task-type restored)))
+    (is (equal (autopoiesis.agent:experience-context exp)
+               (autopoiesis.agent:experience-context restored)))
+    (is (equal (autopoiesis.agent:experience-actions exp)
+               (autopoiesis.agent:experience-actions restored)))
+    (is (eq (autopoiesis.agent:experience-outcome exp)
+            (autopoiesis.agent:experience-outcome restored)))))
+
+(test experience-storage
+  "Test storing and retrieving experiences"
+  (let ((store (make-hash-table :test 'equal)))
+    (let ((exp1 (autopoiesis.agent:make-experience
+                 :task-type :testing
+                 :outcome :success
+                 :agent-id "agent-1"))
+          (exp2 (autopoiesis.agent:make-experience
+                 :task-type :testing
+                 :outcome :failure
+                 :agent-id "agent-2"))
+          (exp3 (autopoiesis.agent:make-experience
+                 :task-type :coding
+                 :outcome :success
+                 :agent-id "agent-1")))
+      ;; Store experiences
+      (autopoiesis.agent:store-experience exp1 :store store)
+      (autopoiesis.agent:store-experience exp2 :store store)
+      (autopoiesis.agent:store-experience exp3 :store store)
+      ;; Find by ID
+      (is (eq exp1 (autopoiesis.agent:find-experience
+                    (autopoiesis.agent:experience-id exp1)
+                    :store store)))
+      ;; List all
+      (is (= 3 (length (autopoiesis.agent:list-experiences :store store))))
+      ;; Filter by task-type
+      (is (= 2 (length (autopoiesis.agent:list-experiences
+                        :store store :task-type :testing))))
+      ;; Filter by outcome
+      (is (= 2 (length (autopoiesis.agent:list-experiences
+                        :store store :outcome :success))))
+      ;; Filter by agent-id
+      (is (= 2 (length (autopoiesis.agent:list-experiences
+                        :store store :agent-id "agent-1"))))
+      ;; Clear
+      (autopoiesis.agent:clear-experiences :store store)
+      (is (= 0 (length (autopoiesis.agent:list-experiences :store store)))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Learning System Tests - Heuristic
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test heuristic-creation
+  "Test basic heuristic creation"
+  (let ((heur (autopoiesis.agent:make-heuristic
+               :name "prefer-tests-first"
+               :condition '(task-type :coding)
+               :recommendation '(:prefer-actions ((run-tests)))
+               :confidence 0.8
+               :source-pattern '(:pattern ((run-tests) (commit))))))
+    (is (not (null (autopoiesis.agent:heuristic-id heur))))
+    (is (string= "prefer-tests-first" (autopoiesis.agent:heuristic-name heur)))
+    (is (equal '(task-type :coding) (autopoiesis.agent:heuristic-condition heur)))
+    (is (equal '(:prefer-actions ((run-tests)))
+               (autopoiesis.agent:heuristic-recommendation heur)))
+    (is (= 0.8 (autopoiesis.agent:heuristic-confidence heur)))
+    (is (= 0 (autopoiesis.agent:heuristic-applications heur)))
+    (is (= 0 (autopoiesis.agent:heuristic-successes heur)))))
+
+(test heuristic-confidence-bounds
+  "Test that heuristic confidence is bounded between 0 and 1"
+  (let ((heur1 (autopoiesis.agent:make-heuristic :confidence 1.5))
+        (heur2 (autopoiesis.agent:make-heuristic :confidence -0.5)))
+    (is (= 1.0 (autopoiesis.agent:heuristic-confidence heur1)))
+    (is (= 0.0 (autopoiesis.agent:heuristic-confidence heur2)))))
+
+(test heuristic-serialization
+  "Test heuristic serialization and deserialization"
+  (let* ((heur (autopoiesis.agent:make-heuristic
+                :name "test-heuristic"
+                :condition '(and (task-type :review) (has-tests t))
+                :recommendation '(:approve)
+                :confidence 0.75))
+         (sexpr (autopoiesis.agent:heuristic-to-sexpr heur))
+         (restored (autopoiesis.agent:sexpr-to-heuristic sexpr)))
+    (is (eq :heuristic (first sexpr)))
+    (is (not (null restored)))
+    (is (equal (autopoiesis.agent:heuristic-id heur)
+               (autopoiesis.agent:heuristic-id restored)))
+    (is (string= (autopoiesis.agent:heuristic-name heur)
+                 (autopoiesis.agent:heuristic-name restored)))
+    (is (equal (autopoiesis.agent:heuristic-condition heur)
+               (autopoiesis.agent:heuristic-condition restored)))
+    (is (= (autopoiesis.agent:heuristic-confidence heur)
+           (autopoiesis.agent:heuristic-confidence restored)))))
+
+(test heuristic-storage
+  "Test storing and retrieving heuristics"
+  (let ((store (make-hash-table :test 'equal)))
+    (let ((heur1 (autopoiesis.agent:make-heuristic
+                  :name "high-confidence"
+                  :confidence 0.9))
+          (heur2 (autopoiesis.agent:make-heuristic
+                  :name "low-confidence"
+                  :confidence 0.3)))
+      ;; Store heuristics
+      (autopoiesis.agent:store-heuristic heur1 :store store)
+      (autopoiesis.agent:store-heuristic heur2 :store store)
+      ;; Find by ID
+      (is (eq heur1 (autopoiesis.agent:find-heuristic
+                     (autopoiesis.agent:heuristic-id heur1)
+                     :store store)))
+      ;; List all
+      (is (= 2 (length (autopoiesis.agent:list-heuristics :store store))))
+      ;; Filter by min-confidence
+      (is (= 1 (length (autopoiesis.agent:list-heuristics
+                        :store store :min-confidence 0.5))))
+      ;; Clear
+      (autopoiesis.agent:clear-heuristics :store store)
+      (is (= 0 (length (autopoiesis.agent:list-heuristics :store store)))))))
+
+(test heuristic-application-tracking
+  "Test tracking heuristic applications and successes"
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 0.5)))
+    (is (= 0 (autopoiesis.agent:heuristic-applications heur)))
+    (is (= 0 (autopoiesis.agent:heuristic-successes heur)))
+    ;; Record successful application
+    (autopoiesis.agent:record-heuristic-application heur :success t)
+    (is (= 1 (autopoiesis.agent:heuristic-applications heur)))
+    (is (= 1 (autopoiesis.agent:heuristic-successes heur)))
+    (is (= 1.0 (autopoiesis.agent:heuristic-confidence heur)))
+    ;; Record failed application
+    (autopoiesis.agent:record-heuristic-application heur :success nil)
+    (is (= 2 (autopoiesis.agent:heuristic-applications heur)))
+    (is (= 1 (autopoiesis.agent:heuristic-successes heur)))
+    (is (= 0.5 (autopoiesis.agent:heuristic-confidence heur)))
+    ;; last-applied should be set
+    (is (not (null (autopoiesis.agent:heuristic-last-applied heur))))))
+
+(test heuristic-confidence-decay
+  "Test decaying heuristic confidence"
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 1.0)))
+    (autopoiesis.agent:decay-heuristic-confidence heur :factor 0.9)
+    (is (= 0.9 (autopoiesis.agent:heuristic-confidence heur)))
+    (autopoiesis.agent:decay-heuristic-confidence heur :factor 0.5)
+    (is (= 0.45 (autopoiesis.agent:heuristic-confidence heur)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Learning System Tests - Condition Matching
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test condition-matches-literal
+  "Test literal value matching"
+  (is-true (autopoiesis.agent:condition-matches-p :foo :foo))
+  (is-false (autopoiesis.agent:condition-matches-p :foo :bar))
+  (is-true (autopoiesis.agent:condition-matches-p 42 42))
+  (is-true (autopoiesis.agent:condition-matches-p "hello" "hello"))
+  (is-true (autopoiesis.agent:condition-matches-p nil nil)))
+
+(test condition-matches-any
+  "Test :any wildcard matching"
+  (is-true (autopoiesis.agent:condition-matches-p :any :foo))
+  (is-true (autopoiesis.agent:condition-matches-p :any 42))
+  (is-true (autopoiesis.agent:condition-matches-p :any nil))
+  (is-true (autopoiesis.agent:condition-matches-p :any '(a b c))))
+
+(test condition-matches-type
+  "Test type checking in conditions"
+  (is-true (autopoiesis.agent:condition-matches-p '(:type number) 42))
+  (is-false (autopoiesis.agent:condition-matches-p '(:type number) "hello"))
+  (is-true (autopoiesis.agent:condition-matches-p '(:type string) "hello"))
+  (is-true (autopoiesis.agent:condition-matches-p '(:type list) '(a b c)))
+  (is-true (autopoiesis.agent:condition-matches-p '(:type symbol) :foo)))
+
+(test condition-matches-member
+  "Test member checking in conditions"
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(:member (:a :b :c)) :b))
+  (is-false (autopoiesis.agent:condition-matches-p
+             '(:member (:a :b :c)) :d))
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(:member (1 2 3)) 2)))
+
+(test condition-matches-and
+  "Test conjunction in conditions"
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(and (:type number) (:member (1 2 3))) 2))
+  (is-false (autopoiesis.agent:condition-matches-p
+             '(and (:type number) (:member (1 2 3))) 4))
+  (is-false (autopoiesis.agent:condition-matches-p
+             '(and (:type number) (:member (1 2 3))) "hello")))
+
+(test condition-matches-or
+  "Test disjunction in conditions"
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(or (:type number) (:type string)) 42))
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(or (:type number) (:type string)) "hello"))
+  (is-false (autopoiesis.agent:condition-matches-p
+             '(or (:type number) (:type string)) :symbol)))
+
+(test condition-matches-not
+  "Test negation in conditions"
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(not (:type number)) "hello"))
+  (is-false (autopoiesis.agent:condition-matches-p
+             '(not (:type number)) 42)))
+
+(test condition-matches-list-pattern
+  "Test list pattern matching"
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(:task :any) '(:task :coding)))
+  (is-true (autopoiesis.agent:condition-matches-p
+            '(:task :coding :priority (:type number))
+            '(:task :coding :priority 5)))
+  (is-false (autopoiesis.agent:condition-matches-p
+             '(:task :coding) '(:task :testing))))
+
+(test find-applicable-heuristics
+  "Test finding heuristics that match a context"
+  (let ((store (make-hash-table :test 'equal)))
+    (let ((heur1 (autopoiesis.agent:make-heuristic
+                  :name "coding-heuristic"
+                  :condition '(:task-type :coding)
+                  :confidence 0.8))
+          (heur2 (autopoiesis.agent:make-heuristic
+                  :name "testing-heuristic"
+                  :condition '(:task-type :testing)
+                  :confidence 0.7))
+          (heur3 (autopoiesis.agent:make-heuristic
+                  :name "low-confidence"
+                  :condition '(:task-type :coding)
+                  :confidence 0.2)))
+      (autopoiesis.agent:store-heuristic heur1 :store store)
+      (autopoiesis.agent:store-heuristic heur2 :store store)
+      (autopoiesis.agent:store-heuristic heur3 :store store)
+      ;; Find applicable for coding task
+      (let ((applicable (autopoiesis.agent:find-applicable-heuristics
+                         '(:task-type :coding)
+                         :store store
+                         :min-confidence 0.3)))
+        (is (= 1 (length applicable)))
+        (is (string= "coding-heuristic"
+                     (autopoiesis.agent:heuristic-name (first applicable)))))
+      ;; Find with lower confidence threshold
+      (let ((applicable (autopoiesis.agent:find-applicable-heuristics
+                         '(:task-type :coding)
+                         :store store
+                         :min-confidence 0.1)))
+        (is (= 2 (length applicable)))
+        ;; Should be sorted by confidence (highest first)
+        (is (string= "coding-heuristic"
+                     (autopoiesis.agent:heuristic-name (first applicable)))))
+      ;; No matches
+      (let ((applicable (autopoiesis.agent:find-applicable-heuristics
+                         '(:task-type :debugging)
+                         :store store)))
+        (is (= 0 (length applicable)))))))

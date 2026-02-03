@@ -41,6 +41,7 @@
        (:file "context-window")
        (:file "agent")
        (:file "agent-capability")
+       (:file "learning")
        (:file "cognitive-loop")
        (:file "spawner")
        (:file "registry")

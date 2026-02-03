@@ -130,4 +130,52 @@
    #:reject-capability
    #:agent-capability-p
    #:list-agent-capabilities
-   #:find-agent-capability))
+   #:find-agent-capability
+
+   ;; Learning system - Experience
+   #:experience
+   #:make-experience
+   #:experience-id
+   #:experience-task-type
+   #:experience-context
+   #:experience-actions
+   #:experience-outcome
+   #:experience-timestamp
+   #:experience-agent-id
+   #:experience-metadata
+   #:experience-to-sexpr
+   #:sexpr-to-experience
+
+   ;; Learning system - Heuristic
+   #:heuristic
+   #:make-heuristic
+   #:heuristic-id
+   #:heuristic-name
+   #:heuristic-condition
+   #:heuristic-recommendation
+   #:heuristic-confidence
+   #:heuristic-applications
+   #:heuristic-successes
+   #:heuristic-source-pattern
+   #:heuristic-created
+   #:heuristic-last-applied
+   #:heuristic-to-sexpr
+   #:sexpr-to-heuristic
+
+   ;; Learning system - Storage
+   #:*experience-store*
+   #:*heuristic-store*
+   #:store-experience
+   #:find-experience
+   #:list-experiences
+   #:clear-experiences
+   #:store-heuristic
+   #:find-heuristic
+   #:list-heuristics
+   #:clear-heuristics
+
+   ;; Learning system - Application
+   #:record-heuristic-application
+   #:decay-heuristic-confidence
+   #:condition-matches-p
+   #:find-applicable-heuristics))
