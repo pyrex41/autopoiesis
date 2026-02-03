@@ -1262,3 +1262,282 @@ out vec4 color;")))
           (dotimes (i (length (mesh-indices mesh)))
             (is (>= (aref (mesh-indices mesh) i) 0))
             (is (<= (aref (mesh-indices mesh) i) max-idx))))))))
+
+;;; ===================================================================
+;;; Rendering Tests
+;;; ===================================================================
+
+(def-suite rendering-tests
+  :in holodeck-tests
+  :description "Tests for render-snapshot-entity with LOD support")
+
+(in-suite rendering-tests)
+
+;; --- Snapshot Type to Mesh Type ---
+
+(test snapshot-type-to-mesh-type-decision
+  "Test decision type maps to octahedron."
+  (is (eq :octahedron (snapshot-type-to-mesh-type :decision))))
+
+(test snapshot-type-to-mesh-type-action
+  "Test action type maps to octahedron."
+  (is (eq :octahedron (snapshot-type-to-mesh-type :action))))
+
+(test snapshot-type-to-mesh-type-fork
+  "Test fork type maps to branching-node."
+  (is (eq :branching-node (snapshot-type-to-mesh-type :fork))))
+
+(test snapshot-type-to-mesh-type-branch
+  "Test branch type maps to branching-node."
+  (is (eq :branching-node (snapshot-type-to-mesh-type :branch))))
+
+(test snapshot-type-to-mesh-type-snapshot
+  "Test default snapshot type maps to sphere."
+  (is (eq :sphere (snapshot-type-to-mesh-type :snapshot))))
+
+(test snapshot-type-to-mesh-type-genesis
+  "Test genesis type maps to sphere."
+  (is (eq :sphere (snapshot-type-to-mesh-type :genesis))))
+
+;; --- Detail Level to Mesh LOD ---
+
+(test detail-level-to-mesh-lod-high
+  "Test :high detail maps to mesh LOD 2."
+  (is (= 2 (detail-level-to-mesh-lod :high))))
+
+(test detail-level-to-mesh-lod-low
+  "Test :low detail maps to mesh LOD 0."
+  (is (= 0 (detail-level-to-mesh-lod :low))))
+
+(test detail-level-to-mesh-lod-culled
+  "Test :culled detail maps to NIL."
+  (is (null (detail-level-to-mesh-lod :culled))))
+
+;; --- Render Snapshot Entity ---
+
+(test render-snapshot-entity-culled-returns-nil
+  "Test that culled entities return NIL render description."
+  (init-holodeck-storage)
+  (let ((*camera-position* (3d-vectors:vec3 0.0 0.0 0.0)))
+    (let ((e (make-snapshot-entity "snap-cull" :snapshot
+                                   :x 300.0 :y 0.0 :z 0.0)))
+      ;; Force culled state
+      (setf (detail-level-current e) :culled)
+      (is (null (render-snapshot-entity e))))))
+
+(test render-snapshot-entity-high-detail
+  "Test render description at :high detail level."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-hi" :decision
+                                 :x 5.0 :y 10.0 :z 2.0)))
+    (setf (detail-level-current e) :high)
+    (let ((desc (render-snapshot-entity e)))
+      ;; Should produce a valid description
+      (is (not (null desc)))
+      (is (render-desc-visible-p desc))
+      ;; Position should match entity
+      (is (equal '(5.0 10.0 2.0) (render-desc-position desc)))
+      ;; Should have a mesh (octahedron for decision)
+      (is (not (null (render-desc-mesh desc))))
+      (is (eq :octahedron (mesh-name (render-desc-mesh desc))))
+      ;; Should have material
+      (is (not (null (render-desc-material desc))))
+      (is (typep (render-desc-material desc) 'hologram-material))
+      ;; Glow should be on at high detail
+      (is (render-desc-glow-p desc))
+      ;; LOD should be :high
+      (is (eq :high (render-desc-lod desc)))
+      ;; Color should be a 4-element list
+      (is (= 4 (length (render-desc-color desc))))))
+  (clear-mesh-registry))
+
+(test render-snapshot-entity-low-detail
+  "Test render description at :low detail level."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-lo" :snapshot
+                                 :x 80.0 :y 0.0 :z 0.0)))
+    (setf (detail-level-current e) :low)
+    (let ((desc (render-snapshot-entity e)))
+      ;; Should still be visible
+      (is (not (null desc)))
+      (is (render-desc-visible-p desc))
+      ;; Should have a mesh at LOD 0 (sphere for :snapshot)
+      (is (not (null (render-desc-mesh desc))))
+      (is (eq :sphere (mesh-name (render-desc-mesh desc))))
+      (is (= 0 (mesh-lod (render-desc-mesh desc))))
+      ;; Glow should be off at low detail
+      (is (not (render-desc-glow-p desc)))
+      ;; Label should be nil at low detail
+      (is (null (render-desc-label-text desc)))
+      ;; LOD should be :low
+      (is (eq :low (render-desc-lod desc)))
+      ;; Alpha should be reduced (0.5x original)
+      (let ((alpha (fourth (render-desc-color desc))))
+        (is (< alpha 0.5)))))
+  (clear-mesh-registry))
+
+(test render-snapshot-entity-high-detail-with-label
+  "Test that high detail shows label when visible."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-label" :genesis
+                                 :x 1.0 :y 0.0 :z 0.0)))
+    (setf (detail-level-current e) :high)
+    (setf (node-label-visible-p e) t)
+    (let ((desc (render-snapshot-entity e)))
+      (is (string= "snap-label" (render-desc-label-text desc)))
+      (is (numberp (render-desc-label-offset desc)))))
+  (clear-mesh-registry))
+
+(test render-snapshot-entity-high-detail-hidden-label
+  "Test that high detail hides label when node-label-visible-p is nil."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-nolabel" :genesis
+                                 :x 1.0 :y 0.0 :z 0.0)))
+    (setf (detail-level-current e) :high)
+    (setf (node-label-visible-p e) nil)
+    (let ((desc (render-snapshot-entity e)))
+      (is (null (render-desc-label-text desc)))))
+  (clear-mesh-registry))
+
+(test render-snapshot-entity-fork-uses-branching-mesh
+  "Test that fork entities use branching-node mesh."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-fork" :fork
+                                 :x 1.0 :y 0.0 :z 0.0)))
+    (setf (detail-level-current e) :high)
+    (let ((desc (render-snapshot-entity e)))
+      (is (eq :branching-node (mesh-name (render-desc-mesh desc))))))
+  (clear-mesh-registry))
+
+(test render-snapshot-entity-material-matches-type
+  "Test that material is created for the correct snapshot type."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-err" :error
+                                 :x 1.0 :y 0.0 :z 0.0)))
+    (setf (detail-level-current e) :high)
+    (let* ((desc (render-snapshot-entity e))
+           (mat (render-desc-material desc)))
+      ;; Error material has high glow intensity
+      (is (> (material-glow-intensity mat) 2.0))
+      ;; Error material glow is red
+      (is (> (first (material-glow-color mat)) 0.8))))
+  (clear-mesh-registry))
+
+(test render-snapshot-entity-low-reduces-glow
+  "Test that :low detail reduces material glow intensity."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-dimglow" :decision
+                                 :x 80.0 :y 0.0 :z 0.0)))
+    (setf (detail-level-current e) :high)
+    (let* ((high-desc (render-snapshot-entity e))
+           (high-glow (material-glow-intensity (render-desc-material high-desc))))
+      ;; Now set to low
+      (setf (detail-level-current e) :low)
+      (let* ((low-desc (render-snapshot-entity e))
+             (low-glow (material-glow-intensity (render-desc-material low-desc))))
+        ;; Low detail should have reduced glow
+        (is (< low-glow high-glow)))))
+  (clear-mesh-registry))
+
+(test render-snapshot-entity-scale-preserved
+  "Test that entity scale is preserved in render description."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-scale" :snapshot
+                                 :x 0.0 :y 0.0 :z 0.0)))
+    (setf (scale3d-sx e) 2.0)
+    (setf (scale3d-sy e) 3.0)
+    (setf (scale3d-sz e) 4.0)
+    (setf (detail-level-current e) :high)
+    (let ((desc (render-snapshot-entity e)))
+      (is (equal '(2.0 3.0 4.0) (render-desc-scale desc)))))
+  (clear-mesh-registry))
+
+;; --- Render Description Accessors ---
+
+(test render-desc-accessors
+  "Test that all render description accessors work correctly."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (let ((e (make-snapshot-entity "snap-acc" :snapshot
+                                 :x 1.0 :y 2.0 :z 3.0)))
+    (setf (detail-level-current e) :high)
+    (let ((desc (render-snapshot-entity e)))
+      (is (= e (render-desc-entity desc)))
+      (is (eq t (render-desc-visible-p desc)))
+      (is (listp (render-desc-position desc)))
+      (is (listp (render-desc-scale desc)))
+      (is (listp (render-desc-rotation desc)))
+      (is (typep (render-desc-mesh desc) 'mesh-primitive))
+      (is (typep (render-desc-material desc) 'hologram-material))
+      (is (listp (render-desc-color desc)))
+      (is (eq :high (render-desc-lod desc)))))
+  (clear-mesh-registry))
+
+;; --- CPU-Side Snapshot Color ---
+
+(test compute-snapshot-entity-color-returns-values
+  "Test that compute-snapshot-entity-color returns R G B A."
+  (init-holodeck-storage)
+  (let ((e (make-snapshot-entity "snap-color" :decision
+                                 :x 0.0 :y 5.0 :z 0.0)))
+    (multiple-value-bind (r g b a)
+        (compute-snapshot-entity-color e :normal-dot-view 0.5 :time 0.0)
+      (is (numberp r))
+      (is (numberp g))
+      (is (numberp b))
+      (is (numberp a))
+      ;; All in [0,1]
+      (is (>= r 0.0)) (is (<= r 1.0))
+      (is (>= g 0.0)) (is (<= g 1.0))
+      (is (>= b 0.0)) (is (<= b 1.0))
+      (is (>= a 0.0)) (is (<= a 1.0)))))
+
+(test compute-snapshot-entity-color-type-affects-output
+  "Test that different snapshot types produce different colors."
+  (init-holodeck-storage)
+  (let ((e-decision (make-snapshot-entity "d1" :decision :x 0.0 :y 0.0 :z 0.0))
+        (e-genesis (make-snapshot-entity "g1" :genesis :x 0.0 :y 0.0 :z 0.0)))
+    (multiple-value-bind (dr dg db da)
+        (compute-snapshot-entity-color e-decision :normal-dot-view 0.8 :time 0.0)
+      (declare (ignore da))
+      (multiple-value-bind (gr gg gb ga)
+          (compute-snapshot-entity-color e-genesis :normal-dot-view 0.8 :time 0.0)
+        (declare (ignore ga))
+        ;; Decision (gold) and genesis (green) should produce different colors
+        (is (not (and (< (abs (- dr gr)) 0.01)
+                      (< (abs (- dg gg)) 0.01)
+                      (< (abs (- db gb)) 0.01))))))))
+
+;; --- Collect Render Descriptions ---
+
+(test collect-snapshot-render-descriptions-basic
+  "Test that collect-snapshot-render-descriptions gathers visible entities."
+  (init-holodeck-storage)
+  (register-holodeck-meshes)
+  (reset-snapshot-entities)
+  (let ((*camera-position* (3d-vectors:vec3 0.0 0.0 0.0)))
+    ;; Create some snapshot entities and track them
+    (let ((e1 (make-snapshot-entity "s1" :snapshot :x 1.0 :y 0.0 :z 0.0))
+          (e2 (make-snapshot-entity "s2" :decision :x 2.0 :y 0.0 :z 0.0))
+          (e3 (make-snapshot-entity "s3" :fork :x 300.0 :y 0.0 :z 0.0)))
+      (track-snapshot-entity e1)
+      (track-snapshot-entity e2)
+      (track-snapshot-entity e3)
+      ;; Run LOD system to set detail levels
+      (cl-fast-ecs:run-systems)
+      (let ((descs (collect-snapshot-render-descriptions)))
+        ;; e1 and e2 are close, should be visible
+        ;; e3 is far (300 units), should be culled
+        (is (>= (length descs) 2))
+        ;; All returned descriptions should be visible
+        (dolist (d descs)
+          (is (render-desc-visible-p d))))))
+  (clear-mesh-registry))

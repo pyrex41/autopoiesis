@@ -200,6 +200,28 @@
    #:lod-mesh-id
    #:register-holodeck-meshes
 
+   ;; Rendering
+   #:snapshot-type-to-mesh-type
+   #:detail-level-to-mesh-lod
+   #:render-snapshot-entity
+   #:render-desc-entity
+   #:render-desc-visible-p
+   #:render-desc-position
+   #:render-desc-scale
+   #:render-desc-rotation
+   #:render-desc-mesh
+   #:render-desc-material
+   #:render-desc-color
+   #:render-desc-glow-p
+   #:render-desc-label-text
+   #:render-desc-label-offset
+   #:render-desc-lod
+   #:*snapshot-entities*
+   #:reset-snapshot-entities
+   #:track-snapshot-entity
+   #:collect-snapshot-render-descriptions
+   #:compute-snapshot-entity-color
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck

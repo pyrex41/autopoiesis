@@ -53,7 +53,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Implement hologram-node shader (fresnel, scanlines, glow)
 - [x] Implement energy-beam shader (animated flow)
 - [x] Create mesh primitives (sphere, octahedron, branching-node)
-- [ ] Implement `render-snapshot-entity` with LOD
+- [x] Implement `render-snapshot-entity` with LOD
 - [ ] Implement `render-connection-entity` with energy beams
 
 ### Phase 7.1: Package and Foundation Setup
@@ -165,7 +165,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement hologram-node shader (fresnel, scanlines, glow)
 - [x] Implement energy-beam shader (animated flow)
 - [x] Create mesh primitives (sphere, octahedron, branching-node)
-- [ ] Implement `render-snapshot-entity` with LOD
+- [x] Implement `render-snapshot-entity` with LOD
 - [ ] Implement `render-connection-entity` with energy beams
 
 #### 8.3: Camera System
