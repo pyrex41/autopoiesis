@@ -395,3 +395,258 @@
   (let ((autopoiesis.agent:*current-agent* nil))
     (signals autopoiesis.core:autopoiesis-error
       (autopoiesis.agent:capability-receive))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Agent-Defined Capability Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test agent-capability-creation
+  "Test creating an agent-capability directly"
+  (let ((cap (autopoiesis.agent:make-agent-capability
+              :test-cap
+              "A test capability"
+              '((x number) (y number))
+              "agent-123"
+              '(lambda (x y) (+ x y)))))
+    (is (eq :test-cap (autopoiesis.agent:capability-name cap)))
+    (is (string= "A test capability" (autopoiesis.agent:capability-description cap)))
+    (is (string= "agent-123" (autopoiesis.agent:cap-source-agent cap)))
+    (is (eq :draft (autopoiesis.agent:cap-promotion-status cap)))
+    (is (autopoiesis.agent:agent-capability-p cap))))
+
+(test agent-capability-p-predicate
+  "Test agent-capability-p predicate"
+  (let ((agent-cap (autopoiesis.agent:make-agent-capability
+                    :test-cap "desc" nil "agent-1" nil))
+        (regular-cap (autopoiesis.agent:make-capability
+                      :regular-cap (lambda () t))))
+    (is (autopoiesis.agent:agent-capability-p agent-cap))
+    (is (not (autopoiesis.agent:agent-capability-p regular-cap)))
+    (is (not (autopoiesis.agent:agent-capability-p "not a capability")))))
+
+(test agent-define-capability-valid
+  "Test agent defining a valid capability"
+  ;; Clear extension registry for clean test
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability
+         agent
+         :add-numbers
+         "Add two numbers together"
+         '((a number) (b number))
+         '((+ a b)))
+      (is (not (null cap)))
+      (is (null errors))
+      (is (eq :add-numbers (autopoiesis.agent:capability-name cap)))
+      (is (eq :draft (autopoiesis.agent:cap-promotion-status cap)))
+      (is (equal (autopoiesis.agent:agent-id agent)
+                 (autopoiesis.agent:cap-source-agent cap)))
+      ;; Should be added to agent's capabilities
+      (is (member cap (autopoiesis.agent:agent-capabilities agent))))))
+
+(test agent-define-capability-invalid
+  "Test agent defining an invalid capability (forbidden code)"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability
+         agent
+         :bad-cap
+         "A bad capability"
+         '((path string))
+         '((delete-file path)))  ; Forbidden operation
+      (is (null cap))
+      (is (not (null errors)))
+      ;; Should NOT be added to agent's capabilities
+      (is (not (find :bad-cap (autopoiesis.agent:agent-capabilities agent)
+                     :key #'autopoiesis.agent:capability-name))))))
+
+(test test-agent-capability-all-pass
+  "Test testing an agent capability where all tests pass"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability
+         agent
+         :multiply
+         "Multiply two numbers"
+         '((a number) (b number))
+         '((* a b)))
+      (declare (ignore errors))
+      (is (not (null cap)))
+      ;; Run tests - format is ((args...) expected)
+      (multiple-value-bind (passed-p results)
+          (autopoiesis.agent:test-agent-capability
+           cap
+           '(((2 3) 6)
+             ((4 5) 20)
+             ((0 100) 0)))
+        (is-true passed-p)
+        (is (= 3 (length results)))
+        (is (every (lambda (r) (eq (getf r :status) :pass)) results))
+        ;; Status should be :testing
+        (is (eq :testing (autopoiesis.agent:cap-promotion-status cap)))))))
+
+(test test-agent-capability-with-failure
+  "Test testing an agent capability where some tests fail"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability
+         agent
+         :always-ten
+         "Always return 10"
+         '((x number))
+         '((declare (ignore x)) 10))
+      (declare (ignore errors))
+      (is (not (null cap)))
+      ;; Run tests - some will fail. Format is ((args...) expected)
+      (multiple-value-bind (passed-p results)
+          (autopoiesis.agent:test-agent-capability
+           cap
+           '(((5) 10)     ; pass
+             ((3) 10)     ; pass
+             ((7) 7)))    ; fail - expects 7 but gets 10
+        (is-false passed-p)
+        (is (= 3 (length results)))
+        ;; Check we have both pass and fail results
+        (is (= 2 (count :pass results :key (lambda (r) (getf r :status)))))
+        (is (= 1 (count :fail results :key (lambda (r) (getf r :status)))))))))
+
+(test promote-capability-success
+  "Test promoting a capability after tests pass"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((registry (make-hash-table :test 'equal))
+        (agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (let ((autopoiesis.agent::*capability-registry* registry))
+      (multiple-value-bind (cap errors)
+          (autopoiesis.agent:agent-define-capability
+           agent
+           :double
+           "Double a number"
+           '((x number))
+           '((* x 2)))
+        (declare (ignore errors))
+        (is (not (null cap)))
+        ;; Run passing tests - format is ((args...) expected)
+        (multiple-value-bind (passed-p results)
+            (autopoiesis.agent:test-agent-capability
+             cap
+             '(((5) 10)
+               ((0) 0)
+               ((-3) -6)))
+          (declare (ignore results))
+          (is-true passed-p))
+        ;; Promote
+        (is-true (autopoiesis.agent:promote-capability cap))
+        (is (eq :promoted (autopoiesis.agent:cap-promotion-status cap)))
+        ;; Should be in global registry
+        (is (eq cap (autopoiesis.agent:find-capability :double :registry registry)))))))
+
+(test promote-capability-failure-no-tests
+  "Test that promotion fails if no tests were run"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability
+         agent
+         :untested
+         "An untested capability"
+         '((x number))
+         '(x))
+      (declare (ignore errors))
+      ;; Try to promote without testing
+      (setf (autopoiesis.agent:cap-promotion-status cap) :testing)
+      (is (not (autopoiesis.agent:promote-capability cap)))
+      ;; Status should still be :testing (no test results)
+      (is (eq :testing (autopoiesis.agent:cap-promotion-status cap))))))
+
+(test promote-capability-failure-tests-failed
+  "Test that promotion fails if tests failed"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability
+         agent
+         :bad-math
+         "Bad math capability"
+         '((x number))
+         '((+ x 1)))  ; Always adds 1
+      (declare (ignore errors))
+      ;; Run failing tests
+      (autopoiesis.agent:test-agent-capability
+       cap
+       '((((5)) 5)))  ; Expects 5 but gets 6
+      ;; Try to promote
+      (is (not (autopoiesis.agent:promote-capability cap)))
+      ;; Status should be :rejected
+      (is (eq :rejected (autopoiesis.agent:cap-promotion-status cap))))))
+
+(test reject-capability
+  "Test rejecting a capability"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability
+         agent
+         :to-reject
+         "A capability to reject"
+         '((x number))
+         '(x))
+      (declare (ignore errors))
+      (autopoiesis.agent:reject-capability cap "Not useful")
+      (is (eq :rejected (autopoiesis.agent:cap-promotion-status cap)))
+      ;; Reason should be in test-results
+      (is (find :rejected (autopoiesis.agent:cap-test-results cap)
+                :key (lambda (r) (getf r :status)))))))
+
+(test list-agent-capabilities
+  "Test listing agent-defined capabilities"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    ;; Add a regular capability
+    (let ((regular-cap (autopoiesis.agent:make-capability :regular (lambda () t))))
+      (push regular-cap (autopoiesis.agent:agent-capabilities agent))
+      ;; Verify regular cap is NOT an agent-capability
+      (is-false (autopoiesis.agent:agent-capability-p regular-cap)))
+    ;; Add agent-defined capabilities
+    (multiple-value-bind (cap-a errors-a)
+        (autopoiesis.agent:agent-define-capability
+         agent :cap-a "Cap A" '((x number)) '(x))
+      (declare (ignore errors-a))
+      (is-true cap-a)
+      (when cap-a
+        (is-true (autopoiesis.agent:agent-capability-p cap-a))))
+    (multiple-value-bind (cap-b errors-b)
+        (autopoiesis.agent:agent-define-capability
+         agent :cap-b "Cap B" '((x number)) '(x))
+      (declare (ignore errors-b))
+      (is-true cap-b)
+      (when cap-b
+        (is-true (autopoiesis.agent:agent-capability-p cap-b))))
+    ;; Total capabilities should be 3
+    (is (= 3 (length (autopoiesis.agent:agent-capabilities agent))))
+    ;; Test manual filtering
+    (let* ((all-caps (autopoiesis.agent:agent-capabilities agent))
+           (filtered (remove-if-not #'autopoiesis.agent:agent-capability-p all-caps)))
+      (is (= 2 (length filtered))))
+    ;; List all agent capabilities (should be 2 agent-capabilities, not 3 total)
+    (let ((agent-caps (autopoiesis.agent:list-agent-capabilities agent)))
+      (is (= 2 (length agent-caps)))
+      (is-true (every #'autopoiesis.agent:agent-capability-p agent-caps)))
+    ;; List by status
+    (let ((draft-caps (autopoiesis.agent:list-agent-capabilities agent :status :draft)))
+      (is (= 2 (length draft-caps))))))
+
+(test find-agent-capability
+  "Test finding an agent capability by name"
+  (autopoiesis.core:clear-extension-registry)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (autopoiesis.agent:agent-define-capability
+     agent :findable "A findable capability" '((x number)) '(x))
+    (let ((found (autopoiesis.agent:find-agent-capability agent :findable)))
+      (is (not (null found)))
+      (is (eq :findable (autopoiesis.agent:capability-name found))))
+    ;; Not found case
+    (is (null (autopoiesis.agent:find-agent-capability agent :nonexistent)))))

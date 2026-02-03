@@ -167,10 +167,11 @@
    AGENT - An agent instance with capabilities.
 
    Returns a list of tool alists for Claude API."
-  (capabilities-to-claude-tools (list-agent-capabilities agent)))
+  (capabilities-to-claude-tools (get-all-agent-capabilities agent)))
 
-(defun list-agent-capabilities (agent)
-  "List all capabilities registered to an agent."
+(defun get-all-agent-capabilities (agent)
+  "Get all capabilities registered to an agent (for tool mapping).
+   This returns ALL capabilities, not just agent-defined ones."
   (let ((caps (agent-capabilities agent)))
     (if (hash-table-p caps)
         (loop for cap being the hash-values of caps collect cap)

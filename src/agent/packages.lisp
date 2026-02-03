@@ -114,4 +114,20 @@
    #:unregister-agent
    #:find-agent
    #:list-agents
-   #:running-agents))
+   #:running-agents
+
+   ;; Agent-defined capabilities
+   #:agent-capability
+   #:make-agent-capability
+   #:cap-source-agent
+   #:cap-source-code
+   #:cap-extension-id
+   #:cap-test-results
+   #:cap-promotion-status
+   #:agent-define-capability
+   #:test-agent-capability
+   #:promote-capability
+   #:reject-capability
+   #:agent-capability-p
+   #:list-agent-capabilities
+   #:find-agent-capability))

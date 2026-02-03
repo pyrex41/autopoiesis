@@ -353,6 +353,9 @@
                       ;; Quote: don't recurse into quoted forms (they're data)
                       ((eq head 'quote) nil)
                       
+                      ;; Declare: don't recurse into declarations (they're not executable)
+                      ((eq head 'declare) nil)
+                      
                       ;; Function: check the function name as an operator reference
                       ((eq head 'function)
                        (when (and (cdr form) (symbolp (cadr form)))

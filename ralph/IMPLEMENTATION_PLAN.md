@@ -205,10 +205,10 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement `register-extension` and `invoke-extension`
 
 #### 9.2: Agent-Written Capabilities
-- [ ] Create `agent-capability` class extending `capability`
-- [ ] Implement `agent-define-capability` with validation
-- [ ] Implement `test-agent-capability` with test cases
-- [ ] Implement `promote-capability` workflow
+- [x] Create `agent-capability` class extending `capability`
+- [x] Implement `agent-define-capability` with validation
+- [x] Implement `test-agent-capability` with test cases
+- [x] Implement `promote-capability` workflow
 
 #### 9.3: Learning System
 - [ ] Define `experience` and `heuristic` classes
