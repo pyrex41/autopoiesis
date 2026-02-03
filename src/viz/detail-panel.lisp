@@ -29,3 +29,18 @@
                  :width w
                  :height h
                  :content (or content '())))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Snapshot Summary Rendering
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun render-snapshot-summary (snapshot)
+  "Generate list of strings summarizing the SNAPSHOT for detail panel display."
+  (list (format nil "ID:       ~A"
+                (truncate-string (snapshot-id snapshot) 32))
+        (format nil "Timestamp: ~F"
+                (snapshot-timestamp snapshot))
+        (format nil "Type:      ~A"
+                (string-downcase (symbol-name (or (getf (snapshot-metadata snapshot) :type) :snapshot))))
+        (format nil "Parent:    ~A"
+                (or (snapshot-parent snapshot) "none"))))

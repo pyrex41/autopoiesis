@@ -67,7 +67,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 
 ### Phase 7.4: Snapshot Detail Panel
 - [x] Create `detail-panel` class with panel dimensions and content buffer
-- [ ] Implement `render-snapshot-summary` (ID, timestamp, type, parent) [BLOCKED: timeline.lisp compile error]
+- [x] Implement `render-snapshot-summary` (ID, timestamp, type, parent)
 - [ ] Implement `render-thought-preview` with truncation and expand/collapse state
 
 ### Phase 7.5: Navigation Integration

@@ -84,3 +84,15 @@
         (autopoiesis.viz:render-branch-connections timeline 11 :main-row 10)
         (let ((output (get-output-to-string *standard-output*)))
           (is-true (search \"│\" output)))))))
+
+(test render-snapshot-summary
+  (let ((snap (make-instance 'autopoiesis.snapshot:snapshot
+                             :id \"test-id-12345678901234567890\"
+                             :timestamp 1699123456.789
+                             :metadata '(:type :decision)
+                             :parent \"parent-test-id\")))
+    (let* ((summary (autopoiesis.viz:render-snapshot-summary snap)))
+      (is (= 4 (length summary)))
+      (is (search \"ID:       test-id-1234567890\" (first summary)))
+      (is (search \"Type:      decision\" (third summary)))
+      (is (search \"Parent:    parent-test-id\" (fourth summary))))))

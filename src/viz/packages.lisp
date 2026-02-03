@@ -10,7 +10,7 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defpackage #:autopoiesis.viz
-  (:use #:cl #:alexandria #:autopoiesis.core #:autopoiesis.snapshot)
+  (:use #:cl #:uiop #:alexandria #:autopoiesis.core #:autopoiesis.snapshot)
   (:export
    ;; Configuration
    #:*viz-config*

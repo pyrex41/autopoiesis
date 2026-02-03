@@ -115,7 +115,7 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
                                         (slot (max 0 (min (1- num-slots)
                                                           (round (* fraction (1- num-slots))))))
                                         (col (+ 2 (* slot slot-width))))
-                                   (push col fork-cols)))))))))))
+                                   (push col fork-cols))))))))))))
               (timeline-branches timeline))
     (remove-duplicates fork-cols)))
 
@@ -131,7 +131,7 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
           (move-cursor row rel-col)
 (cond ((= row main-row)
                   (with-color (+color-fork+)
-                    (princ "T")))
+                    (princ "┬")))
                  ((<= (+ main-row 1) row (+ main-row 5))
                   (with-color (+color-border+)
                     (princ "|")))
