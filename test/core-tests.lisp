@@ -925,3 +925,293 @@
     (is (listp result))
     (is (= 1000 (length result)))
     (is (numberp bytes))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Error Recovery Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test recovery-conditions-defined
+  "Test that recovery conditions are properly defined"
+  ;; recoverable-error
+  (let ((err (make-condition 'autopoiesis.core:recoverable-error
+                             :message "test error"
+                             :operation 'test-op
+                             :recovery-hints '("try again" "use default"))))
+    (is (typep err 'autopoiesis.core:autopoiesis-error))
+    (is (eq 'test-op (autopoiesis.core:error-operation err)))
+    (is-true (autopoiesis.core:error-recoverable-p err))
+    (is (equal '("try again" "use default") (autopoiesis.core:error-recovery-hints err))))
+  
+  ;; transient-error
+  (let ((err (make-condition 'autopoiesis.core:transient-error
+                             :message "transient"
+                             :operation 'network-call
+                             :max-retries 5)))
+    (is (typep err 'autopoiesis.core:recoverable-error))
+    (is (= 0 (autopoiesis.core:error-retry-count err)))
+    (is (= 5 (autopoiesis.core:error-max-retries err))))
+  
+  ;; resource-error
+  (let ((err (make-condition 'autopoiesis.core:resource-error
+                             :message "file not found"
+                             :resource "/path/to/file"
+                             :resource-type :file)))
+    (is (typep err 'autopoiesis.core:recoverable-error))
+    (is (equal "/path/to/file" (autopoiesis.core:error-resource err)))
+    (is (eq :file (autopoiesis.core:error-resource-type err))))
+  
+  ;; state-inconsistency-error
+  (let ((err (make-condition 'autopoiesis.core:state-inconsistency-error
+                             :message "state mismatch"
+                             :expected-state :running
+                             :actual-state :stopped)))
+    (is (typep err 'autopoiesis.core:recoverable-error))
+    (is (eq :running (autopoiesis.core:error-expected-state err)))
+    (is (eq :stopped (autopoiesis.core:error-actual-state err)))))
+
+(test recovery-exponential-backoff
+  "Test exponential backoff delay calculation"
+  ;; First attempt should be close to base delay
+  (let ((delay0 (autopoiesis.core:exponential-backoff-delay 0 :base-delay 0.1 :jitter 0.0)))
+    (is (= 0.1 delay0)))
+  
+  ;; Second attempt should be 2x
+  (let ((delay1 (autopoiesis.core:exponential-backoff-delay 1 :base-delay 0.1 :jitter 0.0)))
+    (is (= 0.2 delay1)))
+  
+  ;; Third attempt should be 4x
+  (let ((delay2 (autopoiesis.core:exponential-backoff-delay 2 :base-delay 0.1 :jitter 0.0)))
+    (is (= 0.4 delay2)))
+  
+  ;; Should be capped at max-delay
+  (let ((delay-capped (autopoiesis.core:exponential-backoff-delay 10 :base-delay 0.1 :max-delay 1.0 :jitter 0.0)))
+    (is (= 1.0 delay-capped))))
+
+(test recovery-retry-with-backoff-success
+  "Test retry-with-backoff succeeds on first try"
+  (let ((call-count 0))
+    (multiple-value-bind (result success attempts)
+        (autopoiesis.core:retry-with-backoff
+         (lambda ()
+           (incf call-count)
+           42)
+         :max-retries 3)
+      (is (= 42 result))
+      (is-true success)
+      (is (= 0 attempts))
+      (is (= 1 call-count)))))
+
+(test recovery-retry-with-backoff-eventual-success
+  "Test retry-with-backoff succeeds after retries"
+  (let ((call-count 0))
+    (multiple-value-bind (result success attempts)
+        (autopoiesis.core:retry-with-backoff
+         (lambda ()
+           (incf call-count)
+           (if (< call-count 3)
+               (error 'autopoiesis.core:transient-error :message "try again")
+               :success))
+         :max-retries 5
+         :base-delay 0.001
+         :retry-on '(autopoiesis.core:transient-error))
+      (is (eq :success result))
+      (is-true success)
+      (is (= 2 attempts))
+      (is (= 3 call-count)))))
+
+(test recovery-retry-with-backoff-failure
+  "Test retry-with-backoff fails after max retries"
+  (let ((call-count 0))
+    (multiple-value-bind (result success attempts)
+        (autopoiesis.core:retry-with-backoff
+         (lambda ()
+           (incf call-count)
+           (error 'autopoiesis.core:transient-error :message "always fail"))
+         :max-retries 3
+         :base-delay 0.001
+         :retry-on '(autopoiesis.core:transient-error))
+      (is (null result))
+      (is (not success))
+      (is (= 3 attempts))
+      (is (= 3 call-count)))))
+
+(test recovery-with-retry-macro
+  "Test with-retry macro"
+  (let ((call-count 0))
+    (multiple-value-bind (result success attempts)
+        (autopoiesis.core:with-retry (:max-retries 2 :base-delay 0.001 
+                                      :retry-on '(autopoiesis.core:transient-error))
+          (incf call-count)
+          (if (< call-count 2)
+              (error 'autopoiesis.core:transient-error :message "retry")
+              :done))
+      (is (eq :done result))
+      (is-true success)
+      (is (= 1 attempts)))))
+
+(test recovery-degradation-levels
+  "Test degradation level definitions"
+  ;; Check built-in levels exist
+  (is-true (gethash :minimal autopoiesis.core:*degradation-levels*))
+  (is-true (gethash :offline autopoiesis.core:*degradation-levels*))
+  (is-true (gethash :read-only autopoiesis.core:*degradation-levels*))
+  
+  ;; Check minimal level properties
+  (let ((minimal (gethash :minimal autopoiesis.core:*degradation-levels*)))
+    (is (eq :minimal (autopoiesis.core:degradation-name minimal)))
+    (is (member :read-snapshot (autopoiesis.core:degradation-capabilities minimal)))
+    (is (member :no-persistence (autopoiesis.core:degradation-restrictions minimal)))))
+
+(test recovery-enter-exit-degraded-mode
+  "Test entering and exiting degraded mode"
+  ;; Start in normal mode
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  (is (not (autopoiesis.core:degraded-p)))
+  
+  ;; Enter degraded mode
+  (unwind-protect
+       (progn
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:enter-degraded-mode :offline "test reason"))
+         (is-true (autopoiesis.core:degraded-p))
+         (is (eq :offline (autopoiesis.core:degradation-name autopoiesis.core:*current-degradation-level*)))
+         
+         ;; Exit degraded mode
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:exit-degraded-mode))
+         (is (not (autopoiesis.core:degraded-p))))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)))
+
+(test recovery-capability-available-p
+  "Test capability-available-p function"
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  
+  ;; In normal mode, all capabilities available
+  (is-true (autopoiesis.core:capability-available-p :anything))
+  
+  ;; In degraded mode, only listed capabilities available
+  (unwind-protect
+       (progn
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:enter-degraded-mode :minimal))
+         (is-true (autopoiesis.core:capability-available-p :read-snapshot))
+         (is-true (autopoiesis.core:capability-available-p :basic-navigation))
+         (is (not (autopoiesis.core:capability-available-p :write-snapshot))))
+    (setf autopoiesis.core:*current-degradation-level* nil)))
+
+(test recovery-define-degradation-level
+  "Test defining custom degradation level"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:define-degradation-level :test-level
+           :description "Test degradation level"
+           :capabilities '(:test-cap-1 :test-cap-2)
+           :restrictions '(:test-restriction))
+         (let ((level (gethash :test-level autopoiesis.core:*degradation-levels*)))
+           (is-true level)
+           (is (eq :test-level (autopoiesis.core:degradation-name level)))
+           (is (equal "Test degradation level" (autopoiesis.core:degradation-description level)))
+           (is (member :test-cap-1 (autopoiesis.core:degradation-capabilities level)))))
+    ;; Cleanup
+    (remhash :test-level autopoiesis.core:*degradation-levels*)))
+
+(test recovery-with-graceful-degradation
+  "Test with-graceful-degradation macro"
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  
+  ;; Success case - no degradation
+  (let ((result (autopoiesis.core:with-graceful-degradation (:minimal)
+                  :success)))
+    (is (eq :success result))
+    (is (not (autopoiesis.core:degraded-p))))
+  
+  ;; Error case - enters degraded mode
+  (unwind-protect
+       (progn
+         (handler-bind ((warning #'muffle-warning))
+           (let ((result (autopoiesis.core:with-graceful-degradation (:offline)
+                           (error 'autopoiesis.core:autopoiesis-error :message "test failure"))))
+             (is (null result))
+             (is-true (autopoiesis.core:degraded-p))
+             (is (eq :offline (autopoiesis.core:degradation-name autopoiesis.core:*current-degradation-level*))))))
+    (setf autopoiesis.core:*current-degradation-level* nil)))
+
+(test recovery-log-events
+  "Test recovery event logging"
+  (autopoiesis.core:clear-recovery-log)
+  
+  ;; Log some events
+  (let ((err (make-condition 'autopoiesis.core:transient-error :message "test")))
+    (autopoiesis.core:log-recovery-event 'test-op err nil :success)
+    (autopoiesis.core:log-recovery-event 'test-op-2 err nil :failure))
+  
+  ;; Check log
+  (let ((log (autopoiesis.core:get-recovery-log)))
+    (is (= 2 (length log)))
+    ;; Most recent first
+    (is (eq :failure (autopoiesis.core:recovery-event-outcome (first log))))
+    (is (eq :success (autopoiesis.core:recovery-event-outcome (second log)))))
+  
+  ;; Filter by operation
+  (let ((filtered (autopoiesis.core:get-recovery-log :operation 'test-op)))
+    (is (= 1 (length filtered))))
+  
+  ;; Clear log
+  (autopoiesis.core:clear-recovery-log)
+  (is (null (autopoiesis.core:get-recovery-log))))
+
+(test recovery-strategy-registration
+  "Test recovery strategy registration and lookup"
+  ;; Clear any existing strategies for test
+  (let ((original-strategies (copy-hash-table autopoiesis.core:*recovery-strategies*)))
+    (unwind-protect
+         (progn
+           ;; Register a test strategy
+           (autopoiesis.core:define-recovery-strategy test-strategy autopoiesis.core:transient-error
+               (:priority 50 :description "Test strategy")
+             :recovered)
+           
+           ;; Find strategies for transient error
+           (let* ((err (make-condition 'autopoiesis.core:transient-error :message "test"))
+                  (strategies (autopoiesis.core:find-recovery-strategies err)))
+             (is (not (null strategies)))
+             (is (member 'test-strategy strategies :key #'autopoiesis.core:strategy-name))))
+      ;; Restore original strategies
+      (setf autopoiesis.core:*recovery-strategies* original-strategies))))
+
+(test recovery-establish-restarts
+  "Test establish-recovery-restarts provides expected restarts"
+  (block test-block
+    (handler-bind
+        ((autopoiesis.core:autopoiesis-error
+           (lambda (c)
+             (declare (ignore c))
+             ;; Check restarts are available
+             (is-true (find-restart 'autopoiesis.core::continue-with-default))
+             (is-true (find-restart 'autopoiesis.core::retry-operation))
+             (is-true (find-restart 'autopoiesis.core::skip-operation))
+             ;; Use continue-with-default
+             (invoke-restart 'autopoiesis.core::continue-with-default))))
+      (let ((result (autopoiesis.core:establish-recovery-restarts
+                     (lambda ()
+                       (error 'autopoiesis.core:autopoiesis-error :message "test"))
+                     :default-value :default-result)))
+        (is (eq :default-result result))))))
+
+(test recovery-with-operation-recovery-success
+  "Test with-operation-recovery on successful operation"
+  (let ((result (autopoiesis.core:with-operation-recovery ('test-op :default nil)
+                  (+ 1 2))))
+    (is (= 3 result))))
+
+(test recovery-with-operation-recovery-with-retry
+  "Test with-operation-recovery with retry"
+  (let ((call-count 0))
+    (let ((result (autopoiesis.core:with-operation-recovery ('test-op :default :failed :max-retries 3)
+                    (incf call-count)
+                    (if (< call-count 2)
+                        (error 'transient-error :message "retry")
+                        :success))))
+      (is (eq :success result))
+      (is (= 2 call-count)))))

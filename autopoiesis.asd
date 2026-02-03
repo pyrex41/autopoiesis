@@ -28,6 +28,7 @@
       :components
       ((:file "packages")
        (:file "conditions")
+       (:file "recovery")
        (:file "s-expr")
        (:file "cognitive-primitives")
        (:file "thought-stream")

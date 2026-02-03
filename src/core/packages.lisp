@@ -87,6 +87,67 @@
    #:autopoiesis-error
    #:autopoiesis-warning
    #:condition-message
+   
+   ;; Recovery conditions
+   #:recoverable-error
+   #:transient-error
+   #:resource-error
+   #:state-inconsistency-error
+   #:error-operation
+   #:error-recoverable-p
+   #:error-recovery-hints
+   #:error-retry-count
+   #:error-max-retries
+   #:error-resource
+   #:error-resource-type
+   #:error-expected-state
+   #:error-actual-state
+   
+   ;; Recovery strategies
+   #:recovery-strategy
+   #:strategy-name
+   #:strategy-description
+   #:strategy-priority
+   #:register-recovery-strategy
+   #:find-recovery-strategies
+   #:define-recovery-strategy
+   #:*recovery-strategies*
+   
+   ;; Recovery restarts and macros
+   #:establish-recovery-restarts
+   #:with-recovery
+   #:with-retry
+   #:with-operation-recovery
+   #:retry-with-backoff
+   #:exponential-backoff-delay
+   
+   ;; Graceful degradation
+   #:degradation-level
+   #:degradation-name
+   #:degradation-description
+   #:degradation-capabilities
+   #:degradation-restrictions
+   #:define-degradation-level
+   #:enter-degraded-mode
+   #:exit-degraded-mode
+   #:degraded-p
+   #:capability-available-p
+   #:with-graceful-degradation
+   #:*current-degradation-level*
+   #:*degradation-levels*
+   
+   ;; Recovery logging
+   #:recovery-event
+   #:recovery-event-timestamp
+   #:recovery-event-operation
+   #:recovery-event-error-type
+   #:recovery-event-error-message
+   #:recovery-event-strategy-used
+   #:recovery-event-outcome
+   #:log-recovery-event
+   #:get-recovery-log
+   #:clear-recovery-log
+   #:*recovery-log*
 
    ;; Extension compiler
    #:extension

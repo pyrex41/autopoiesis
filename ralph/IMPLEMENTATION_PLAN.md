@@ -237,7 +237,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Security test sandbox escape attempts
 
 #### 10.3: Reliability
-- [ ] Implement error recovery with restarts
+- [x] Implement error recovery with restarts
 - [ ] Add state consistency checks
 - [ ] Implement backup/restore functionality
 - [ ] Add graceful degradation on failures
