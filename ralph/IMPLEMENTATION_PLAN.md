@@ -80,7 +80,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Implement terminal-ui main class with screen management
 - [x] Implement keyboard input handler (hjkl navigation, Enter select, q quit, / search)
 - [x] Implement `run-terminal-ui` main loop (input → update → render cycle)
-- [ ] Implement status bar with current position, branch name, help hints
+- [x] Implement status bar with current position, branch name, help hints
 
 ### Phase 7.7: Branch Visualization
 - [ ] Implement `compute-branch-layout` (assign y-positions to branches)
