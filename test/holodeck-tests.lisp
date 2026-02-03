@@ -3491,3 +3491,217 @@ out vec4 color;")))
     (update-hud hud)
     ;; Agent panel should be hidden
     (is (null (panel-visible-p (hud-panel hud :agent))))))
+
+;;; ===================================================================
+;;; render-hud Tests
+;;; ===================================================================
+
+(def-suite render-hud-tests
+  :in hud-tests
+  :description "Tests for render-hud, border geometry, text layout, and panel commands")
+
+(in-suite render-hud-tests)
+
+;;; --- Border Geometry ---
+
+(test make-border-segments-count
+  "Test that make-border-segments produces 12 segments (4 corners + 4 edges)."
+  (let ((segs (make-border-segments 0 0 200 100 8)))
+    (is (= 12 (length segs)))))
+
+(test make-border-segments-structure
+  "Test that each border segment has x1 y1 x2 y2 keys."
+  (let ((segs (make-border-segments 10 20 300 150 8)))
+    (dolist (seg segs)
+      (is (not (null (getf seg :x1))))
+      (is (not (null (getf seg :y1))))
+      (is (not (null (getf seg :x2))))
+      (is (not (null (getf seg :y2)))))))
+
+(test make-border-segments-bounds
+  "Test that border segments stay within panel bounds."
+  (let ((segs (make-border-segments 10 20 300 150 8)))
+    (dolist (seg segs)
+      (is (<= 10 (getf seg :x1) 310))
+      (is (<= 20 (getf seg :y1) 170))
+      (is (<= 10 (getf seg :x2) 310))
+      (is (<= 20 (getf seg :y2) 170)))))
+
+(test make-corner-brackets-count
+  "Test that make-corner-brackets produces 8 segments (2 per corner)."
+  (let ((segs (make-corner-brackets 0 0 200 100 8)))
+    (is (= 8 (length segs)))))
+
+(test make-corner-brackets-structure
+  "Test that each corner bracket has x1 y1 x2 y2 keys."
+  (let ((segs (make-corner-brackets 50 50 400 300 10)))
+    (dolist (seg segs)
+      (is (not (null (getf seg :x1))))
+      (is (not (null (getf seg :y1))))
+      (is (not (null (getf seg :x2))))
+      (is (not (null (getf seg :y2)))))))
+
+;;; --- Text Layout ---
+
+(test layout-panel-text-with-title
+  "Test text layout includes title and content lines."
+  (let* ((desc (list :x 10 :y 20 :width 200 :height 100
+                     :title "TEST" :lines '("Line 1" "Line 2")
+                     :text-color '(0.8 0.9 1.0 1.0)))
+         (texts (layout-panel-text desc)))
+    ;; Should have title + 2 content lines = 3 text commands
+    (is (= 3 (length texts)))
+    ;; First should be the title
+    (is (string= "TEST" (getf (first texts) :text)))
+    (is (eq :bold (getf (first texts) :style)))
+    ;; Content lines
+    (is (string= "Line 1" (getf (second texts) :text)))
+    (is (string= "Line 2" (getf (third texts) :text)))))
+
+(test layout-panel-text-without-title
+  "Test text layout with no title starts content at padding offset."
+  (let* ((desc (list :x 10 :y 20 :width 200 :height 100
+                     :title nil :lines '("Only line")
+                     :text-color '(0.8 0.9 1.0 1.0)))
+         (texts (layout-panel-text desc)))
+    (is (= 1 (length texts)))
+    (is (string= "Only line" (getf (first texts) :text)))
+    ;; Y should be near top with just padding (no title bar offset)
+    (is (< (getf (first texts) :y) 50))))
+
+(test layout-panel-text-empty-content
+  "Test text layout with title but no content lines."
+  (let* ((desc (list :x 10 :y 20 :width 200 :height 100
+                     :title "EMPTY" :lines nil
+                     :text-color '(0.8 0.9 1.0 1.0)))
+         (texts (layout-panel-text desc)))
+    ;; Should have just the title
+    (is (= 1 (length texts)))
+    (is (string= "EMPTY" (getf (first texts) :text)))))
+
+;;; --- Panel Render Commands ---
+
+(test render-panel-commands-types
+  "Test that render-panel-commands produces expected command types."
+  (let* ((desc (list :x 10 :y 20 :width 200 :height 100
+                     :alpha 0.7 :title "TEST"
+                     :lines '("Hello") :text-color '(0.8 0.9 1.0 1.0)
+                     :border-color '(0.3 0.6 1.0 0.8)
+                     :bg-color '(0.0 0.0 0.0 0.7)))
+         (cmds (render-panel-commands desc))
+         (types (mapcar (lambda (c) (getf c :type)) cmds)))
+    ;; Should have fill-rect, line, text, and title-bar commands
+    (is (member :fill-rect types))
+    (is (member :line types))
+    (is (member :text types))
+    (is (member :title-bar types))))
+
+(test render-panel-commands-has-background
+  "Test that first command is a fill-rect for the background."
+  (let* ((desc (list :x 10 :y 20 :width 200 :height 100
+                     :alpha 0.5 :title nil :lines nil
+                     :text-color '(0.8 0.9 1.0 1.0)
+                     :border-color '(0.3 0.6 1.0 0.8)
+                     :bg-color '(0.0 0.0 0.0 0.5)))
+         (cmds (render-panel-commands desc)))
+    (is (eq :fill-rect (getf (first cmds) :type)))
+    (is (= 10 (getf (first cmds) :x)))
+    (is (= 20 (getf (first cmds) :y)))
+    (is (= 200 (getf (first cmds) :width)))
+    (is (= 100 (getf (first cmds) :height)))))
+
+(test render-panel-commands-alpha-applied
+  "Test that alpha is properly applied to background color."
+  (let* ((desc (list :x 0 :y 0 :width 100 :height 50
+                     :alpha 0.5 :title nil :lines nil
+                     :text-color '(0.8 0.9 1.0 1.0)
+                     :border-color '(0.3 0.6 1.0 0.8)
+                     :bg-color '(0.0 0.0 0.0 0.5)))
+         (cmds (render-panel-commands desc))
+         (bg-cmd (first cmds))
+         (bg-alpha (fourth (getf bg-cmd :color))))
+    ;; Background alpha should be the panel alpha (0.5)
+    (is (< (abs (- 0.5 bg-alpha)) 0.01))))
+
+(test render-panel-commands-no-title-bar-without-title
+  "Test that no title-bar command is generated when title is nil."
+  (let* ((desc (list :x 0 :y 0 :width 100 :height 50
+                     :alpha 0.7 :title nil :lines nil
+                     :text-color '(0.8 0.9 1.0 1.0)
+                     :border-color '(0.3 0.6 1.0 0.8)
+                     :bg-color '(0.0 0.0 0.0 0.7)))
+         (cmds (render-panel-commands desc))
+         (types (mapcar (lambda (c) (getf c :type)) cmds)))
+    (is (not (member :title-bar types)))))
+
+(test render-panel-commands-border-line-count
+  "Test that border generates the expected number of line commands."
+  (let* ((desc (list :x 0 :y 0 :width 200 :height 100
+                     :alpha 0.8 :title nil :lines nil
+                     :text-color '(0.8 0.9 1.0 1.0)
+                     :border-color '(0.3 0.6 1.0 0.8)
+                     :bg-color '(0.0 0.0 0.0 0.8)))
+         (cmds (render-panel-commands desc))
+         (line-cmds (remove-if-not (lambda (c) (eq :line (getf c :type))) cmds)))
+    ;; 12 glow border + 12 inner border + 8 corner brackets = 32 lines
+    (is (= 32 (length line-cmds)))))
+
+;;; --- Main render-hud ---
+
+(test render-hud-hidden
+  "Test render-hud returns empty when HUD is hidden."
+  (let ((hud (make-hud)))
+    (setf (hud-visible-p hud) nil)
+    (let ((result (render-hud hud)))
+      (is (null (getf result :visible-p)))
+      (is (null (getf result :commands)))
+      (is (= 0 (getf result :panel-count))))))
+
+(test render-hud-visible-structure
+  "Test render-hud returns expected structure when visible."
+  (let ((hud (make-hud)))
+    (let ((result (render-hud hud)))
+      (is (eq t (getf result :visible-p)))
+      (is (listp (getf result :commands)))
+      ;; 3 visible panels by default (agent hidden)
+      (is (= 3 (getf result :panel-count))))))
+
+(test render-hud-all-panels-visible
+  "Test render-hud with all four panels visible."
+  (let ((hud (make-hud)))
+    (setf (panel-visible-p (hud-panel hud :agent)) t)
+    (let ((result (render-hud hud)))
+      (is (= 4 (getf result :panel-count))))))
+
+(test render-hud-commands-are-plists
+  "Test that all commands from render-hud are valid plists with :type."
+  (let* ((hud (make-hud))
+         (result (render-hud hud))
+         (commands (getf result :commands)))
+    (dolist (cmd commands)
+      (is (not (null (getf cmd :type))))
+      (is (member (getf cmd :type) '(:fill-rect :line :text :title-bar))))))
+
+(test render-hud-command-ordering
+  "Test that fill-rect commands precede line and text commands per panel."
+  (let* ((hud (make-hud))
+         (result (render-hud hud))
+         (commands (getf result :commands)))
+    ;; First command should be a fill-rect (background of first panel)
+    (is (eq :fill-rect (getf (first commands) :type)))))
+
+(test render-hud-with-content
+  "Test render-hud includes text commands from panel content."
+  (let ((hud (make-hud)))
+    (update-position-panel hud :branch "main"
+                               :snapshot-id "abc123"
+                               :snapshot-type :decision)
+    (let* ((result (render-hud hud))
+           (commands (getf result :commands))
+           (text-cmds (remove-if-not
+                       (lambda (c) (eq :text (getf c :type)))
+                       commands))
+           (texts (mapcar (lambda (c) (getf c :text)) text-cmds)))
+      ;; Should contain the position panel's title and content
+      (is (some (lambda (txt) (search "LOCATION" txt)) texts))
+      (is (some (lambda (txt) (search "Branch" txt)) texts)))))

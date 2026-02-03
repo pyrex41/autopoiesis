@@ -333,6 +333,264 @@
             visible)))
 
 ;;; ===================================================================
+;;; HUD Render Constants
+;;; ===================================================================
+
+(defparameter *hud-border-color* '(0.3 0.6 1.0 0.8)
+  "Default RGBA color for HUD panel borders (holographic blue).")
+
+(defparameter *hud-border-glow-color* '(0.4 0.7 1.0 0.4)
+  "RGBA color for the outer glow around HUD panel borders.")
+
+(defparameter *hud-title-color* '(0.5 0.8 1.0 1.0)
+  "RGBA color for panel title text.")
+
+(defparameter *hud-text-color* '(0.8 0.9 1.0 1.0)
+  "Default RGBA color for panel content text.")
+
+(defparameter *hud-bg-color* '(0.02 0.03 0.08)
+  "RGB base color for panel backgrounds (deep blue-black).")
+
+(defparameter *hud-corner-size* 8
+  "Size in pixels of decorative corner brackets on panels.")
+
+(defparameter *hud-title-height* 22
+  "Height in pixels of the title bar area within a panel.")
+
+(defparameter *hud-line-height* 18
+  "Vertical spacing in pixels between content text lines.")
+
+(defparameter *hud-text-padding* 10
+  "Horizontal padding in pixels for text within a panel.")
+
+(defparameter *hud-border-width* 1.0
+  "Width in pixels for panel border lines.")
+
+(defparameter *hud-glow-width* 3.0
+  "Width in pixels for the outer glow border effect.")
+
+;;; ===================================================================
+;;; Border Geometry Generation
+;;; ===================================================================
+
+(defun make-border-segments (x y width height corner-size)
+  "Generate line segments for a panel border with decorative corners.
+   Returns a list of segment plists, each with :x1 :y1 :x2 :y2.
+   The border has corner brackets (L-shaped pieces) at each corner
+   and continuous edges between them."
+  (let ((cs corner-size)
+        (right (+ x width))
+        (bottom (+ y height)))
+    (list
+     ;; Top-left corner (two segments forming an L)
+     (list :x1 x :y1 (+ y cs) :x2 x :y2 y)
+     (list :x1 x :y1 y :x2 (+ x cs) :y2 y)
+     ;; Top edge (between corners)
+     (list :x1 (+ x cs) :y1 y :x2 (- right cs) :y2 y)
+     ;; Top-right corner
+     (list :x1 (- right cs) :y1 y :x2 right :y2 y)
+     (list :x1 right :y1 y :x2 right :y2 (+ y cs))
+     ;; Right edge
+     (list :x1 right :y1 (+ y cs) :x2 right :y2 (- bottom cs))
+     ;; Bottom-right corner
+     (list :x1 right :y1 (- bottom cs) :x2 right :y2 bottom)
+     (list :x1 right :y1 bottom :x2 (- right cs) :y2 bottom)
+     ;; Bottom edge
+     (list :x1 (- right cs) :y1 bottom :x2 (+ x cs) :y2 bottom)
+     ;; Bottom-left corner
+     (list :x1 (+ x cs) :y1 bottom :x2 x :y2 bottom)
+     (list :x1 x :y1 bottom :x2 x :y2 (- bottom cs))
+     ;; Left edge
+     (list :x1 x :y1 (- bottom cs) :x2 x :y2 (+ y cs)))))
+
+(defun make-corner-brackets (x y width height corner-size)
+  "Generate only the corner bracket segments (no connecting edges).
+   Returns a list of segment plists for the four L-shaped corners."
+  (let ((cs corner-size)
+        (right (+ x width))
+        (bottom (+ y height)))
+    (list
+     ;; Top-left
+     (list :x1 x :y1 (+ y cs) :x2 x :y2 y)
+     (list :x1 x :y1 y :x2 (+ x cs) :y2 y)
+     ;; Top-right
+     (list :x1 (- right cs) :y1 y :x2 right :y2 y)
+     (list :x1 right :y1 y :x2 right :y2 (+ y cs))
+     ;; Bottom-right
+     (list :x1 right :y1 (- bottom cs) :x2 right :y2 bottom)
+     (list :x1 right :y1 bottom :x2 (- right cs) :y2 bottom)
+     ;; Bottom-left
+     (list :x1 (+ x cs) :y1 bottom :x2 x :y2 bottom)
+     (list :x1 x :y1 bottom :x2 x :y2 (- bottom cs)))))
+
+;;; ===================================================================
+;;; Text Layout
+;;; ===================================================================
+
+(defun layout-panel-text (panel-desc)
+  "Compute positioned text render commands for a panel description.
+   Returns a list of text command plists with :text :x :y :color :size.
+   Title is rendered in the title area; content lines below with padding."
+  (let ((x (getf panel-desc :x))
+        (y (getf panel-desc :y))
+        (title (getf panel-desc :title))
+        (lines (getf panel-desc :lines))
+        (text-color (getf panel-desc :text-color))
+        (padding *hud-text-padding*)
+        (commands nil)
+        (current-y 0))
+    ;; Title text (rendered in title bar area if present)
+    (when title
+      (push (list :text title
+                  :x (+ x padding)
+                  :y (+ y padding 2)
+                  :color *hud-title-color*
+                  :size 13
+                  :style :bold)
+            commands)
+      (setf current-y (+ *hud-title-height* 4)))
+    ;; Content lines
+    (when (null title)
+      (setf current-y padding))
+    (dolist (line lines)
+      (when line
+        (push (list :text line
+                    :x (+ x padding)
+                    :y (+ y current-y)
+                    :color text-color
+                    :size 12
+                    :style :normal)
+              commands))
+      (incf current-y *hud-line-height*))
+    (nreverse commands)))
+
+;;; ===================================================================
+;;; Panel Render Command Generation
+;;; ===================================================================
+
+(defun render-panel-commands (panel-desc)
+  "Generate a list of render commands for a single panel description.
+   Each command is a plist with :type indicating the primitive:
+     :fill-rect  - Background fill with transparency
+     :line       - Border line segment
+     :text       - Text string at position
+     :title-bar  - Title separator line
+
+   Returns the list of commands in back-to-front draw order."
+  (let ((x (getf panel-desc :x))
+        (y (getf panel-desc :y))
+        (w (getf panel-desc :width))
+        (h (getf panel-desc :height))
+        (alpha (getf panel-desc :alpha))
+        (title (getf panel-desc :title))
+        (commands nil))
+    ;; 1. Background fill (drawn first)
+    (push (list :type :fill-rect
+                :x x :y y :width w :height h
+                :color (list (first *hud-bg-color*)
+                             (second *hud-bg-color*)
+                             (third *hud-bg-color*)
+                             alpha))
+          commands)
+    ;; 2. Outer glow border (wider, dimmer)
+    (let ((glow-segs (make-border-segments x y w h *hud-corner-size*))
+          (glow-color (let ((gc (copy-list *hud-border-glow-color*)))
+                        (setf (fourth gc) (* (fourth gc) alpha))
+                        gc)))
+      (dolist (seg glow-segs)
+        (push (list :type :line
+                    :x1 (getf seg :x1) :y1 (getf seg :y1)
+                    :x2 (getf seg :x2) :y2 (getf seg :y2)
+                    :color glow-color
+                    :width *hud-glow-width*)
+              commands)))
+    ;; 3. Inner border (sharp, brighter)
+    (let ((border-segs (make-border-segments x y w h *hud-corner-size*))
+          (border-color (let ((bc (copy-list *hud-border-color*)))
+                          (setf (fourth bc) (* (fourth bc) alpha))
+                          bc)))
+      (dolist (seg border-segs)
+        (push (list :type :line
+                    :x1 (getf seg :x1) :y1 (getf seg :y1)
+                    :x2 (getf seg :x2) :y2 (getf seg :y2)
+                    :color border-color
+                    :width *hud-border-width*)
+              commands)))
+    ;; 4. Corner brackets (highlighted, on top of edges)
+    (let ((corners (make-corner-brackets x y w h *hud-corner-size*))
+          (corner-color (list 0.5 0.8 1.0 (* 1.0 alpha))))
+      (dolist (seg corners)
+        (push (list :type :line
+                    :x1 (getf seg :x1) :y1 (getf seg :y1)
+                    :x2 (getf seg :x2) :y2 (getf seg :y2)
+                    :color corner-color
+                    :width 2.0)
+              commands)))
+    ;; 5. Title separator line (if title present)
+    (when title
+      (let ((sep-y (+ y *hud-title-height*)))
+        (push (list :type :title-bar
+                    :x1 (+ x *hud-text-padding*) :y1 sep-y
+                    :x2 (+ x (- w *hud-text-padding*)) :y2 sep-y
+                    :color (let ((bc (copy-list *hud-border-color*)))
+                             (setf (fourth bc) (* (fourth bc) alpha 0.5))
+                             bc)
+                    :width 1.0)
+              commands)))
+    ;; 6. Text
+    (dolist (txt-cmd (layout-panel-text panel-desc))
+      ;; Apply alpha to text color
+      (let ((tc (copy-list (getf txt-cmd :color))))
+        (when (fourth tc)
+          (setf (fourth tc) (* (fourth tc) alpha)))
+        (push (list :type :text
+                    :text (getf txt-cmd :text)
+                    :x (getf txt-cmd :x)
+                    :y (getf txt-cmd :y)
+                    :color tc
+                    :size (getf txt-cmd :size)
+                    :style (getf txt-cmd :style))
+              commands)))
+    (nreverse commands)))
+
+;;; ===================================================================
+;;; Main render-hud Function
+;;; ===================================================================
+
+(defun render-hud (hud)
+  "Render the HUD overlay by producing a complete list of draw commands.
+   Returns a plist with:
+     :visible-p  - Whether the HUD is visible at all
+     :commands   - Ordered list of draw command plists (back to front)
+     :panel-count - Number of panels rendered
+
+   Each command in :commands has a :type key indicating the primitive:
+     :fill-rect  - Filled rectangle (:x :y :width :height :color)
+     :line       - Line segment (:x1 :y1 :x2 :y2 :color :width)
+     :text       - Text string (:text :x :y :color :size :style)
+     :title-bar  - Title separator (:x1 :y1 :x2 :y2 :color :width)
+
+   All coordinates are in screen pixels.  Colors are (R G B A) with
+   transparency already factored in.  Draw commands are ordered
+   back-to-front for correct transparency compositing.
+
+   If the HUD is not visible, returns a plist with :visible-p NIL
+   and empty :commands."
+  (unless (hud-visible-p hud)
+    (return-from render-hud
+      (list :visible-p nil :commands nil :panel-count 0)))
+  (let ((panel-descs (collect-hud-render-descriptions hud))
+        (all-commands nil)
+        (panel-count 0))
+    (dolist (desc panel-descs)
+      (let ((cmds (render-panel-commands desc)))
+        (setf all-commands (nconc all-commands cmds))
+        (incf panel-count)))
+    (list :visible-p t
+          :commands all-commands
+          :panel-count panel-count)))
+
+;;; ===================================================================
 ;;; Utility
 ;;; ===================================================================
 

@@ -178,7 +178,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 #### 8.4: HUD System
 - [x] Create HUD panel system with position, agent, timeline, hints panels
 - [x] Implement `update-hud` from current state
-- [ ] Implement `render-hud` with transparency and borders
+- [x] Implement `render-hud` with transparency and borders
 - [ ] Add timeline scrubber at bottom
 
 #### 8.5: Input Handling

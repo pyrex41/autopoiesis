@@ -383,6 +383,26 @@
    #:panel-visible-p
    #:panel-alpha
 
+   ;; HUD rendering
+   #:render-hud
+   #:render-panel-commands
+   #:layout-panel-text
+   #:make-border-segments
+   #:make-corner-brackets
+
+   ;; HUD render constants
+   #:*hud-border-color*
+   #:*hud-border-glow-color*
+   #:*hud-title-color*
+   #:*hud-text-color*
+   #:*hud-bg-color*
+   #:*hud-corner-size*
+   #:*hud-title-height*
+   #:*hud-line-height*
+   #:*hud-text-padding*
+   #:*hud-border-width*
+   #:*hud-glow-width*
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck
