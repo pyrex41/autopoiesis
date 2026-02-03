@@ -72,6 +72,7 @@
       :depends-on ("core" "agent")
       :components
       ((:file "packages")
+       (:file "events")
        (:file "claude-bridge")
        (:file "message-format")
        (:file "tool-mapping")

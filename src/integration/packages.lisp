@@ -127,4 +127,36 @@
    #:register-builtin-tools
    #:unregister-builtin-tools
    #:list-builtin-tools
-   #:*builtin-tools-registered*))
+   #:*builtin-tools-registered*
+
+   ;; Integration events
+   #:integration-event-type
+   #:integration-event
+   #:make-integration-event
+   #:integration-event-id
+   #:integration-event-kind
+   #:integration-event-source
+   #:integration-event-agent-id
+   #:integration-event-data
+   #:integration-event-timestamp
+   #:event-to-sexpr
+   #:sexpr-to-event
+   #:emit-integration-event
+   #:subscribe-to-event
+   #:unsubscribe-from-event
+   #:subscribe-to-all-events
+   #:unsubscribe-from-all-events
+   #:clear-event-handlers
+   #:clear-event-history
+   #:get-event-history
+   #:count-events
+   #:with-events-disabled
+   #:with-event-handler
+   #:setup-default-event-handlers
+   #:remove-default-event-handlers
+   #:*event-handlers*
+   #:*global-event-handlers*
+   #:*event-history*
+   #:*max-event-history*
+   #:*events-enabled*
+   #:*default-handlers-installed*))

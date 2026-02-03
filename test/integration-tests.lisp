@@ -1274,3 +1274,264 @@
   (let ((cap (autopoiesis.agent:find-capability 'autopoiesis.integration::web-head)))
     (is (not (null cap)))
     (is (eq 'autopoiesis.integration::web-head (autopoiesis.agent:capability-name cap)))))
+
+;;; ===================================================================
+;;; Integration Event System Tests
+;;; ===================================================================
+
+(test event-creation
+  "Test creating an integration event"
+  (let ((event (autopoiesis.integration:make-integration-event
+                :tool-called
+                :claude
+                :agent-id "agent-123"
+                :data '(:tool "read-file" :arguments (:path "/tmp/test.txt")))))
+    (is (not (null (autopoiesis.integration:integration-event-id event))))
+    (is (eq :tool-called (autopoiesis.integration:integration-event-kind event)))
+    (is (eq :claude (autopoiesis.integration:integration-event-source event)))
+    (is (equal "agent-123" (autopoiesis.integration:integration-event-agent-id event)))
+    (is (equal "read-file" (getf (autopoiesis.integration:integration-event-data event) :tool)))
+    (is (numberp (autopoiesis.integration:integration-event-timestamp event)))))
+
+(test event-serialization
+  "Test event serialization and deserialization"
+  (let* ((event (autopoiesis.integration:make-integration-event
+                 :mcp-connected
+                 :mcp-filesystem
+                 :data '(:server-name "filesystem" :tools-count 10)))
+         (sexpr (autopoiesis.integration:event-to-sexpr event))
+         (restored (autopoiesis.integration:sexpr-to-event sexpr)))
+    (is (equal (autopoiesis.integration:integration-event-id event)
+               (autopoiesis.integration:integration-event-id restored)))
+    (is (eq (autopoiesis.integration:integration-event-kind event)
+            (autopoiesis.integration:integration-event-kind restored)))
+    (is (eq (autopoiesis.integration:integration-event-source event)
+            (autopoiesis.integration:integration-event-source restored)))
+    (is (equal (autopoiesis.integration:integration-event-data event)
+               (autopoiesis.integration:integration-event-data restored)))
+    (is (= (autopoiesis.integration:integration-event-timestamp event)
+           (autopoiesis.integration:integration-event-timestamp restored)))))
+
+(test event-emit-and-subscribe
+  "Test emitting events and subscribing to them"
+  (let ((received-events nil))
+    ;; Clear handlers for test isolation
+    (autopoiesis.integration:clear-event-handlers)
+    (autopoiesis.integration:clear-event-history)
+    ;; Subscribe to tool-called events
+    (autopoiesis.integration:subscribe-to-event
+     :tool-called
+     (lambda (event) (push event received-events)))
+    ;; Emit an event
+    (autopoiesis.integration:emit-integration-event
+     :tool-called :builtin
+     '(:tool "read-file")
+     :agent-id "test-agent")
+    ;; Should have received the event
+    (is (= 1 (length received-events)))
+    (is (eq :tool-called (autopoiesis.integration:integration-event-kind (first received-events))))
+    ;; Emit a different event type - shouldn't be received
+    (autopoiesis.integration:emit-integration-event
+     :mcp-connected :mcp-server
+     '(:server-name "test"))
+    (is (= 1 (length received-events)))  ; Still just one
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test event-unsubscribe
+  "Test unsubscribing from events"
+  (let ((call-count 0)
+        (handler nil))
+    (autopoiesis.integration:clear-event-handlers)
+    ;; Subscribe
+    (setf handler (autopoiesis.integration:subscribe-to-event
+                   :tool-result
+                   (lambda (e) (declare (ignore e)) (incf call-count))))
+    ;; Emit - should be called
+    (autopoiesis.integration:emit-integration-event
+     :tool-result :builtin '(:result "ok"))
+    (is (= 1 call-count))
+    ;; Unsubscribe
+    (is (autopoiesis.integration:unsubscribe-from-event :tool-result handler))
+    ;; Emit again - should NOT be called
+    (autopoiesis.integration:emit-integration-event
+     :tool-result :builtin '(:result "ok2"))
+    (is (= 1 call-count))  ; Still just one
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test event-global-handler
+  "Test global event handlers"
+  (let ((all-events nil))
+    (autopoiesis.integration:clear-event-handlers)
+    ;; Subscribe to all events
+    (autopoiesis.integration:subscribe-to-all-events
+     (lambda (event) (push event all-events)))
+    ;; Emit different event types
+    (autopoiesis.integration:emit-integration-event
+     :tool-called :builtin '(:tool "test"))
+    (autopoiesis.integration:emit-integration-event
+     :claude-request :claude '(:messages 1))
+    (autopoiesis.integration:emit-integration-event
+     :mcp-connected :mcp-fs '(:server-name "fs"))
+    ;; Should have received all three
+    (is (= 3 (length all-events)))
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test event-history
+  "Test event history tracking"
+  (autopoiesis.integration:clear-event-handlers)
+  (autopoiesis.integration:clear-event-history)
+  ;; Emit some events
+  (autopoiesis.integration:emit-integration-event
+   :tool-called :builtin '(:tool "t1") :agent-id "a1")
+  (autopoiesis.integration:emit-integration-event
+   :tool-called :builtin '(:tool "t2") :agent-id "a2")
+  (autopoiesis.integration:emit-integration-event
+   :mcp-connected :mcp-server '(:server-name "s1"))
+  ;; Get all history
+  (let ((history (autopoiesis.integration:get-event-history)))
+    (is (= 3 (length history))))
+  ;; Filter by type
+  (let ((tool-events (autopoiesis.integration:get-event-history :type :tool-called)))
+    (is (= 2 (length tool-events))))
+  ;; Filter by source
+  (let ((mcp-events (autopoiesis.integration:get-event-history :source :mcp-server)))
+    (is (= 1 (length mcp-events))))
+  ;; Filter by agent
+  (let ((agent-events (autopoiesis.integration:get-event-history :agent-id "a1")))
+    (is (= 1 (length agent-events))))
+  ;; Clean up
+  (autopoiesis.integration:clear-event-history))
+
+(test event-count
+  "Test event counting"
+  (autopoiesis.integration:clear-event-handlers)
+  (autopoiesis.integration:clear-event-history)
+  ;; Emit events
+  (autopoiesis.integration:emit-integration-event
+   :tool-called :builtin '(:tool "t1"))
+  (autopoiesis.integration:emit-integration-event
+   :tool-called :builtin '(:tool "t2"))
+  (autopoiesis.integration:emit-integration-event
+   :tool-result :builtin '(:result "ok"))
+  ;; Count all
+  (is (= 3 (autopoiesis.integration:count-events)))
+  ;; Count by type
+  (is (= 2 (autopoiesis.integration:count-events :type :tool-called)))
+  (is (= 1 (autopoiesis.integration:count-events :type :tool-result)))
+  ;; Clean up
+  (autopoiesis.integration:clear-event-history))
+
+(test with-events-disabled-macro
+  "Test with-events-disabled macro"
+  (autopoiesis.integration:clear-event-handlers)
+  (autopoiesis.integration:clear-event-history)
+  ;; Emit inside disabled block
+  (autopoiesis.integration:with-events-disabled
+    (autopoiesis.integration:emit-integration-event
+     :tool-called :builtin '(:tool "hidden")))
+  ;; Should not be in history
+  (is (= 0 (length (autopoiesis.integration:get-event-history))))
+  ;; Emit normally
+  (autopoiesis.integration:emit-integration-event
+   :tool-called :builtin '(:tool "visible"))
+  ;; Should be in history
+  (is (= 1 (length (autopoiesis.integration:get-event-history))))
+  ;; Clean up
+  (autopoiesis.integration:clear-event-history))
+
+(test with-event-handler-macro
+  "Test with-event-handler temporary subscription"
+  (let ((calls 0))
+    (autopoiesis.integration:clear-event-handlers)
+    ;; Use temporary handler
+    (autopoiesis.integration:with-event-handler
+        (:external-error (lambda (e) (declare (ignore e)) (incf calls)))
+      (autopoiesis.integration:emit-integration-event
+       :external-error :test '(:error "oops"))
+      (is (= 1 calls)))
+    ;; Handler should be gone now
+    (autopoiesis.integration:emit-integration-event
+     :external-error :test '(:error "oops2"))
+    (is (= 1 calls))  ; Still just one
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test event-handler-error-isolation
+  "Test that handler errors don't break event emission"
+  (let ((second-handler-called nil))
+    (autopoiesis.integration:clear-event-handlers)
+    ;; Subscribe a handler that throws
+    (autopoiesis.integration:subscribe-to-event
+     :tool-called
+     (lambda (e) (declare (ignore e)) (error "Intentional test error")))
+    ;; Subscribe a second handler
+    (autopoiesis.integration:subscribe-to-event
+     :tool-called
+     (lambda (e) (declare (ignore e)) (setf second-handler-called t)))
+    ;; Emit - should not error, and second handler should still be called
+    (finishes
+      (autopoiesis.integration:emit-integration-event
+       :tool-called :builtin '(:tool "test")))
+    (is (eq t second-handler-called))
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test default-event-handlers
+  "Test setting up and removing default handlers"
+  ;; Ensure clean state
+  (autopoiesis.integration:remove-default-event-handlers)
+  (is (null autopoiesis.integration:*default-handlers-installed*))
+  ;; Set up defaults
+  (autopoiesis.integration:setup-default-event-handlers)
+  (is (eq t autopoiesis.integration:*default-handlers-installed*))
+  ;; Setting up again should be a no-op
+  (autopoiesis.integration:setup-default-event-handlers)
+  (is (eq t autopoiesis.integration:*default-handlers-installed*))
+  ;; Remove
+  (autopoiesis.integration:remove-default-event-handlers)
+  (is (null autopoiesis.integration:*default-handlers-installed*)))
+
+(test multiple-handlers-same-type
+  "Test multiple handlers for the same event type"
+  (let ((results nil))
+    (autopoiesis.integration:clear-event-handlers)
+    ;; Subscribe multiple handlers
+    (autopoiesis.integration:subscribe-to-event
+     :tool-called
+     (lambda (e) (push (cons 1 (autopoiesis.integration:integration-event-id e)) results)))
+    (autopoiesis.integration:subscribe-to-event
+     :tool-called
+     (lambda (e) (push (cons 2 (autopoiesis.integration:integration-event-id e)) results)))
+    (autopoiesis.integration:subscribe-to-event
+     :tool-called
+     (lambda (e) (push (cons 3 (autopoiesis.integration:integration-event-id e)) results)))
+    ;; Emit
+    (autopoiesis.integration:emit-integration-event
+     :tool-called :builtin '(:tool "test"))
+    ;; All three should have been called
+    (is (= 3 (length results)))
+    (is (member 1 results :key #'car))
+    (is (member 2 results :key #'car))
+    (is (member 3 results :key #'car))
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test event-history-limit
+  "Test that event history respects max limit"
+  (autopoiesis.integration:clear-event-history)
+  (let ((autopoiesis.integration:*max-event-history* 5))
+    ;; Emit 10 events
+    (dotimes (i 10)
+      (autopoiesis.integration:emit-integration-event
+       :tool-called :builtin `(:index ,i)))
+    ;; Should only keep last 5
+    (is (= 5 (length autopoiesis.integration:*event-history*)))
+    ;; Most recent should be index 9
+    (is (= 9 (getf (autopoiesis.integration:integration-event-data
+                    (first autopoiesis.integration:*event-history*))
+                   :index))))
+  ;; Clean up
+  (autopoiesis.integration:clear-event-history))
