@@ -71,10 +71,10 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Implement `render-thought-preview` with truncation and expand/collapse state
 
 ### Phase 7.5: Navigation Integration
-- [ ] Implement `timeline-navigator` class wrapping snapshot navigator
-- [ ] Implement cursor movement functions (left, right, up-branch, down-branch)
-- [ ] Implement jump-to-snapshot by ID
-- [ ] Implement search function (find snapshot by content/type)
+- [x] Implement `timeline-navigator` class wrapping snapshot navigator
+- [x] Implement cursor movement functions (left, right, up-branch, down-branch)
+- [x] Implement jump-to-snapshot by ID
+- [x] Implement search function (find snapshot by content/type)
 
 ### Phase 7.6: Interactive Terminal UI
 - [ ] Implement `terminal-ui` main class with ncurses screen management
