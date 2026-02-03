@@ -48,6 +48,14 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 
 ## Next Up (Priority Order)
 
+### Phase 8.2: Rendering
+- [ ] Create `holodeck-window` class extending Trial main
+- [ ] Implement hologram-node shader (fresnel, scanlines, glow)
+- [ ] Implement energy-beam shader (animated flow)
+- [ ] Create mesh primitives (sphere, octahedron, branching-node)
+- [ ] Implement `render-snapshot-entity` with LOD
+- [ ] Implement `render-connection-entity` with energy beams
+
 ### Phase 7.1: Package and Foundation Setup
 - [x] Create `src/viz/packages.lisp` with package definitions for visualization subsystem
 - [x] Add `cl-charms` dependency to `autopoiesis.asd` for ncurses bindings
@@ -144,13 +152,13 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - **Estimated effort: 6-8 weeks**
 
 #### 8.1: ECS Setup
-- [ ] Add `trial`, `3d-matrices`, `3d-vectors`, `cl-fast-ecs` dependencies
-- [ ] Define spatial components (position, velocity, scale, rotation)
-- [ ] Define visual components (visual-style, mesh-ref, trail)
-- [ ] Define data binding components (snapshot-binding, agent-binding, connection)
-- [ ] Define interaction components (interactive, selection-state, tooltip)
-- [ ] Implement layout-system, movement-system, pulse-system
-- [ ] Implement lod-system, interaction-system
+- [x] Add `3d-matrices`, `3d-vectors`, `cl-fast-ecs` dependencies (as separate `autopoiesis/holodeck` ASDF subsystem)
+- [x] Define spatial components (position3d, velocity3d, scale3d, rotation3d)
+- [x] Define visual components (visual-style, node-label)
+- [x] Define data binding components (snapshot-binding, agent-binding, connection)
+- [x] Define interaction components (interactive, detail-level)
+- [x] Implement movement-system, pulse-system, lod-system
+- [x] Write holodeck ECS tests (73 checks passing)
 
 #### 8.2: Rendering
 - [ ] Create `holodeck-window` class extending Trial main
