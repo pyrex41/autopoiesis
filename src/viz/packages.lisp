@@ -139,6 +139,7 @@
    ;; Help overlay
    #:render-help-overlay
    #:toggle-help
+   #:ui-show-help-p
 
    ;; Session integration
    #:ui-session

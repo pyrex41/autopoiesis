@@ -18,7 +18,9 @@
    (status-message :accessor status-bar-message :initform ""
                    :documentation "Current status message for bottom status bar.")
    (running-p :accessor ui-running-p :initform nil
-              :documentation "Whether the UI main loop is running."))
+              :documentation "Whether the UI main loop is running.")
+   (show-help-p :accessor ui-show-help-p :initform nil
+                :documentation "Whether the help overlay is currently displayed."))
   (:documentation "Main terminal UI class managing screen layout, input, and rendering."))
 
 (defun make-terminal-ui (&key timeline navigator detail-panel session)
@@ -125,6 +127,8 @@
     ((char= key #\j)
      (when (cursor-down-branch (ui-navigator ui))
        (setf (status-bar-message ui) "Moved down branch")))
+    ((char= key #\?)
+     (toggle-help ui))
     ((char= key #\q)
      (setf (status-bar-message ui) "Quitting...")
      (stop-terminal-ui ui)
@@ -167,6 +171,11 @@
                              2))))
 
   (render-status-bar ui)
+
+  ;; Render help overlay on top of everything if active
+  (when (ui-show-help-p ui)
+    (render-help-overlay ui))
+
   (force-output))
 
 (defun run-terminal-ui (ui)
@@ -182,6 +191,72 @@
 
 (defun stop-terminal-ui (ui)
   (setf (ui-running-p ui) nil))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Help Overlay
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun toggle-help (ui)
+  "Toggle the help overlay on or off."
+  (setf (ui-show-help-p ui) (not (ui-show-help-p ui))))
+
+(defun help-keybindings ()
+  "Return an alist of (key . description) pairs for the help overlay."
+  '(("h" . "Move cursor left")
+    ("l" . "Move cursor right")
+    ("k" . "Move to parent (up branch)")
+    ("j" . "Move to child (down branch)")
+    ("Tab" . "Cycle to next branch")
+    ("1-9" . "Jump to branch by number")
+    ("Enter" . "Select snapshot")
+    ("/" . "Search snapshots")
+    ("?" . "Toggle this help overlay")
+    ("q" . "Quit")))
+
+(defun render-help-overlay (ui)
+  "Render a centered help overlay showing keybindings.
+   Draws a bordered box in the center of the terminal with
+   all available keybindings listed."
+  (let* ((bindings (help-keybindings))
+         (title "Keybindings")
+         (content-width 38)
+         (box-width (+ content-width 4))
+         (box-height (+ (length bindings) 4))
+         (term-w (ui-terminal-width ui))
+         (term-h (ui-terminal-height ui))
+         (start-col (max 1 (floor (- term-w box-width) 2)))
+         (start-row (max 1 (floor (- term-h box-height) 2))))
+    ;; Draw the box
+    (set-color +color-border+)
+    (draw-box start-row start-col box-width box-height)
+    (reset-color)
+    ;; Draw title centered
+    (let ((title-col (+ start-col (floor (- box-width (length title)) 2))))
+      (move-cursor start-row title-col)
+      (set-color +color-highlight+)
+      (princ title)
+      (reset-color))
+    ;; Draw separator line under title
+    (move-cursor (+ start-row 1) (1+ start-col))
+    (set-color +color-border+)
+    (dotimes (i (- box-width 2))
+      (write-string +box-horizontal+))
+    (reset-color)
+    ;; Draw each keybinding
+    (loop for (key . desc) in bindings
+          for row from (+ start-row 2)
+          do (move-cursor row (+ start-col 2))
+             (set-color +color-highlight+)
+             (princ (pad-string key 8))
+             (set-color +color-text+)
+             (princ desc)
+             (reset-color))
+    ;; Draw hint at bottom
+    (move-cursor (+ start-row box-height -2) (+ start-col 2))
+    (set-color +color-dim+)
+    (princ "Press ? to close")
+    (reset-color)
+    (force-output)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Session Integration

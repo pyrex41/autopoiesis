@@ -420,3 +420,47 @@
          (session (autopoiesis.interface:make-session "test-user" agent))
          (ui (autopoiesis.viz:make-terminal-ui :session session)))
     (is (eq session (autopoiesis.viz:ui-session ui)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Help Overlay Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test toggle-help-on-off
+  "Test that toggle-help toggles the help overlay state."
+  (let ((ui (autopoiesis.viz:make-terminal-ui)))
+    ;; Initially off
+    (is (null (autopoiesis.viz:ui-show-help-p ui)))
+    ;; Toggle on
+    (autopoiesis.viz:toggle-help ui)
+    (is-true (autopoiesis.viz:ui-show-help-p ui))
+    ;; Toggle off
+    (autopoiesis.viz:toggle-help ui)
+    (is (null (autopoiesis.viz:ui-show-help-p ui)))))
+
+(test render-help-overlay-output
+  "Test that render-help-overlay produces output with keybinding info."
+  (let* ((ui (autopoiesis.viz:make-terminal-ui)))
+    (setf (autopoiesis.viz:ui-terminal-width ui) 80
+          (autopoiesis.viz:ui-terminal-height ui) 24)
+    (let ((*standard-output* (make-string-output-stream)))
+      (autopoiesis.viz:render-help-overlay ui)
+      (let ((output (get-output-stream-string *standard-output*)))
+        ;; Should contain the title
+        (is-true (search "Keybindings" output))
+        ;; Should contain key descriptions
+        (is-true (search "Move cursor left" output))
+        (is-true (search "Quit" output))
+        ;; Should contain the close hint
+        (is-true (search "Press ? to close" output))))))
+
+(test handle-input-question-mark-toggles-help
+  "Test that ? key toggles help overlay via handle-input."
+  (let ((ui (autopoiesis.viz:make-terminal-ui)))
+    ;; Initially off
+    (is (null (autopoiesis.viz:ui-show-help-p ui)))
+    ;; Press ?
+    (autopoiesis.viz:handle-input ui #\?)
+    (is-true (autopoiesis.viz:ui-show-help-p ui))
+    ;; Press ? again
+    (autopoiesis.viz:handle-input ui #\?)
+    (is (null (autopoiesis.viz:ui-show-help-p ui)))))
