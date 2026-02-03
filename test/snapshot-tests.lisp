@@ -925,6 +925,354 @@
       (cleanup-temp-store temp-path))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Backup/Restore Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun make-temp-backup-path ()
+  "Create a temporary directory path for test backups."
+  (let ((path (merge-pathnames
+               (format nil "autopoiesis-backup-test-~a/" (autopoiesis.core:make-uuid))
+               (uiop:temporary-directory))))
+    (ensure-directories-exist path)
+    path))
+
+(test backup-metadata-creation
+  "Test backup metadata creation"
+  (let ((metadata (autopoiesis.snapshot:make-backup-metadata
+                   :type :full
+                   :source-path #p"/test/path/"
+                   :description "Test backup")))
+    (is (not (null (autopoiesis.snapshot:backup-id metadata))))
+    (is (not (null (autopoiesis.snapshot:backup-timestamp metadata))))
+    (is (eq :full (autopoiesis.snapshot:backup-type metadata)))
+    (is (equal #p"/test/path/" (autopoiesis.snapshot:backup-source-path metadata)))
+    (is (string= "Test backup" (autopoiesis.snapshot:backup-description metadata)))
+    (is (eq :pending (autopoiesis.snapshot:backup-status metadata)))))
+
+(test backup-result-creation
+  "Test backup result creation"
+  (let ((result (autopoiesis.snapshot:make-backup-result
+                 :success-p t
+                 :backup-path #p"/backup/path/"
+                 :warnings '("warning1"))))
+    (is (autopoiesis.snapshot:backup-success-p result))
+    (is (equal #p"/backup/path/" (autopoiesis.snapshot:backup-result-path result)))
+    (is (= 1 (length (autopoiesis.snapshot:backup-warnings result))))
+    (is (null (autopoiesis.snapshot:backup-errors result)))))
+
+(test restore-result-creation
+  "Test restore result creation"
+  (let ((result (autopoiesis.snapshot:make-restore-result
+                 :success-p t
+                 :snapshots-restored 42
+                 :target-path #p"/restore/path/")))
+    (is (autopoiesis.snapshot:restore-success-p result))
+    (is (= 42 (autopoiesis.snapshot:restore-snapshot-count result)))
+    (is (equal #p"/restore/path/" (autopoiesis.snapshot:restore-target-path result)))))
+
+(test create-full-backup
+  "Test creating a full backup"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create some snapshots
+           (loop for i from 1 to 5
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Create backup
+           (let ((result (autopoiesis.snapshot:create-backup
+                          temp-backup-path
+                          :store store
+                          :description "Test full backup")))
+             (is (autopoiesis.snapshot:backup-success-p result))
+             (is (not (null (autopoiesis.snapshot:backup-result-metadata result))))
+             (let ((metadata (autopoiesis.snapshot:backup-result-metadata result)))
+               (is (eq :full (autopoiesis.snapshot:backup-type metadata)))
+               (is (= 5 (autopoiesis.snapshot:backup-snapshot-count metadata)))
+               (is (eq :completed (autopoiesis.snapshot:backup-status metadata)))
+               (is (not (null (autopoiesis.snapshot:backup-checksum metadata)))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path))))
+
+(test list-backups
+  "Test listing backups"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Create two backups
+           (autopoiesis.snapshot:create-backup temp-backup-path :store store)
+           (sleep 0.01)  ; Ensure different timestamps
+           (autopoiesis.snapshot:create-backup temp-backup-path :store store)
+           ;; List backups
+           (let ((backups (autopoiesis.snapshot:list-backups temp-backup-path)))
+             (is (= 2 (length backups)))
+             ;; Should be sorted by timestamp (newest first)
+             (is (> (autopoiesis.snapshot:backup-timestamp (first backups))
+                    (autopoiesis.snapshot:backup-timestamp (second backups))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path))))
+
+(test restore-backup-basic
+  "Test restoring a backup"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (temp-restore-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path))
+         (snap-ids nil))
+    (unwind-protect
+         (progn
+           ;; Create snapshots
+           (loop for i from 1 to 5
+                 do (let ((snap (autopoiesis.snapshot:make-snapshot (list :num i))))
+                      (autopoiesis.snapshot:save-snapshot snap store)
+                      (push (autopoiesis.snapshot:snapshot-id snap) snap-ids)))
+           (setf snap-ids (nreverse snap-ids))
+           ;; Create backup
+           (let* ((backup-result (autopoiesis.snapshot:create-backup
+                                  temp-backup-path :store store))
+                  (backup-id (autopoiesis.snapshot:backup-id
+                              (autopoiesis.snapshot:backup-result-metadata backup-result))))
+             ;; Restore to new location
+             (let ((restore-result (autopoiesis.snapshot:restore-backup
+                                    temp-backup-path backup-id temp-restore-path)))
+               (is (autopoiesis.snapshot:restore-success-p restore-result))
+               (is (= 5 (autopoiesis.snapshot:restore-snapshot-count restore-result)))
+               ;; Verify restored store
+               (let ((restored-store (autopoiesis.snapshot:make-snapshot-store temp-restore-path)))
+                 ;; All snapshots should be present
+                 (dolist (id snap-ids)
+                   (is (autopoiesis.snapshot:snapshot-exists-p id restored-store)))
+                 ;; Verify content
+                 (let ((snap (autopoiesis.snapshot:load-snapshot (first snap-ids) restored-store)))
+                   (is (not (null snap)))
+                   (is (equal '(:num 1) (autopoiesis.snapshot:snapshot-agent-state snap))))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path)
+      (cleanup-temp-store temp-restore-path))))
+
+(test validate-backup
+  "Test backup validation"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Create backup
+           (let* ((backup-result (autopoiesis.snapshot:create-backup
+                                  temp-backup-path :store store))
+                  (backup-id (autopoiesis.snapshot:backup-id
+                              (autopoiesis.snapshot:backup-result-metadata backup-result))))
+             ;; Validate backup
+             (let ((validation-result (autopoiesis.snapshot:validate-backup
+                                       temp-backup-path backup-id)))
+               (is (autopoiesis.snapshot:result-passed-p validation-result))
+               (is (null (autopoiesis.snapshot:result-errors validation-result))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path))))
+
+(test incremental-backup
+  "Test creating an incremental backup"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create initial snapshots
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Create full backup
+           (let* ((full-result (autopoiesis.snapshot:create-backup
+                                temp-backup-path :store store))
+                  (full-id (autopoiesis.snapshot:backup-id
+                            (autopoiesis.snapshot:backup-result-metadata full-result))))
+             ;; Add more snapshots
+             (loop for i from 4 to 6
+                   do (autopoiesis.snapshot:save-snapshot
+                       (autopoiesis.snapshot:make-snapshot (list :num i))
+                       store))
+             ;; Create incremental backup
+             (let ((incr-result (autopoiesis.snapshot:create-incremental-backup
+                                 temp-backup-path full-id :store store)))
+               (is (autopoiesis.snapshot:backup-success-p incr-result))
+               (let ((metadata (autopoiesis.snapshot:backup-result-metadata incr-result)))
+                 (is (eq :incremental (autopoiesis.snapshot:backup-type metadata)))
+                 ;; Should only contain the 3 new snapshots
+                 (is (= 3 (autopoiesis.snapshot:backup-snapshot-count metadata)))
+                 (is (string= full-id (autopoiesis.snapshot:backup-parent metadata)))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path))))
+
+(test restore-incremental-backup
+  "Test restoring an incremental backup chain"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (temp-restore-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create initial snapshots
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Create full backup
+           (let* ((full-result (autopoiesis.snapshot:create-backup
+                                temp-backup-path :store store))
+                  (full-id (autopoiesis.snapshot:backup-id
+                            (autopoiesis.snapshot:backup-result-metadata full-result))))
+             ;; Add more snapshots
+             (loop for i from 4 to 6
+                   do (autopoiesis.snapshot:save-snapshot
+                       (autopoiesis.snapshot:make-snapshot (list :num i))
+                       store))
+             ;; Create incremental backup
+             (let* ((incr-result (autopoiesis.snapshot:create-incremental-backup
+                                  temp-backup-path full-id :store store))
+                    (incr-id (autopoiesis.snapshot:backup-id
+                              (autopoiesis.snapshot:backup-result-metadata incr-result))))
+               ;; Restore incremental (should also restore full)
+               (let ((restore-result (autopoiesis.snapshot:restore-backup
+                                      temp-backup-path incr-id temp-restore-path)))
+                 (is (autopoiesis.snapshot:restore-success-p restore-result))
+                 ;; Should have all 6 snapshots (3 from full + 3 from incremental)
+                 (is (= 6 (autopoiesis.snapshot:restore-snapshot-count restore-result)))
+                 ;; Verify restored store has all snapshots
+                 (let ((restored-store (autopoiesis.snapshot:make-snapshot-store temp-restore-path)))
+                   (is (= 6 (length (autopoiesis.snapshot:list-snapshots :store restored-store)))))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path)
+      (cleanup-temp-store temp-restore-path))))
+
+(test get-backup-info
+  "Test getting backup information"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots and backup
+           (autopoiesis.snapshot:save-snapshot
+            (autopoiesis.snapshot:make-snapshot '(:test t))
+            store)
+           (let* ((result (autopoiesis.snapshot:create-backup
+                           temp-backup-path :store store :description "Test"))
+                  (backup-id (autopoiesis.snapshot:backup-id
+                              (autopoiesis.snapshot:backup-result-metadata result))))
+             ;; Get backup info
+             (let ((info (autopoiesis.snapshot:get-backup-info temp-backup-path backup-id)))
+               (is (not (null info)))
+               (is (string= backup-id (autopoiesis.snapshot:backup-id info)))
+               (is (string= "Test" (autopoiesis.snapshot:backup-description info))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path))))
+
+(test delete-backup
+  "Test deleting a backup"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots and backup
+           (autopoiesis.snapshot:save-snapshot
+            (autopoiesis.snapshot:make-snapshot '(:test t))
+            store)
+           (let* ((result (autopoiesis.snapshot:create-backup
+                           temp-backup-path :store store))
+                  (backup-id (autopoiesis.snapshot:backup-id
+                              (autopoiesis.snapshot:backup-result-metadata result))))
+             ;; Verify backup exists
+             (is (not (null (autopoiesis.snapshot:get-backup-info temp-backup-path backup-id))))
+             ;; Delete backup
+             (is (autopoiesis.snapshot:delete-backup temp-backup-path backup-id))
+             ;; Verify backup is gone
+             (is (null (autopoiesis.snapshot:get-backup-info temp-backup-path backup-id)))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path))))
+
+(test restore-with-checksum-verification
+  "Test restore with checksum verification"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (temp-restore-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Create backup
+           (let* ((backup-result (autopoiesis.snapshot:create-backup
+                                  temp-backup-path :store store))
+                  (backup-id (autopoiesis.snapshot:backup-id
+                              (autopoiesis.snapshot:backup-result-metadata backup-result))))
+             ;; Restore with verification
+             (let ((restore-result (autopoiesis.snapshot:restore-backup
+                                    temp-backup-path backup-id temp-restore-path
+                                    :verify-checksum t)))
+               (is (autopoiesis.snapshot:restore-success-p restore-result))
+               (is (= 3 (autopoiesis.snapshot:restore-snapshot-count restore-result))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path)
+      (cleanup-temp-store temp-restore-path))))
+
+(test find-backup-for-timestamp
+  "Test finding backup by timestamp"
+  (let* ((temp-store-path (make-temp-store-path))
+         (temp-backup-path (make-temp-backup-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-store-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots
+           (autopoiesis.snapshot:save-snapshot
+            (autopoiesis.snapshot:make-snapshot '(:test t))
+            store)
+           ;; Create first backup
+           (let* ((result1 (autopoiesis.snapshot:create-backup temp-backup-path :store store))
+                  (id1 (autopoiesis.snapshot:backup-id
+                        (autopoiesis.snapshot:backup-result-metadata result1)))
+                  (ts1 (autopoiesis.snapshot:backup-timestamp
+                        (autopoiesis.snapshot:backup-result-metadata result1))))
+             (sleep 0.1)  ; Ensure different timestamps
+             ;; Create second backup
+             (let* ((result2 (autopoiesis.snapshot:create-backup temp-backup-path :store store))
+                    (id2 (autopoiesis.snapshot:backup-id
+                          (autopoiesis.snapshot:backup-result-metadata result2)))
+                    (ts2 (autopoiesis.snapshot:backup-timestamp
+                          (autopoiesis.snapshot:backup-result-metadata result2))))
+               ;; Find backup for timestamp between the two
+               (let ((found (autopoiesis.snapshot:find-backup-for-timestamp
+                             temp-backup-path (+ ts1 0.05))))
+                 (is (not (null found)))
+                 (is (string= id1 (autopoiesis.snapshot:backup-id found))))
+               ;; Find backup for timestamp after both
+               (let ((found (autopoiesis.snapshot:find-backup-for-timestamp
+                             temp-backup-path (+ ts2 1.0))))
+                 (is (not (null found)))
+                 (is (string= id2 (autopoiesis.snapshot:backup-id found)))))))
+      (cleanup-temp-store temp-store-path)
+      (cleanup-temp-store temp-backup-path))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; State Consistency Check Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 

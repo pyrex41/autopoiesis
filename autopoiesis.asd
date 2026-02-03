@@ -62,7 +62,8 @@
        (:file "branch")
        (:file "diff-engine")
        (:file "time-travel")
-       (:file "consistency")))
+       (:file "consistency")
+       (:file "backup")))
      (:module "interface"
       :serial t
       :depends-on ("core" "agent" "snapshot")

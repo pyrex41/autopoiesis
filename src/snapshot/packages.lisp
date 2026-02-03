@@ -183,4 +183,40 @@
    #:repair-orphaned-snapshots
    ;; Reporting
    #:print-consistency-report
-   #:consistency-report-to-sexpr))
+   #:consistency-report-to-sexpr
+
+   ;; Backup/Restore
+   #:backup-metadata
+   #:make-backup-metadata
+   #:backup-id
+   #:backup-timestamp
+   #:backup-type
+   #:backup-source-path
+   #:backup-snapshot-count
+   #:backup-parent
+   #:backup-checksum
+   #:backup-status
+   #:backup-description
+   #:backup-result
+   #:make-backup-result
+   #:backup-success-p
+   #:backup-result-metadata
+   #:backup-result-path
+   #:backup-errors
+   #:backup-warnings
+   #:restore-result
+   #:make-restore-result
+   #:restore-success-p
+   #:restore-snapshot-count
+   #:restore-target-path
+   #:restore-errors
+   #:restore-warnings
+   #:create-backup
+   #:create-incremental-backup
+   #:restore-backup
+   #:restore-to-timestamp
+   #:list-backups
+   #:get-backup-info
+   #:delete-backup
+   #:find-backup-for-timestamp
+   #:validate-backup))
