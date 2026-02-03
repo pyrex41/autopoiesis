@@ -428,4 +428,62 @@
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck
-   #:stop-holodeck))
+   #:stop-holodeck
+
+   ;; Key binding constants
+   #:*key-w* #:*key-a* #:*key-s* #:*key-d* #:*key-q* #:*key-e*
+   #:*key-left-bracket* #:*key-right-bracket* #:*key-home* #:*key-end*
+   #:*key-f* #:*key-m* #:*key-b*
+   #:*key-1* #:*key-2* #:*key-3* #:*key-4*
+   #:*key-tab* #:*key-shift-tab* #:*key-space* #:*key-o*
+   #:*key-plus* #:*key-minus* #:*key-equals*
+   #:*key-return* #:*key-escape* #:*key-h* #:*key-slash* #:*key-question*
+
+   ;; Key binding structure
+   #:key-binding
+   #:make-key-binding
+   #:key-binding-key
+   #:key-binding-action
+   #:key-binding-hold-action-p
+   #:key-binding-description
+
+   ;; Default bindings
+   #:*default-key-bindings*
+
+   ;; Key binding registry
+   #:key-binding-registry
+   #:make-key-binding-registry
+   #:registry-bindings
+   #:registry-action-handlers
+   #:get-binding
+   #:set-binding
+   #:remove-binding
+   #:list-bindings
+   #:bindings-for-action
+   #:register-action-handler
+   #:get-action-handler
+
+   ;; Keyboard input handler
+   #:keyboard-input-handler
+   #:make-keyboard-input-handler
+   #:handler-registry
+   #:handler-keys-pressed
+   #:handler-keys-just-pressed
+   #:handler-keys-just-released
+   #:handler-pending-actions
+   #:handle-key-press
+   #:handle-key-release
+   #:key-pressed-p
+   #:key-just-pressed-p
+   #:process-keyboard-input
+   #:execute-pending-actions
+   #:update-keyboard-input
+
+   ;; Key name utilities
+   #:key-display-name
+   #:format-binding-help
+   #:format-bindings-help
+   #:camera-movement-bindings
+   #:navigation-bindings
+   #:branching-bindings
+   #:view-mode-bindings))

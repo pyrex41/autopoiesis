@@ -123,6 +123,7 @@
      (:file "rendering")
      (:file "camera")
      (:file "input")
+     (:file "key-bindings")
      (:file "hud")))))
 
 ;;; Holodeck test system

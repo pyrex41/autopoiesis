@@ -3891,3 +3891,335 @@ out vec4 color;")))
       (is (member :scrubber-track types))
       (is (member :scrubber-marker types))
       (is (member :scrubber-current types)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Key Binding Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite key-binding-tests
+  :in holodeck-tests
+  :description "Tests for keyboard input handling and key bindings")
+
+(in-suite key-binding-tests)
+
+;;; --- Key Binding Structure Tests ---
+
+(test make-key-binding-basic
+  "Test creating a key binding with all fields."
+  (let ((binding (make-key-binding :w :fly-forward
+                                   :hold-action-p t
+                                   :description "Move forward")))
+    (is (eq :w (key-binding-key binding)))
+    (is (eq :fly-forward (key-binding-action binding)))
+    (is (eq t (key-binding-hold-action-p binding)))
+    (is (string= "Move forward" (key-binding-description binding)))))
+
+(test make-key-binding-defaults
+  "Test key binding defaults."
+  (let ((binding (make-key-binding :f :fork-here)))
+    (is (eq :f (key-binding-key binding)))
+    (is (eq :fork-here (key-binding-action binding)))
+    (is (eq nil (key-binding-hold-action-p binding)))
+    (is (string= "" (key-binding-description binding)))))
+
+;;; --- Default Key Bindings Tests ---
+
+(test default-key-bindings-exist
+  "Test that default key bindings are defined."
+  (is (listp *default-key-bindings*))
+  (is (> (length *default-key-bindings*) 0)))
+
+(test default-key-bindings-have-wasd
+  "Test that WASD camera movement bindings exist."
+  (let ((keys (mapcar #'key-binding-key *default-key-bindings*)))
+    (is (member :w keys))
+    (is (member :a keys))
+    (is (member :s keys))
+    (is (member :d keys))))
+
+(test default-key-bindings-wasd-are-hold-actions
+  "Test that WASD bindings are hold actions."
+  (dolist (binding *default-key-bindings*)
+    (when (member (key-binding-key binding) '(:w :a :s :d :q :e))
+      (is (eq t (key-binding-hold-action-p binding))
+          "Key ~A should be a hold action" (key-binding-key binding)))))
+
+(test default-key-bindings-navigation
+  "Test that navigation bindings exist."
+  (let ((keys (mapcar #'key-binding-key *default-key-bindings*)))
+    (is (member :left-bracket keys))
+    (is (member :right-bracket keys))
+    (is (member :home keys))
+    (is (member :end keys))))
+
+(test default-key-bindings-branching
+  "Test that branching bindings exist."
+  (let ((keys (mapcar #'key-binding-key *default-key-bindings*)))
+    (is (member :f keys))
+    (is (member :m keys))
+    (is (member :b keys))))
+
+;;; --- Key Binding Registry Tests ---
+
+(test make-key-binding-registry-default
+  "Test creating a registry with default bindings."
+  (let ((registry (make-key-binding-registry)))
+    (is (typep registry 'key-binding-registry))
+    (is (> (hash-table-count (registry-bindings registry)) 0))))
+
+(test make-key-binding-registry-custom
+  "Test creating a registry with custom bindings."
+  (let* ((custom (list (make-key-binding :x :test-action)))
+         (registry (make-key-binding-registry :bindings custom)))
+    (is (= 1 (hash-table-count (registry-bindings registry))))
+    (is (not (null (get-binding registry :x))))))
+
+(test get-binding-found
+  "Test getting an existing binding."
+  (let ((registry (make-key-binding-registry)))
+    (let ((binding (get-binding registry :w)))
+      (is (not (null binding)))
+      (is (eq :w (key-binding-key binding)))
+      (is (eq :fly-forward (key-binding-action binding))))))
+
+(test get-binding-not-found
+  "Test getting a non-existent binding returns NIL."
+  (let ((registry (make-key-binding-registry)))
+    (is (null (get-binding registry :nonexistent-key)))))
+
+(test set-binding-new
+  "Test adding a new binding."
+  (let ((registry (make-key-binding-registry)))
+    (set-binding registry :x :test-action
+                 :hold-action-p t
+                 :description "Test")
+    (let ((binding (get-binding registry :x)))
+      (is (not (null binding)))
+      (is (eq :test-action (key-binding-action binding)))
+      (is (eq t (key-binding-hold-action-p binding))))))
+
+(test set-binding-override
+  "Test overriding an existing binding."
+  (let ((registry (make-key-binding-registry)))
+    (set-binding registry :w :new-action)
+    (let ((binding (get-binding registry :w)))
+      (is (eq :new-action (key-binding-action binding))))))
+
+(test remove-binding-existing
+  "Test removing an existing binding."
+  (let ((registry (make-key-binding-registry)))
+    (is (not (null (get-binding registry :w))))
+    (remove-binding registry :w)
+    (is (null (get-binding registry :w)))))
+
+(test list-bindings-returns-all
+  "Test list-bindings returns all bindings."
+  (let* ((registry (make-key-binding-registry))
+         (bindings (list-bindings registry)))
+    (is (listp bindings))
+    (is (= (hash-table-count (registry-bindings registry))
+           (length bindings)))))
+
+(test bindings-for-action-found
+  "Test finding bindings for an action."
+  (let* ((registry (make-key-binding-registry))
+         (bindings (bindings-for-action registry :fly-forward)))
+    (is (listp bindings))
+    (is (= 1 (length bindings)))
+    (is (eq :w (key-binding-key (first bindings))))))
+
+(test bindings-for-action-multiple
+  "Test finding multiple bindings for same action."
+  (let ((registry (make-key-binding-registry)))
+    ;; :increase-detail has both :plus and :equals bound
+    (let ((bindings (bindings-for-action registry :increase-detail)))
+      (is (= 2 (length bindings))))))
+
+;;; --- Action Handler Tests ---
+
+(test register-action-handler
+  "Test registering an action handler."
+  (let ((registry (make-key-binding-registry))
+        (called nil))
+    (register-action-handler registry :test-action
+                             (lambda () (setf called t)))
+    (let ((handler (get-action-handler registry :test-action)))
+      (is (functionp handler))
+      (funcall handler)
+      (is (eq t called)))))
+
+(test get-action-handler-not-found
+  "Test getting non-existent handler returns NIL."
+  (let ((registry (make-key-binding-registry)))
+    (is (null (get-action-handler registry :nonexistent)))))
+
+;;; --- Keyboard Input Handler Tests ---
+
+(test make-keyboard-input-handler
+  "Test creating a keyboard input handler."
+  (let ((handler (make-keyboard-input-handler)))
+    (is (typep handler 'keyboard-input-handler))
+    (is (typep (handler-registry handler) 'key-binding-registry))))
+
+(test make-keyboard-input-handler-custom-registry
+  "Test creating handler with custom registry."
+  (let* ((registry (make-key-binding-registry :bindings nil))
+         (handler (make-keyboard-input-handler :registry registry)))
+    (is (eq registry (handler-registry handler)))))
+
+(test handle-key-press-tracks-state
+  "Test that key press is tracked."
+  (let ((handler (make-keyboard-input-handler)))
+    (handle-key-press handler :w)
+    (is (key-pressed-p handler :w))
+    (is (key-just-pressed-p handler :w))))
+
+(test handle-key-press-only-just-pressed-once
+  "Test that key is only 'just pressed' on first press."
+  (let ((handler (make-keyboard-input-handler)))
+    (handle-key-press handler :w)
+    (is (key-just-pressed-p handler :w))
+    ;; Process to clear just-pressed
+    (process-keyboard-input handler)
+    ;; Press again while held - should not be just-pressed
+    (handle-key-press handler :w)
+    (is (key-pressed-p handler :w))
+    (is (not (key-just-pressed-p handler :w)))))
+
+(test handle-key-release-clears-state
+  "Test that key release clears pressed state."
+  (let ((handler (make-keyboard-input-handler)))
+    (handle-key-press handler :w)
+    (is (key-pressed-p handler :w))
+    (handle-key-release handler :w)
+    (is (not (key-pressed-p handler :w)))))
+
+(test process-keyboard-input-hold-actions
+  "Test that hold actions fire every frame while held."
+  (let ((handler (make-keyboard-input-handler)))
+    (handle-key-press handler :w)
+    ;; First process
+    (let ((actions (process-keyboard-input handler)))
+      (is (member :fly-forward actions)))
+    ;; Second process (key still held)
+    (let ((actions (process-keyboard-input handler)))
+      (is (member :fly-forward actions)))))
+
+(test process-keyboard-input-press-actions
+  "Test that press actions fire only once."
+  (let ((handler (make-keyboard-input-handler)))
+    (handle-key-press handler :f)
+    ;; First process - should have action
+    (let ((actions (process-keyboard-input handler)))
+      (is (member :fork-here actions)))
+    ;; Second process - should not have action (key still held but not just pressed)
+    (let ((actions (process-keyboard-input handler)))
+      (is (not (member :fork-here actions))))))
+
+(test process-keyboard-input-multiple-keys
+  "Test processing multiple keys at once."
+  (let ((handler (make-keyboard-input-handler)))
+    (handle-key-press handler :w)
+    (handle-key-press handler :d)
+    (let ((actions (process-keyboard-input handler)))
+      (is (member :fly-forward actions))
+      (is (member :fly-right actions)))))
+
+(test execute-pending-actions-calls-handlers
+  "Test that execute-pending-actions calls registered handlers."
+  (let ((handler (make-keyboard-input-handler))
+        (forward-called nil)
+        (fork-called nil))
+    (register-action-handler (handler-registry handler) :fly-forward
+                             (lambda () (setf forward-called t)))
+    (register-action-handler (handler-registry handler) :fork-here
+                             (lambda () (setf fork-called t)))
+    (handle-key-press handler :w)
+    (handle-key-press handler :f)
+    (process-keyboard-input handler)
+    (execute-pending-actions handler)
+    (is (eq t forward-called))
+    (is (eq t fork-called))))
+
+(test update-keyboard-input-combined
+  "Test update-keyboard-input processes and executes."
+  (let ((handler (make-keyboard-input-handler))
+        (called nil))
+    (register-action-handler (handler-registry handler) :fly-forward
+                             (lambda () (setf called t)))
+    (handle-key-press handler :w)
+    (let ((executed (update-keyboard-input handler)))
+      (is (member :fly-forward executed))
+      (is (eq t called)))))
+
+;;; --- Key Name Utility Tests ---
+
+(test key-display-name-letters
+  "Test display names for letter keys."
+  (is (string= "W" (key-display-name :w)))
+  (is (string= "A" (key-display-name :a)))
+  (is (string= "F" (key-display-name :f))))
+
+(test key-display-name-special
+  "Test display names for special keys."
+  (is (string= "[" (key-display-name :left-bracket)))
+  (is (string= "]" (key-display-name :right-bracket)))
+  (is (string= "Space" (key-display-name :space)))
+  (is (string= "Enter" (key-display-name :return)))
+  (is (string= "Esc" (key-display-name :escape))))
+
+(test format-binding-help
+  "Test formatting a binding as help text."
+  (let ((binding (make-key-binding :w :fly-forward
+                                   :description "Move forward")))
+    (let ((help (format-binding-help binding)))
+      (is (search "[W]" help))
+      (is (search "Move forward" help)))))
+
+(test format-bindings-help-all
+  "Test formatting all bindings as help."
+  (let* ((registry (make-key-binding-registry))
+         (help-lines (format-bindings-help registry)))
+    (is (listp help-lines))
+    (is (= (length (list-bindings registry))
+           (length help-lines)))))
+
+;;; --- Category Filter Tests ---
+
+(test camera-movement-bindings-filter
+  "Test filtering camera movement bindings."
+  (let* ((registry (make-key-binding-registry))
+         (bindings (camera-movement-bindings registry)))
+    (is (= 6 (length bindings)))  ; W A S D Q E
+    (dolist (b bindings)
+      (is (member (key-binding-action b)
+                  '(:fly-forward :fly-backward :fly-left :fly-right
+                    :fly-up :fly-down))))))
+
+(test navigation-bindings-filter
+  "Test filtering navigation bindings."
+  (let* ((registry (make-key-binding-registry))
+         (bindings (navigation-bindings registry)))
+    (is (= 4 (length bindings)))  ; [ ] Home End
+    (dolist (b bindings)
+      (is (member (key-binding-action b)
+                  '(:step-backward :step-forward :goto-genesis :goto-head))))))
+
+(test branching-bindings-filter
+  "Test filtering branching bindings."
+  (let* ((registry (make-key-binding-registry))
+         (bindings (branching-bindings registry)))
+    (is (= 3 (length bindings)))  ; F M B
+    (dolist (b bindings)
+      (is (member (key-binding-action b)
+                  '(:fork-here :merge-prompt :show-branches))))))
+
+(test view-mode-bindings-filter
+  "Test filtering view mode bindings."
+  (let* ((registry (make-key-binding-registry))
+         (bindings (view-mode-bindings registry)))
+    (is (= 4 (length bindings)))  ; 1 2 3 4
+    (dolist (b bindings)
+      (is (member (key-binding-action b)
+                  '(:set-view-timeline :set-view-tree
+                    :set-view-constellation :set-view-diff))))))

@@ -182,7 +182,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Add timeline scrubber at bottom
 
 #### 8.5: Input Handling
-- [ ] Define holodeck key bindings (WASD fly, []/step, F/fork, etc.)
+- [x] Define holodeck key bindings (WASD fly, []/step, F/fork, etc.)
 - [ ] Implement ray picking for entity selection
 - [ ] Implement `screen-to-world-ray` for mouse interaction
 - [ ] Handle keyboard and mouse events
