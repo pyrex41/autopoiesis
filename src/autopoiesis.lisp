@@ -79,7 +79,15 @@
    #:+action-delete+ #:+action-create+ #:+action-admin+
    #:+resource-snapshot+ #:+resource-agent+ #:+resource-capability+
    #:+resource-extension+ #:+resource-file+ #:+resource-network+
-   #:permission-matrix #:make-permission-matrix #:matrix-check))
+   #:permission-matrix #:make-permission-matrix #:matrix-check)
+
+  ;; System utilities
+  (:export
+   #:initialize
+   #:version
+   #:health-check
+   #:health-check-ok-p
+   #:help))
 
 (in-package #:autopoiesis)
 
@@ -92,3 +100,56 @@
 (defun version ()
   "Return the Autopoiesis version."
   "0.1.0-bootstrap")
+
+(defun health-check ()
+  "Perform system health check.
+   Returns a plist with :status (:healthy or :unhealthy) and :checks."
+  (let ((checks nil)
+        (all-ok t))
+    ;; Check that core packages are loaded
+    (let ((core-ok (and (find-package :autopoiesis.core)
+                        (find-package :autopoiesis.agent)
+                        (find-package :autopoiesis.snapshot))))
+      (push (list :name :core-packages :status (if core-ok :ok :error)) checks)
+      (unless core-ok (setf all-ok nil)))
+
+    ;; Check that key functions are available
+    (let ((fns-ok (and (fboundp 'autopoiesis.core:sexpr-equal)
+                       (fboundp 'autopoiesis.agent:make-agent)
+                       (fboundp 'autopoiesis.snapshot:make-snapshot))))
+      (push (list :name :core-functions :status (if fns-ok :ok :error)) checks)
+      (unless fns-ok (setf all-ok nil)))
+
+    ;; Check memory usage (warn if over 1GB)
+    (let* ((usage (sb-kernel:dynamic-usage))
+           (memory-ok (< usage (* 1024 1024 1024))))
+      (push (list :name :memory
+                  :status (if memory-ok :ok :warning)
+                  :value usage)
+            checks))
+
+    (list :status (if all-ok :healthy :unhealthy)
+          :checks (nreverse checks)
+          :timestamp (get-universal-time))))
+
+(defun health-check-ok-p ()
+  "Return T if health check passes, NIL otherwise.
+   Suitable for use in Docker health checks."
+  (let ((result (health-check)))
+    (eq (getf result :status) :healthy)))
+
+(defun help ()
+  "Display help information for Autopoiesis."
+  (format t "~%Autopoiesis - Self-configuring Agent Platform~%")
+  (format t "~%Version: ~a~%" (version))
+  (format t "~%Commands:~%")
+  (format t "  (initialize)         - Initialize the system~%")
+  (format t "  (version)            - Show version~%")
+  (format t "  (health-check)       - Run health check~%")
+  (format t "  (help)               - Show this help~%")
+  (format t "~%Core Functions:~%")
+  (format t "  (make-agent ...)     - Create a new agent~%")
+  (format t "  (make-snapshot ...)  - Create a snapshot~%")
+  (format t "  (start-session ...)  - Start an interactive session~%")
+  (format t "~%For more information, see docs/specs/~%")
+  (values))

@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# Documentation (not needed at runtime)
+docs/
+thoughts/
+ralph/
+*.md
+!README.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.fasl
+*.lx64fsl
+*.dx64fsl
+*.x86f
+
+# Test outputs
+test-results/
+coverage/
+
+# Local configuration
+.env
+.env.local
+*.local.lisp
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated files
+repomix-output.xml

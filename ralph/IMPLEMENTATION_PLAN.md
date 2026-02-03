@@ -243,7 +243,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Add graceful degradation on failures
 
 #### 10.4: Deployment
-- [ ] Create Dockerfile with SBCL and dependencies
+- [x] Create Dockerfile with SBCL and dependencies
 - [ ] Implement configuration management (load/merge)
 - [ ] Implement health check endpoints
 - [ ] Implement metrics collection
