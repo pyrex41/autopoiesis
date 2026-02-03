@@ -923,3 +923,240 @@
                (let ((stats (autopoiesis.snapshot:snapshot-cache-stats store)))
                  (is (>= (getf stats :misses) 1))))))
       (cleanup-temp-store temp-path))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; State Consistency Check Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test consistency-result-creation
+  "Test consistency result creation"
+  (let ((result (autopoiesis.snapshot:make-consistency-result
+                 :test-check
+                 :passed-p t
+                 :errors nil
+                 :warnings '("minor warning")
+                 :details '("checked 10 items"))))
+    (is (eq :test-check (autopoiesis.snapshot:result-check-name result)))
+    (is (autopoiesis.snapshot:result-passed-p result))
+    (is (null (autopoiesis.snapshot:result-errors result)))
+    (is (= 1 (length (autopoiesis.snapshot:result-warnings result))))
+    (is (= 1 (length (autopoiesis.snapshot:result-details result))))))
+
+(test consistency-report-creation
+  "Test consistency report creation from results"
+  (let* ((result1 (autopoiesis.snapshot:make-consistency-result
+                   :check1 :passed-p t :warnings '("warn1")))
+         (result2 (autopoiesis.snapshot:make-consistency-result
+                   :check2 :passed-p nil :errors '("error1" "error2")))
+         (report (autopoiesis.snapshot:make-consistency-report (list result1 result2))))
+    (is (not (autopoiesis.snapshot:report-passed-p report)))
+    (is (= 2 (autopoiesis.snapshot:report-total-errors report)))
+    (is (= 1 (autopoiesis.snapshot:report-total-warnings report)))
+    (is (= 2 (length (autopoiesis.snapshot:report-results report))))))
+
+(test check-dag-integrity-valid
+  "Test DAG integrity check on valid store"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create valid DAG: root -> child1 -> child2
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 ;; Check DAG integrity
+                 (let ((result (autopoiesis.snapshot:check-dag-integrity store)))
+                   (is (autopoiesis.snapshot:result-passed-p result))
+                   (is (null (autopoiesis.snapshot:result-errors result))))))))
+      (cleanup-temp-store temp-path))))
+
+(test check-dag-integrity-orphan
+  "Test DAG integrity check detects orphaned snapshots"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshot with non-existent parent
+           (let ((orphan (autopoiesis.snapshot:make-snapshot '(:orphan t) :parent "nonexistent-parent")))
+             (autopoiesis.snapshot:save-snapshot orphan store)
+             ;; Check DAG integrity - should find error
+             (let ((result (autopoiesis.snapshot:check-dag-integrity store)))
+               (is (not (autopoiesis.snapshot:result-passed-p result)))
+               (is (>= (length (autopoiesis.snapshot:result-errors result)) 1)))))
+      (cleanup-temp-store temp-path))))
+
+(test check-content-hashes-valid
+  "Test content hash verification on valid store"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots with valid hashes
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Check content hashes
+           (let ((result (autopoiesis.snapshot:check-content-hashes :store store)))
+             (is (autopoiesis.snapshot:result-passed-p result))
+             (is (null (autopoiesis.snapshot:result-errors result)))))
+      (cleanup-temp-store temp-path))))
+
+(test check-branch-consistency-valid
+  "Test branch consistency check with valid branches"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (registry (make-hash-table :test 'equal)))
+    (unwind-protect
+         (progn
+           ;; Create snapshot and branch pointing to it
+           (let* ((snap (autopoiesis.snapshot:make-snapshot '(:test t)))
+                  (snap-id (autopoiesis.snapshot:snapshot-id snap)))
+             (autopoiesis.snapshot:save-snapshot snap store)
+             (autopoiesis.snapshot:create-branch "main" :from-snapshot snap-id :registry registry)
+             ;; Check branch consistency
+             (let ((result (autopoiesis.snapshot:check-branch-consistency
+                            :registry registry :store store)))
+               (is (autopoiesis.snapshot:result-passed-p result))
+               (is (null (autopoiesis.snapshot:result-errors result))))))
+      (cleanup-temp-store temp-path))))
+
+(test check-branch-consistency-invalid
+  "Test branch consistency check detects invalid head"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (registry (make-hash-table :test 'equal)))
+    (unwind-protect
+         (progn
+           ;; Create branch pointing to non-existent snapshot
+           (autopoiesis.snapshot:create-branch "broken" :from-snapshot "nonexistent" :registry registry)
+           ;; Check branch consistency - should find error
+           (let ((result (autopoiesis.snapshot:check-branch-consistency
+                          :registry registry :store store)))
+             (is (not (autopoiesis.snapshot:result-passed-p result)))
+             (is (>= (length (autopoiesis.snapshot:result-errors result)) 1))))
+      (cleanup-temp-store temp-path))))
+
+(test check-index-consistency-valid
+  "Test index consistency check on valid store"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots (index is updated automatically)
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Check index consistency
+           (let ((result (autopoiesis.snapshot:check-index-consistency store)))
+             (is (autopoiesis.snapshot:result-passed-p result))
+             (is (null (autopoiesis.snapshot:result-errors result)))))
+      (cleanup-temp-store temp-path))))
+
+(test check-agent-state-structure-valid
+  "Test agent state structure validation on valid snapshot"
+  (let* ((valid-state '(agent :id "test-agent" :state :running :thought-stream ((thought :content "test"))))
+         (snap (autopoiesis.snapshot:make-snapshot valid-state)))
+    (let ((result (autopoiesis.snapshot:check-agent-state-structure snap)))
+      (is (autopoiesis.snapshot:result-passed-p result))
+      (is (null (autopoiesis.snapshot:result-errors result)))
+      ;; Should have no warnings since all fields present
+      (is (null (autopoiesis.snapshot:result-warnings result))))))
+
+(test check-agent-state-structure-missing-fields
+  "Test agent state structure validation detects missing fields"
+  (let* ((incomplete-state '(agent :id "test-agent"))  ; missing :state and :thought-stream
+         (snap (autopoiesis.snapshot:make-snapshot incomplete-state)))
+    (let ((result (autopoiesis.snapshot:check-agent-state-structure snap)))
+      ;; Should pass (missing fields are warnings, not errors)
+      (is (autopoiesis.snapshot:result-passed-p result))
+      ;; But should have warnings
+      (is (>= (length (autopoiesis.snapshot:result-warnings result)) 1)))))
+
+(test check-timestamp-ordering-valid
+  "Test timestamp ordering check on valid DAG"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create chain with proper timestamps (child > parent)
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             ;; Small delay to ensure timestamp ordering
+             (sleep 0.01)
+             (let ((child (autopoiesis.snapshot:make-snapshot '(:child t) :parent root-id)))
+               (autopoiesis.snapshot:save-snapshot child store)
+               ;; Check timestamp ordering
+               (let ((result (autopoiesis.snapshot:check-timestamp-ordering store)))
+                 (is (autopoiesis.snapshot:result-passed-p result))
+                 (is (null (autopoiesis.snapshot:result-errors result)))))))
+      (cleanup-temp-store temp-path))))
+
+(test run-consistency-checks-comprehensive
+  "Test comprehensive consistency check run"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (registry (make-hash-table :test 'equal)))
+    (unwind-protect
+         (progn
+           ;; Create valid DAG
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(agent :id "test" :state :running :thought-stream nil)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (autopoiesis.snapshot:create-branch "main" :from-snapshot root-id :registry registry)
+             ;; Run all checks
+             (let ((report (autopoiesis.snapshot:run-consistency-checks
+                            :store store
+                            :branch-registry registry
+                            :checks :all)))
+               ;; Report should exist
+               (is (not (null report)))
+               ;; Should have multiple results
+               (is (>= (length (autopoiesis.snapshot:report-results report)) 4))
+               ;; Overall should pass for valid store
+               (is (autopoiesis.snapshot:report-passed-p report)))))
+      (cleanup-temp-store temp-path))))
+
+(test repair-index
+  "Test index repair functionality"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create some snapshots
+           (loop for i from 1 to 3
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Repair index (should succeed even if not broken)
+           (let ((result (autopoiesis.snapshot:repair-index store)))
+             (is (autopoiesis.snapshot:result-passed-p result))
+             (is (null (autopoiesis.snapshot:result-errors result)))))
+      (cleanup-temp-store temp-path))))
+
+(test consistency-report-to-sexpr
+  "Test consistency report serialization"
+  (let* ((result (autopoiesis.snapshot:make-consistency-result
+                  :test-check
+                  :passed-p t
+                  :errors nil
+                  :warnings '("warn1")
+                  :details '("detail1")))
+         (report (autopoiesis.snapshot:make-consistency-report (list result)))
+         (sexpr (autopoiesis.snapshot:consistency-report-to-sexpr report)))
+    ;; Should be a valid S-expression
+    (is (listp sexpr))
+    (is (eq 'autopoiesis.snapshot::consistency-report (first sexpr)))
+    ;; Should contain expected data
+    (let ((plist (rest sexpr)))
+      (is (getf plist :timestamp))
+      (is (getf plist :passed-p))
+      (is (= 0 (getf plist :total-errors)))
+      (is (= 1 (getf plist :total-warnings))))))

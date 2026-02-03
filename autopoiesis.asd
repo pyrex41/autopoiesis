@@ -61,7 +61,8 @@
        (:file "event-log")
        (:file "branch")
        (:file "diff-engine")
-       (:file "time-travel")))
+       (:file "time-travel")
+       (:file "consistency")))
      (:module "interface"
       :serial t
       :depends-on ("core" "agent" "snapshot")

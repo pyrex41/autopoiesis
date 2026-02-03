@@ -150,4 +150,37 @@
    #:prefetch-snapshots
    #:get-dag-statistics
    #:find-snapshots-by-time-range
-   #:collect-snapshot-ids-lazy))
+   #:collect-snapshot-ids-lazy
+
+   ;; Consistency Checks
+   #:consistency-result
+   #:make-consistency-result
+   #:result-check-name
+   #:result-passed-p
+   #:result-errors
+   #:result-warnings
+   #:result-details
+   #:result-timestamp
+   #:consistency-report
+   #:make-consistency-report
+   #:report-results
+   #:report-passed-p
+   #:report-total-errors
+   #:report-total-warnings
+   #:report-timestamp
+   ;; Individual checks
+   #:check-dag-integrity
+   #:check-content-hashes
+   #:check-branch-consistency
+   #:check-index-consistency
+   #:check-agent-state-structure
+   #:check-all-agent-states
+   #:check-timestamp-ordering
+   ;; Comprehensive check
+   #:run-consistency-checks
+   ;; Repair functions
+   #:repair-index
+   #:repair-orphaned-snapshots
+   ;; Reporting
+   #:print-consistency-report
+   #:consistency-report-to-sexpr))
