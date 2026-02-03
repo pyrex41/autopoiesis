@@ -146,5 +146,36 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
            (color (snapshot-type-color type)))
       (move-cursor row col)
       (set-color color)
-      (princ glyph *standard-output*)
-      (reset-color)))
+(princ glyph *standard-output*)
+(reset-color)))
+
+(defun render-legend (start-row)
+  "Render timeline legend at START-ROW."
+  (let ((row start-row)
+        (types '(:snapshot :decision :fork :merge :current :genesis :human :action)))
+    (move-cursor row 1)
+    (with-color (+color-border+)
+      (princ " Legend "))
+    (loop for type in types
+          for col from 10 by 12
+          do
+             (move-cursor row (+ col 1))
+             (with-color (snapshot-type-color type))
+               (princ (snapshot-glyph type))
+             (reset-color)
+             (move-cursor row (+ col 3))
+             (with-color (+color-text+))
+               (princ (subseq (string-downcase (symbol-name type)) 0 6)))
+    (force-output)))
+
+(defun render-timeline (timeline)
+  "Render full timeline: legend, rows, branches, legend."
+  (let* ((vp (timeline-viewport timeline))
+         (legend-row 1)
+         (main-row 5)
+         (branch-rows 6))
+    (render-legend legend-row)
+    (render-timeline-row timeline main-row)
+    (dotimes (i branch-rows)
+      (render-branch-connections timeline (+ main-row i 1) main-row))
+    (force-output)))
