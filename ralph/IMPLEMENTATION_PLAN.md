@@ -230,8 +230,8 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement lazy loading for large DAGs
 
 #### 10.2: Security Hardening
-- [ ] Define permission system (resource × action matrix)
-- [ ] Implement `check-permission` and `with-permission-check`
+- [x] Define permission system (resource × action matrix)
+- [x] Implement `check-permission` and `with-permission-check`
 - [ ] Implement audit logging with rotation
 - [ ] Implement input validation framework
 - [ ] Security test sandbox escape attempts

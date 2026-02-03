@@ -16,4 +16,5 @@
    #:snapshot-tests
    #:interface-tests
    #:integration-tests
-   #:e2e-tests))
+   #:e2e-tests
+   #:security-tests))

@@ -20,6 +20,7 @@
   (run! 'interface-tests)
   (run! 'integration-tests)
   (run! 'viz-tests)
+  (run! 'security-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -50,3 +51,7 @@
 (defun test-viz ()
   "Run only visualization tests."
   (run! 'viz-tests))
+
+(defun test-security ()
+  "Run only security tests."
+  (run! 'security-tests))

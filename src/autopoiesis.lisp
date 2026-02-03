@@ -12,6 +12,7 @@
   (:use #:autopoiesis.interface)
   (:use #:autopoiesis.integration)
   (:use #:autopoiesis.viz)
+  (:use #:autopoiesis.security)
 
   ;; Reexport core
   (:export
@@ -65,7 +66,20 @@
    #:timeline-navigator #:make-timeline-navigator
    #:terminal-ui #:run-terminal-ui #:stop-terminal-ui
    #:snapshot-glyph #:render-snapshot-node
-   #:session-to-timeline #:launch-session-viz))
+   #:session-to-timeline #:launch-session-viz)
+
+  ;; Reexport security
+  (:export
+   #:permission #:make-permission #:permission-name
+   #:resource #:make-resource #:resource-type #:resource-id
+   #:check-permission #:grant-permission #:revoke-permission
+   #:has-permission-p #:with-permission-check
+   #:permission-denied
+   #:+action-read+ #:+action-write+ #:+action-execute+
+   #:+action-delete+ #:+action-create+ #:+action-admin+
+   #:+resource-snapshot+ #:+resource-agent+ #:+resource-capability+
+   #:+resource-extension+ #:+resource-file+ #:+resource-network+
+   #:permission-matrix #:make-permission-matrix #:matrix-check))
 
 (in-package #:autopoiesis)
 

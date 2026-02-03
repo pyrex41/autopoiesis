@@ -97,10 +97,15 @@
         (:file "timeline")
         (:file "detail-panel")
         (:file "navigator")
-        (:file "terminal-ui"))
- )
+        (:file "terminal-ui")))
+     (:module "security"
+      :serial t
+      :depends-on ("core" "agent")
+      :components
+      ((:file "packages")
+       (:file "permissions")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz")))))
+     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; Holodeck 3D visualization subsystem (Phase 8)
@@ -161,6 +166,7 @@
      (:file "integration-tests")
      (:file "e2e-tests")
      (:file "viz-tests")
+     (:file "security-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
