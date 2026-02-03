@@ -125,4 +125,38 @@
    #:make-uuid
    #:get-precise-time
    #:truncate-string
-   #:sexpr-size))
+   #:sexpr-size
+
+   ;; Profiling
+   #:*profiling-enabled*
+   #:profile-metric
+   #:profile-metric-name
+   #:profile-metric-call-count
+   #:profile-metric-total-time-ns
+   #:profile-metric-min-time-ns
+   #:profile-metric-max-time-ns
+   #:profile-metric-last-time-ns
+   #:with-timing
+   #:enable-profiling
+   #:disable-profiling
+   #:reset-profiling
+   #:with-profiling
+   #:get-profile-metrics
+   #:get-profile-metric
+   #:profile-report
+   #:print-profile-report
+   #:identify-hot-paths
+   #:profile-summary
+   ;; Optimized operations
+   #:*sexpr-hash-cache*
+   #:sexpr-hash-cached
+   #:reset-hash-cache-stats
+   #:hash-cache-stats
+   #:batch-sexpr-hash
+   #:batch-sexpr-serialize
+   ;; Benchmarking
+   #:benchmark
+   #:print-benchmark
+   ;; Memory profiling
+   #:memory-usage
+   #:with-memory-tracking))

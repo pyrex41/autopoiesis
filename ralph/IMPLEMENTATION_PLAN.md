@@ -226,7 +226,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement LRU cache for hot snapshots
 - [x] Implement `parallel-ecs-update` for independent systems
 - [x] Implement `compact-thought-stream` for memory reduction
-- [ ] Profile and optimize critical paths
+- [x] Profile and optimize critical paths
 - [ ] Implement lazy loading for large DAGs
 
 #### 10.2: Security Hardening

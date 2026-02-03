@@ -725,3 +725,203 @@
     (let ((exts (autopoiesis.core:list-extensions :registry test-registry)))
       (is (= 2 (length exts)))
       (is (every (lambda (e) (typep e 'autopoiesis.core::extension)) exts)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Profiling Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test profiling-disabled-by-default
+  "Test that profiling is disabled by default"
+  (is (not autopoiesis.core:*profiling-enabled*)))
+
+(test profiling-enable-disable
+  "Test enable/disable profiling"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:enable-profiling)
+         (is-true autopoiesis.core:*profiling-enabled*)
+         (autopoiesis.core:disable-profiling)
+         (is (not autopoiesis.core:*profiling-enabled*)))
+    (autopoiesis.core:disable-profiling)))
+
+(test profiling-with-timing-macro
+  "Test with-timing macro records metrics"
+  (autopoiesis.core:reset-profiling)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:enable-profiling)
+         ;; Execute some timed code
+         (autopoiesis.core:with-timing ("test-operation")
+           (sleep 0.01))
+         ;; Check metrics were recorded
+         (let ((metric (autopoiesis.core:get-profile-metric "test-operation")))
+           (is-true metric)
+           (is (= 1 (autopoiesis.core:profile-metric-call-count metric)))
+           (is (> (autopoiesis.core:profile-metric-total-time-ns metric) 0))))
+    (autopoiesis.core:disable-profiling)
+    (autopoiesis.core:reset-profiling)))
+
+(test profiling-with-timing-no-overhead-when-disabled
+  "Test with-timing has no overhead when profiling disabled"
+  (autopoiesis.core:reset-profiling)
+  (autopoiesis.core:disable-profiling)
+  ;; Execute timed code with profiling disabled
+  (autopoiesis.core:with-timing ("disabled-operation")
+    (+ 1 2))
+  ;; No metrics should be recorded
+  (let ((metric (autopoiesis.core:get-profile-metric "disabled-operation")))
+    (is (null metric))))
+
+(test profiling-multiple-calls-aggregated
+  "Test multiple calls to same operation are aggregated"
+  (autopoiesis.core:reset-profiling)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:enable-profiling)
+         ;; Execute multiple times
+         (dotimes (i 5)
+           (autopoiesis.core:with-timing ("multi-call-op")
+             (+ 1 2)))
+         ;; Check aggregated metrics
+         (let ((metric (autopoiesis.core:get-profile-metric "multi-call-op")))
+           (is-true metric)
+           (is (= 5 (autopoiesis.core:profile-metric-call-count metric)))))
+    (autopoiesis.core:disable-profiling)
+    (autopoiesis.core:reset-profiling)))
+
+(test profiling-min-max-tracking
+  "Test min/max time tracking"
+  (autopoiesis.core:reset-profiling)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:enable-profiling)
+         ;; Execute with varying times
+         (autopoiesis.core:with-timing ("min-max-test")
+           (sleep 0.001))
+         (autopoiesis.core:with-timing ("min-max-test")
+           (sleep 0.01))
+         (autopoiesis.core:with-timing ("min-max-test")
+           (sleep 0.001))
+         ;; Check min < max
+         (let ((metric (autopoiesis.core:get-profile-metric "min-max-test")))
+           (is-true metric)
+           (is (< (autopoiesis.core:profile-metric-min-time-ns metric)
+                  (autopoiesis.core:profile-metric-max-time-ns metric)))))
+    (autopoiesis.core:disable-profiling)
+    (autopoiesis.core:reset-profiling)))
+
+(test profiling-reset-clears-all
+  "Test reset-profiling clears all metrics"
+  (autopoiesis.core:reset-profiling)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:enable-profiling)
+         (autopoiesis.core:with-timing ("to-be-cleared")
+           (+ 1 2))
+         (is-true (autopoiesis.core:get-profile-metric "to-be-cleared"))
+         (autopoiesis.core:reset-profiling)
+         (is (null (autopoiesis.core:get-profile-metric "to-be-cleared"))))
+    (autopoiesis.core:disable-profiling)
+    (autopoiesis.core:reset-profiling)))
+
+(test profiling-report-structure
+  "Test profile-report returns correct structure"
+  (autopoiesis.core:reset-profiling)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:enable-profiling)
+         (autopoiesis.core:with-timing ("report-test")
+           (+ 1 2))
+         (let ((report (autopoiesis.core:profile-report)))
+           (is (listp report))
+           (is (= 1 (getf report :total-operations)))
+           (is (listp (getf report :operations)))
+           (let ((op (first (getf report :operations))))
+             (is (equal "report-test" (getf op :name)))
+             (is (= 1 (getf op :calls)))
+             (is (numberp (getf op :total-ms)))
+             (is (numberp (getf op :avg-us)))
+             (is (numberp (getf op :min-us)))
+             (is (numberp (getf op :max-us))))))
+    (autopoiesis.core:disable-profiling)
+    (autopoiesis.core:reset-profiling)))
+
+(test profiling-with-profiling-macro
+  "Test with-profiling macro enables and disables correctly"
+  (autopoiesis.core:reset-profiling)
+  (autopoiesis.core:disable-profiling)
+  (is (not autopoiesis.core:*profiling-enabled*))
+  (autopoiesis.core:with-profiling
+    (is-true autopoiesis.core:*profiling-enabled*)
+    (autopoiesis.core:with-timing ("inside-with-profiling")
+      (+ 1 2)))
+  ;; Should be disabled after with-profiling
+  (is (not autopoiesis.core:*profiling-enabled*))
+  ;; But metrics should still be there
+  (is-true (autopoiesis.core:get-profile-metric "inside-with-profiling"))
+  (autopoiesis.core:reset-profiling))
+
+(test profiling-summary
+  "Test profile-summary returns correct structure"
+  (autopoiesis.core:reset-profiling)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:enable-profiling)
+         (autopoiesis.core:with-timing ("summary-op-1")
+           (+ 1 2))
+         (autopoiesis.core:with-timing ("summary-op-2")
+           (+ 3 4))
+         (let ((summary (autopoiesis.core:profile-summary)))
+           (is (listp summary))
+           (is-true (getf summary :enabled))
+           (is (= 2 (getf summary :operations-tracked)))
+           (is (= 2 (getf summary :total-calls)))
+           (is (numberp (getf summary :total-time-ms)))
+           (is (listp (getf summary :hot-paths)))))
+    (autopoiesis.core:disable-profiling)
+    (autopoiesis.core:reset-profiling)))
+
+(test profiling-benchmark-function
+  "Test benchmark function"
+  (let ((result (autopoiesis.core:benchmark "bench-test" 100
+                  (lambda () (+ 1 2)))))
+    (is (listp result))
+    (is (equal "bench-test" (getf result :name)))
+    (is (= 100 (getf result :iterations)))
+    (is (numberp (getf result :total-ms)))
+    (is (numberp (getf result :avg-us)))
+    (is (numberp (getf result :ops-per-sec)))
+    (is (> (getf result :ops-per-sec) 0))))
+
+(test profiling-batch-sexpr-hash
+  "Test batch-sexpr-hash function"
+  (let ((sexprs '((a b c) (1 2 3) ("hello" "world"))))
+    (let ((hashes (autopoiesis.core:batch-sexpr-hash sexprs)))
+      (is (= 3 (length hashes)))
+      (is (every #'stringp hashes))
+      ;; Each hash should match individual hash
+      (is (equal (first hashes) (sexpr-hash '(a b c))))
+      (is (equal (second hashes) (sexpr-hash '(1 2 3))))
+      (is (equal (third hashes) (sexpr-hash '("hello" "world")))))))
+
+(test profiling-batch-sexpr-serialize
+  "Test batch-sexpr-serialize function"
+  (let ((sexprs '((a b c) (1 2 3))))
+    (let ((serialized (autopoiesis.core:batch-sexpr-serialize sexprs)))
+      (is (= 2 (length serialized)))
+      (is (every #'stringp serialized)))))
+
+(test profiling-memory-usage
+  "Test memory-usage function"
+  (let ((usage (autopoiesis.core:memory-usage)))
+    (is (listp usage))
+    (is (numberp (getf usage :dynamic-usage)))))
+
+(test profiling-with-memory-tracking
+  "Test with-memory-tracking macro"
+  (multiple-value-bind (result bytes)
+      (autopoiesis.core:with-memory-tracking
+        (make-list 1000))
+    (is (listp result))
+    (is (= 1000 (length result)))
+    (is (numberp bytes))))

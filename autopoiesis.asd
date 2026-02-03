@@ -31,7 +31,8 @@
        (:file "s-expr")
        (:file "cognitive-primitives")
        (:file "thought-stream")
-       (:file "extension-compiler")))
+       (:file "extension-compiler")
+       (:file "profiling")))
      (:module "agent"
       :serial t
       :depends-on ("core")
