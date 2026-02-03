@@ -81,8 +81,13 @@
        (:file "tool-registry")
        (:file "builtin-tools")
        (:file "config")))
+     (:module "viz"
+      :serial t
+      :depends-on ("core" "snapshot")
+      :components
+      ((:file "packages")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration")))))
+     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; Test system

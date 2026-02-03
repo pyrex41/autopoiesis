@@ -1,7 +1,7 @@
 # Autopoiesis Implementation Plan
 
 Last updated: 2026-02-02
-Current Phase: 6 Complete - Planning needed for Phase 7
+Current Phase: 7 (2D Visualization) - Ready for implementation
 
 ## Completed
 
@@ -48,7 +48,56 @@ Current Phase: 6 Complete - Planning needed for Phase 7
 
 ## Next Up (Priority Order)
 
-(empty - planning mode needed to populate Phase 7 tasks)
+### Phase 7.1: Package and Foundation Setup
+- [x] Create `src/viz/packages.lisp` with package definitions for visualization subsystem
+- [ ] Add `cl-charms` dependency to `autopoiesis.asd` for ncurses bindings
+- [ ] Create `src/viz/util.lisp` with terminal utility functions (color codes, cursor movement)
+- [ ] Create `src/viz/config.lisp` with visualization configuration (colors, symbols, dimensions)
+
+### Phase 7.2: Terminal Timeline Core
+- [ ] Create `src/viz/timeline.lisp` with `timeline` class (holds snapshot references, viewport state)
+- [ ] Implement `timeline-viewport` class (visible window into timeline: start, end, width, height)
+- [ ] Implement basic ASCII timeline rendering function `render-timeline-row`
+- [ ] Implement `render-branch-connections` for fork visualization (vertical lines, corners)
+
+### Phase 7.3: Timeline Renderer
+- [ ] Implement `snapshot-glyph` function (map snapshot type to ASCII symbol: ○ ◆ ● □ etc.)
+- [ ] Implement `render-snapshot-node` with type-based coloring
+- [ ] Implement `render-timeline` main function combining rows, branches, legend
+
+### Phase 7.4: Snapshot Detail Panel
+- [ ] Create `detail-panel` class with panel dimensions and content buffer
+- [ ] Implement `render-snapshot-summary` (ID, timestamp, type, parent)
+- [ ] Implement `render-thought-preview` with truncation and expand/collapse state
+
+### Phase 7.5: Navigation Integration
+- [ ] Implement `timeline-navigator` class wrapping snapshot navigator
+- [ ] Implement cursor movement functions (left, right, up-branch, down-branch)
+- [ ] Implement jump-to-snapshot by ID
+- [ ] Implement search function (find snapshot by content/type)
+
+### Phase 7.6: Interactive Terminal UI
+- [ ] Implement `terminal-ui` main class with ncurses screen management
+- [ ] Implement keyboard input handler (hjkl navigation, Enter select, q quit, / search)
+- [ ] Implement `run-terminal-ui` main loop (input → update → render cycle)
+- [ ] Implement status bar with current position, branch name, help hints
+
+### Phase 7.7: Branch Visualization
+- [ ] Implement `compute-branch-layout` (assign y-positions to branches)
+- [ ] Implement `render-branch-labels` (show branch names at fork points)
+- [ ] Implement branch switching in UI (Tab or number keys)
+
+### Phase 7.8: Tests
+- [ ] Create `test/viz-tests.lisp` with test package
+- [ ] Write tests for timeline rendering (string output comparison)
+- [ ] Write tests for navigation (cursor movement, jump)
+- [ ] Write tests for snapshot glyph mapping
+
+### Phase 7.9: Integration and Polish
+- [ ] Integrate terminal UI with existing interface/session system
+- [ ] Add resize handling for terminal window changes
+- [ ] Implement help overlay (? key shows keybindings)
+- [ ] Update `autopoiesis.asd` to include viz subsystem in main load
 
 ## Recently Completed
 
@@ -88,13 +137,17 @@ Current Phase: 6 Complete - Planning needed for Phase 7
 
 ## Future (Ready for Planning)
 
-### Phase 7: 2D Visualization (Ready)
-- Phase 6 complete - this phase is now ready for planning
-- See `docs/specs/07-implementation-roadmap.md` for task breakdown
-- Requires: terminal timeline (ncurses), snapshot rendering, navigation integration
-
-### Phase 8+: 3D Holodeck, Self-Extension, Production
+### Phase 8: 3D Holodeck
 - Depends on: Phase 7 complete
+- ECS setup, 3D rendering (Trial/Raylib), scene management, camera, input, HUD, visual effects
+
+### Phase 9: Self-Extension
+- Depends on: Phase 8 complete
+- Agent macros, self-modification, learning system, capability generation
+
+### Phase 10: Production
+- Depends on: Phase 9 complete
+- Performance optimization, security hardening, deployment, documentation
 
 ---
 

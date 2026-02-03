@@ -11,6 +11,7 @@
   (:use #:autopoiesis.snapshot)
   (:use #:autopoiesis.interface)
   (:use #:autopoiesis.integration)
+  (:use #:autopoiesis.viz)
 
   ;; Reexport core
   (:export
@@ -55,7 +56,15 @@
   (:export
    #:claude-client #:make-claude-client #:claude-complete
    #:mcp-server #:make-mcp-server #:mcp-connect
-   #:external-tool #:make-external-tool #:register-external-tool))
+   #:external-tool #:make-external-tool #:register-external-tool)
+
+  ;; Reexport viz
+  (:export
+   #:timeline #:make-timeline #:render-timeline
+   #:timeline-viewport #:make-timeline-viewport
+   #:timeline-navigator #:make-timeline-navigator
+   #:terminal-ui #:run-terminal-ui #:stop-terminal-ui
+   #:snapshot-glyph #:render-snapshot-node))
 
 (in-package #:autopoiesis)
 
