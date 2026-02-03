@@ -42,10 +42,22 @@
                     :accessor ui-terminal-height
                     :initform 24
                     :documentation "Terminal height in characters")
-   (help-visible-p :initarg :help-visible-p
-                   :accessor ui-help-visible-p
-                   :initform nil
-                   :documentation "Flag for showing help overlay"))
+(help-visible-p :initarg :help-visible-p
+:accessor ui-help-visible-p
+:initform nil
+:documentation "Flag for showing help overlay")
+ (search-mode :initarg :search-mode
+              :accessor ui-search-mode-p
+              :initform nil
+              :documentation "Flag for search input mode")
+ (search-query :initarg :search-query
+               :accessor ui-search-query
+               :initform ""
+               :documentation "Current search query buffer")
+ (status-message :initarg :status-message
+                 :accessor ui-status-message
+                 :initform ""
+                 :documentation "Temporary status bar message")
    (:documentation "Main terminal UI class for interactive timeline visualization"))
 
 (defmethod print-object ((ui terminal-ui) stream)
@@ -143,6 +155,11 @@
 ;;; Rendering Methods
 ;;; ═══════════════════════════════════════════════════════════════════
 
+(defmethod render-timeline ((ui terminal-ui))
+  (multiple-value-bind (tx ty tw th) (get-timeline-region ui)
+    (move-cursor ty tx)
+    (format t "Timeline ~dx~d | Cursor ~d" tw th (navigator-cursor (ui-navigator ui)))))
+
 (defmethod render ((ui terminal-ui))
   "Render the entire UI to the screen."
   (clear-screen)
@@ -186,10 +203,15 @@
     (draw-horizontal-line y x width)
     ;; Render status content below the line
     (let ((status-y (1+ y)))
-      (move-cursor status-y x)
-      (format t "Autopoiesis Timeline | Branch: main | Position: 0/0")
-      (move-cursor status-y (+ x 50))
-      (format t "Press 'h' for help, 'q' to quit"))))
+(move-cursor status-y x)
+        (let ((nav (ui-navigator ui)))
+          (format t "Timeline | Branch: main | Pos: ~a | ~a"
+                  (if nav (format nil "~d" (navigator-cursor nav)) "??")
+                  (ui-status-message ui)))
+        (move-cursor status-y (+ x 60))
+        (if (ui-search-mode-p ui)
+            (format t "Search: ~a_" (ui-search-query ui))
+            (format t "h j k l nav | / search | Enter select | ? help | q quit"))))
 
 (defmethod render-help-overlay ((ui terminal-ui))
   "Render help overlay with key bindings."
@@ -232,6 +254,10 @@
 
 (defmethod handle-input ((ui terminal-ui) input)
   "Handle a single input character."
+  (when (and (ui-search-mode-p ui)
+             (not (member input '(#\Return #\Escape))))
+    (setf (ui-search-query ui) (concatenate 'string (ui-search-query ui) (string input)))
+    (return-from handle-input t))
   (case input
     (#\q (stop-terminal-ui ui))
     (#\h (when (ui-navigator ui)
@@ -242,10 +268,19 @@
            (cursor-up-branch (ui-navigator ui))))
     (#\l (when (ui-navigator ui)
            (cursor-right (ui-navigator ui))))
+    (#\/ (setf (ui-search-mode-p ui) t
+              (ui-search-query ui) ""))
+    (#\Return
+     (if (ui-search-mode-p ui)
+         (perform-search ui)
+         (select-current-snapshot ui)))
+    (#\Escape
+     (when (ui-search-mode-p ui)
+       (setf (ui-search-mode-p ui) nil
+             (ui-search-query ui) ""
+             (ui-status-message ui) "Search cancelled")))
     (#\? (setf (ui-help-visible-p ui) (not (ui-help-visible-p ui))))
-    (otherwise
-     ;; Handle other keys or ignore
-     nil)))
+    (otherwise nil))
 
 (defmethod read-input ((ui terminal-ui))
   "Read a single character from input."
