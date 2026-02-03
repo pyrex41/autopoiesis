@@ -502,3 +502,172 @@
     (is (= 5 (autopoiesis.snapshot:event-log-count :log log)))
     (autopoiesis.snapshot:clear-event-log :log log)
     (is (= 0 (autopoiesis.snapshot:event-log-count :log log)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; LRU Cache Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test lru-cache-basic
+  "Test basic LRU cache operations"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    ;; Test initial state
+    (is (= 0 (autopoiesis.snapshot:cache-size cache)))
+    (is (= 3 (autopoiesis.snapshot:cache-capacity cache)))
+    ;; Test put and get
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (is (= 1 (autopoiesis.snapshot:cache-size cache)))
+    (is (string= "value1" (autopoiesis.snapshot:cache-get cache "key1")))
+    ;; Test miss
+    (is (null (autopoiesis.snapshot:cache-get cache "nonexistent")))))
+
+(test lru-cache-eviction
+  "Test LRU cache eviction when at capacity"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    ;; Fill cache
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (autopoiesis.snapshot:cache-put cache "key2" "value2")
+    (autopoiesis.snapshot:cache-put cache "key3" "value3")
+    (is (= 3 (autopoiesis.snapshot:cache-size cache)))
+    ;; Add fourth item - should evict key1 (LRU)
+    (autopoiesis.snapshot:cache-put cache "key4" "value4")
+    (is (= 3 (autopoiesis.snapshot:cache-size cache)))
+    (is (null (autopoiesis.snapshot:cache-get cache "key1")))
+    (is (string= "value2" (autopoiesis.snapshot:cache-get cache "key2")))
+    (is (string= "value3" (autopoiesis.snapshot:cache-get cache "key3")))
+    (is (string= "value4" (autopoiesis.snapshot:cache-get cache "key4")))))
+
+(test lru-cache-access-updates-order
+  "Test that accessing an item updates its LRU position"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    ;; Fill cache
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (autopoiesis.snapshot:cache-put cache "key2" "value2")
+    (autopoiesis.snapshot:cache-put cache "key3" "value3")
+    ;; Access key1 to make it most recently used
+    (autopoiesis.snapshot:cache-get cache "key1")
+    ;; Add fourth item - should evict key2 (now LRU)
+    (autopoiesis.snapshot:cache-put cache "key4" "value4")
+    (is (string= "value1" (autopoiesis.snapshot:cache-get cache "key1")))
+    (is (null (autopoiesis.snapshot:cache-get cache "key2")))
+    (is (string= "value3" (autopoiesis.snapshot:cache-get cache "key3")))
+    (is (string= "value4" (autopoiesis.snapshot:cache-get cache "key4")))))
+
+(test lru-cache-update-existing
+  "Test updating an existing cache entry"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (autopoiesis.snapshot:cache-put cache "key1" "updated-value1")
+    (is (= 1 (autopoiesis.snapshot:cache-size cache)))
+    (is (string= "updated-value1" (autopoiesis.snapshot:cache-get cache "key1")))))
+
+(test lru-cache-remove
+  "Test removing items from cache"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (autopoiesis.snapshot:cache-put cache "key2" "value2")
+    (is (= 2 (autopoiesis.snapshot:cache-size cache)))
+    ;; Remove existing key
+    (is (autopoiesis.snapshot:cache-remove cache "key1"))
+    (is (= 1 (autopoiesis.snapshot:cache-size cache)))
+    (is (null (autopoiesis.snapshot:cache-get cache "key1")))
+    ;; Remove non-existent key
+    (is (not (autopoiesis.snapshot:cache-remove cache "nonexistent")))))
+
+(test lru-cache-clear
+  "Test clearing the cache"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (autopoiesis.snapshot:cache-put cache "key2" "value2")
+    (autopoiesis.snapshot:cache-clear cache)
+    (is (= 0 (autopoiesis.snapshot:cache-size cache)))
+    (is (null (autopoiesis.snapshot:cache-get cache "key1")))))
+
+(test lru-cache-statistics
+  "Test cache hit/miss statistics"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    ;; Hit
+    (autopoiesis.snapshot:cache-get cache "key1")
+    ;; Miss
+    (autopoiesis.snapshot:cache-get cache "nonexistent")
+    (is (= 1 (autopoiesis.snapshot:cache-hits cache)))
+    (is (= 1 (autopoiesis.snapshot:cache-misses cache)))
+    (is (= 0.5 (autopoiesis.snapshot:cache-hit-rate cache)))
+    ;; Test stats plist
+    (let ((stats (autopoiesis.snapshot:cache-stats cache)))
+      (is (= 3 (getf stats :capacity)))
+      (is (= 1 (getf stats :size)))
+      (is (= 1 (getf stats :hits)))
+      (is (= 1 (getf stats :misses))))))
+
+(test lru-cache-resize
+  "Test resizing the cache"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 5)))
+    ;; Fill cache
+    (loop for i from 1 to 5
+          do (autopoiesis.snapshot:cache-put cache
+                                             (format nil "key~d" i)
+                                             (format nil "value~d" i)))
+    (is (= 5 (autopoiesis.snapshot:cache-size cache)))
+    ;; Resize down - should evict LRU entries
+    (let ((evicted (autopoiesis.snapshot:resize-cache cache 3)))
+      (is (= 2 evicted))
+      (is (= 3 (autopoiesis.snapshot:cache-size cache)))
+      ;; key1 and key2 should be evicted (LRU)
+      (is (null (autopoiesis.snapshot:cache-get cache "key1")))
+      (is (null (autopoiesis.snapshot:cache-get cache "key2")))
+      ;; key3, key4, key5 should remain
+      (is (string= "value3" (autopoiesis.snapshot:cache-get cache "key3")))
+      (is (string= "value5" (autopoiesis.snapshot:cache-get cache "key5"))))))
+
+(test lru-cache-contains-p
+  "Test cache-contains-p without updating LRU order"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 3)))
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (autopoiesis.snapshot:cache-put cache "key2" "value2")
+    (autopoiesis.snapshot:cache-put cache "key3" "value3")
+    ;; Check without updating order
+    (is (autopoiesis.snapshot:cache-contains-p cache "key1"))
+    (is (not (autopoiesis.snapshot:cache-contains-p cache "nonexistent")))
+    ;; Add new item - key1 should still be evicted (contains-p didn't update order)
+    (autopoiesis.snapshot:cache-put cache "key4" "value4")
+    (is (null (autopoiesis.snapshot:cache-get cache "key1")))))
+
+(test lru-cache-keys
+  "Test getting cache keys in LRU order"
+  (let ((cache (autopoiesis.snapshot:make-lru-cache :capacity 5)))
+    (autopoiesis.snapshot:cache-put cache "key1" "value1")
+    (autopoiesis.snapshot:cache-put cache "key2" "value2")
+    (autopoiesis.snapshot:cache-put cache "key3" "value3")
+    ;; Access key1 to make it most recent
+    (autopoiesis.snapshot:cache-get cache "key1")
+    (let ((keys (autopoiesis.snapshot:cache-keys cache)))
+      ;; Most recent first
+      (is (string= "key1" (first keys)))
+      (is (string= "key3" (second keys)))
+      (is (string= "key2" (third keys))))))
+
+(test snapshot-store-with-lru-cache
+  "Test snapshot store uses LRU cache correctly"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path :cache-capacity 3)))
+    (unwind-protect
+         (progn
+           ;; Create and save 5 snapshots
+           (let ((snap-ids nil))
+             (loop for i from 1 to 5
+                   do (let ((snap (autopoiesis.snapshot:make-snapshot (list :num i))))
+                        (autopoiesis.snapshot:save-snapshot snap store)
+                        (push (autopoiesis.snapshot:snapshot-id snap) snap-ids)))
+             (setf snap-ids (nreverse snap-ids))
+             ;; Cache should only have last 3 snapshots
+             (let ((stats (autopoiesis.snapshot:snapshot-cache-stats store)))
+               (is (= 3 (getf stats :size)))
+               (is (= 3 (getf stats :capacity))))
+             ;; Loading first snapshot should cause cache miss then cache it
+             (let ((snap1 (autopoiesis.snapshot:load-snapshot (first snap-ids) store)))
+               (is (not (null snap1)))
+               ;; Check stats show a miss
+               (let ((stats (autopoiesis.snapshot:snapshot-cache-stats store)))
+                 (is (>= (getf stats :misses) 1))))))
+      (cleanup-temp-store temp-path))))

@@ -46,6 +46,7 @@
    #:load-store-index
    #:rebuild-store-index
    #:clear-snapshot-cache
+   #:snapshot-cache-stats
    #:close-store
 
    ;; Branch management
@@ -100,4 +101,24 @@
    #:checkpoint-id
    #:checkpoint-timestamp
    #:checkpoint-state
-   #:checkpoint-event-count))
+   #:checkpoint-event-count
+
+   ;; LRU Cache
+   #:lru-cache
+   #:make-lru-cache
+   #:cache-get
+   #:cache-put
+   #:cache-remove
+   #:cache-contains-p
+   #:cache-clear
+   #:cache-size
+   #:cache-capacity
+   #:cache-hits
+   #:cache-misses
+   #:cache-evictions
+   #:cache-hit-rate
+   #:cache-stats
+   #:reset-cache-stats
+   #:cache-keys
+   #:map-cache
+   #:resize-cache))

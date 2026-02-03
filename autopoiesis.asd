@@ -53,6 +53,7 @@
       ((:file "packages")
        (:file "snapshot")
        (:file "content-store")
+       (:file "lru-cache")
        (:file "persistence")
        (:file "event-log")
        (:file "branch")

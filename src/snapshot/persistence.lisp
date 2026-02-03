@@ -14,8 +14,12 @@
               :documentation "Root directory for snapshot storage")
    (cache :initarg :cache
           :accessor store-cache
-          :initform (make-hash-table :test 'equal)
-          :documentation "In-memory cache of loaded snapshots")
+          :initform nil
+          :documentation "LRU cache of loaded snapshots")
+   (cache-capacity :initarg :cache-capacity
+                   :accessor store-cache-capacity
+                   :initform 1000
+                   :documentation "Maximum number of snapshots to cache")
    (index :initarg :index
           :accessor store-index
           :initform nil
@@ -25,9 +29,12 @@
 (defvar *snapshot-store* nil
   "Global snapshot store instance.")
 
-(defun make-snapshot-store (base-path)
-  "Create a new snapshot store at BASE-PATH."
-  (let ((store (make-instance 'snapshot-store :base-path base-path)))
+(defun make-snapshot-store (base-path &key (cache-capacity 1000))
+  "Create a new snapshot store at BASE-PATH with optional CACHE-CAPACITY."
+  (let ((store (make-instance 'snapshot-store
+                              :base-path base-path
+                              :cache-capacity cache-capacity
+                              :cache (make-lru-cache :capacity cache-capacity))))
     (ensure-store-directories store)
     (load-store-index store)
     store))
@@ -111,7 +118,7 @@
             (*package* (find-package :autopoiesis.core)))
         (prin1 sexpr out)))
     ;; Update cache
-    (setf (gethash id (store-cache store)) snapshot)
+    (cache-put (store-cache store) id snapshot)
     ;; Update index
     (index-snapshot store snapshot)
     snapshot))
@@ -121,8 +128,8 @@
   (unless store
     (error 'autopoiesis.core:autopoiesis-error
            :message "No snapshot store initialized"))
-  ;; Check cache first
-  (let ((cached (gethash id (store-cache store))))
+  ;; Check cache first (cache-get updates LRU order)
+  (let ((cached (cache-get (store-cache store) id)))
     (when cached
       (return-from load-snapshot cached)))
   ;; Load from disk
@@ -139,8 +146,8 @@
                 (warn "Failed to load snapshot ~a: ~a" id e)
                 nil))))
       (when snapshot
-        ;; Update cache
-        (setf (gethash id (store-cache store)) snapshot))
+        ;; Update cache (LRU cache handles eviction automatically)
+        (cache-put (store-cache store) id snapshot))
       snapshot)))
 
 (defun delete-snapshot (id &optional (store *snapshot-store*))
@@ -152,14 +159,14 @@
     (when (probe-file path)
       (delete-file path))
     ;; Remove from cache
-    (remhash id (store-cache store))
+    (cache-remove (store-cache store) id)
     ;; Remove from index
     (unindex-snapshot store id)
     t))
 
 (defun snapshot-exists-p (id &optional (store *snapshot-store*))
   "Check if snapshot with ID exists in STORE."
-  (or (gethash id (store-cache store))
+  (or (cache-contains-p (store-cache store) id)
       (probe-file (snapshot-file-path store id))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -393,7 +400,12 @@
 (defun clear-snapshot-cache (&optional (store *snapshot-store*))
   "Clear the in-memory cache for STORE."
   (when store
-    (clrhash (store-cache store))))
+    (cache-clear (store-cache store))))
+
+(defun snapshot-cache-stats (&optional (store *snapshot-store*))
+  "Return cache statistics for STORE."
+  (when store
+    (cache-stats (store-cache store))))
 
 (defun close-store (&optional (store *snapshot-store*))
   "Close STORE, saving index and clearing cache."
