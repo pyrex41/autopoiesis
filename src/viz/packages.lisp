@@ -115,10 +115,13 @@
    #:ui-detail-panel
    #:ui-status-bar
    #:ui-running-p
+   #:ui-terminal-width
+   #:ui-terminal-height
    #:run-terminal-ui
    #:stop-terminal-ui
    #:handle-input
    #:refresh-display
+   #:update
 
    ;; Branch visualization
    #:compute-branch-layout
@@ -128,6 +131,10 @@
    ;; Status bar
    #:render-status-bar
    #:status-bar-message
+
+   ;; Resize handling
+   #:handle-resize
+   #:ui-needs-resize-p
 
    ;; Help overlay
    #:render-help-overlay

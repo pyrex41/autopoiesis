@@ -95,7 +95,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 
 ### Phase 7.9: Integration and Polish
 - [x] Integrate terminal UI with existing interface/session system
-- [ ] Add resize handling for terminal window changes
+- [x] Add resize handling for terminal window changes
 - [ ] Implement help overlay (? key shows keybindings)
 - [ ] Update `autopoiesis.asd` to include viz subsystem in main load
 

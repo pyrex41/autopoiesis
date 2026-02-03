@@ -279,6 +279,78 @@
       (is (member snap0 results)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Resize Handling Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test handle-resize-adjusts-viewport
+  "Test that handle-resize adjusts viewport dimensions."
+  (let* ((timeline (autopoiesis.viz:make-timeline))
+         (ui (autopoiesis.viz:make-terminal-ui :timeline timeline)))
+    ;; Simulate a terminal size of 120x40
+    (setf (autopoiesis.viz:ui-terminal-width ui) 120
+          (autopoiesis.viz:ui-terminal-height ui) 40)
+    (autopoiesis.viz:handle-resize ui)
+    (let ((vp (autopoiesis.viz:timeline-viewport timeline)))
+      ;; Viewport width should be positive and bounded by terminal width
+      (is (> (autopoiesis.viz:viewport-width vp) 0))
+      (is (<= (autopoiesis.viz:viewport-width vp) 120))
+      ;; Viewport height should be reduced by status bar
+      (is (> (autopoiesis.viz:viewport-height vp) 0))
+      (is (< (autopoiesis.viz:viewport-height vp) 40)))))
+
+(test handle-resize-adjusts-detail-panel
+  "Test that handle-resize adjusts detail panel dimensions."
+  (let* ((timeline (autopoiesis.viz:make-timeline))
+         (ui (autopoiesis.viz:make-terminal-ui :timeline timeline)))
+    ;; Simulate a terminal size of 120x40
+    (setf (autopoiesis.viz:ui-terminal-width ui) 120
+          (autopoiesis.viz:ui-terminal-height ui) 40)
+    (autopoiesis.viz:handle-resize ui)
+    (let ((panel (autopoiesis.viz:ui-detail-panel ui)))
+      (is (>= (autopoiesis.viz:panel-width panel) 20))
+      (is (> (autopoiesis.viz:panel-height panel) 0))
+      (is (< (autopoiesis.viz:panel-height panel) 40)))))
+
+(test handle-resize-small-terminal
+  "Test that handle-resize enforces minimum dimensions."
+  (let* ((timeline (autopoiesis.viz:make-timeline))
+         (ui (autopoiesis.viz:make-terminal-ui :timeline timeline)))
+    ;; Simulate a very small terminal
+    (setf (autopoiesis.viz:ui-terminal-width ui) 30
+          (autopoiesis.viz:ui-terminal-height ui) 10)
+    (autopoiesis.viz:handle-resize ui)
+    (let ((vp (autopoiesis.viz:timeline-viewport timeline)))
+      ;; Viewport dimensions should respect minimums
+      (is (>= (autopoiesis.viz:viewport-width vp) 10))
+      (is (>= (autopoiesis.viz:viewport-height vp) 5)))
+    (let ((panel (autopoiesis.viz:ui-detail-panel ui)))
+      (is (>= (autopoiesis.viz:panel-width panel) 20))
+      (is (>= (autopoiesis.viz:panel-height panel) 5)))))
+
+(test update-detects-size-change
+  "Test that update sets needs-resize-p when terminal size changes."
+  (let* ((timeline (autopoiesis.viz:make-timeline))
+         (ui (autopoiesis.viz:make-terminal-ui :timeline timeline)))
+    ;; After initial make, needs-resize-p should be nil (handled in constructor)
+    (is (null (autopoiesis.viz:ui-needs-resize-p ui)))
+    ;; Manually set dimensions to something different from what get-terminal-size returns
+    (setf (autopoiesis.viz:ui-terminal-width ui) 999
+          (autopoiesis.viz:ui-terminal-height ui) 999)
+    ;; Update should detect the change
+    (autopoiesis.viz:update ui)
+    ;; Width/height should now match actual terminal, and resize should be flagged
+    (is (not (= 999 (autopoiesis.viz:ui-terminal-width ui))))
+    (is-true (autopoiesis.viz:ui-needs-resize-p ui))))
+
+(test needs-resize-cleared-after-handle
+  "Test that needs-resize-p is cleared after handle-resize."
+  (let* ((timeline (autopoiesis.viz:make-timeline))
+         (ui (autopoiesis.viz:make-terminal-ui :timeline timeline)))
+    (setf (autopoiesis.viz:ui-needs-resize-p ui) t)
+    (autopoiesis.viz:handle-resize ui)
+    (is (null (autopoiesis.viz:ui-needs-resize-p ui)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Session Integration Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 

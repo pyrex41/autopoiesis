@@ -235,12 +235,19 @@
 
 (defun get-terminal-size ()
   "Get terminal dimensions as (VALUES width height).
-   Uses TIOCGWINSZ ioctl via cl-charms when available,
-   falls back to environment variables or defaults."
-  (handler-case
-      ;; Try using cl-charms to get the window size
-nil
-    (error ()
+   Tries stty size first, then environment variables, then defaults."
+  (or (ignore-errors
+        (let ((output (string-trim '(#\Space #\Newline #\Return)
+                                   (uiop:run-program '("stty" "size")
+                                                     :input :interactive
+                                                     :output :string
+                                                     :error-output nil))))
+          (when (and output (plusp (length output)))
+            (let* ((space-pos (position #\Space output))
+                   (rows (parse-integer (subseq output 0 space-pos)))
+                   (cols (parse-integer (subseq output (1+ space-pos)))))
+              (when (and (plusp rows) (plusp cols))
+                (values cols rows))))))
       ;; Fallback to environment variables or defaults
       (let ((cols (or (ignore-errors
                         (parse-integer (uiop:getenv "COLUMNS")))
@@ -248,7 +255,7 @@ nil
             (rows (or (ignore-errors
                         (parse-integer (uiop:getenv "LINES")))
                       24)))
-        (values cols rows)))))
+        (values cols rows))))
 
 (defun get-terminal-width ()
   "Get terminal width in columns."

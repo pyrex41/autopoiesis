@@ -13,6 +13,8 @@
                    :documentation "Detected terminal width.")
    (terminal-height :accessor ui-terminal-height :initform 0
                     :documentation "Detected terminal height.")
+   (needs-resize-p :accessor ui-needs-resize-p :initform nil
+                   :documentation "Flag set when terminal dimensions have changed.")
    (status-message :accessor status-bar-message :initform ""
                    :documentation "Current status message for bottom status bar.")
    (running-p :accessor ui-running-p :initform nil
@@ -29,6 +31,8 @@
           (ui-detail-panel ui) (or detail-panel (make-detail-panel))
           (ui-session ui) session)
     (update ui)
+    ;; Perform initial layout based on detected terminal size
+    (handle-resize ui)
     ui))
 
 (defun available-branches (ui)
@@ -51,12 +55,41 @@
       (setf (status-bar-message ui) (format nil "Switched to branch ~A" branch-name)))))
 
 (defmethod update ((ui terminal-ui))
-  "Update UI state: terminal size, sync navigator with timeline, etc."
-  (multiple-value-bind (w h)
-      (get-terminal-size)
-    (setf (ui-terminal-width ui) w
-          (ui-terminal-height ui) h))
+  "Update UI state: detect terminal size changes and adjust layout."
+  (let ((old-w (ui-terminal-width ui))
+        (old-h (ui-terminal-height ui)))
+    (multiple-value-bind (w h)
+        (get-terminal-size)
+      (setf (ui-terminal-width ui) w
+            (ui-terminal-height ui) h)
+      (when (and (or (/= old-w w) (/= old-h h))
+                 (not (and (zerop old-w) (zerop old-h))))
+        (setf (ui-needs-resize-p ui) t))))
   nil)
+
+(defgeneric handle-resize (ui)
+  (:documentation "Handle terminal resize by adjusting viewport and panel dimensions."))
+
+(defmethod handle-resize ((ui terminal-ui))
+  "Adjust viewport and panel dimensions to match new terminal size."
+  (let* ((w (ui-terminal-width ui))
+         (h (ui-terminal-height ui))
+         (status-height (getf (config-dimensions) :status-bar-height 3))
+         (border-pad (getf (config-dimensions) :border-padding 1))
+         (detail-width (min (getf (config-dimensions) :detail-panel-width 40)
+                            (max 20 (floor w 3))))
+         (timeline-width (- w detail-width (* border-pad 2)))
+         (timeline-height (- h status-height (* border-pad 2))))
+    ;; Adjust timeline viewport
+    (when (ui-timeline ui)
+      (let ((vp (timeline-viewport (ui-timeline ui))))
+        (setf (viewport-width vp) (max 10 timeline-width)
+              (viewport-height vp) (max 5 timeline-height))))
+    ;; Adjust detail panel dimensions
+    (when (ui-detail-panel ui)
+      (setf (panel-width (ui-detail-panel ui)) (max 20 detail-width)
+            (panel-height (ui-detail-panel ui)) (max 5 (- h status-height 2)))))
+  (setf (ui-needs-resize-p ui) nil))
 
 (defun render-status-bar (ui)
   "Render the bottom status bar with current position, branch name, status message, and help hints."
@@ -117,6 +150,9 @@
     (t nil)))
 
 (defmethod refresh-display ((ui terminal-ui))
+  ;; Handle pending resize before rendering
+  (when (ui-needs-resize-p ui)
+    (handle-resize ui))
   (clear-screen)
   (when (ui-timeline ui)
     (render-timeline (ui-timeline ui)))
@@ -125,9 +161,10 @@
   (let ((snap (current-snapshot-at-cursor (ui-navigator ui))))
     (when snap
       (setf (panel-content (ui-detail-panel ui)) (render-snapshot-summary snap))
-      (render-detail-panel (ui-detail-panel ui)
-                           (+ (getf (config-dimensions) :timeline-width 80) 2)
-                           2)))
+      (let ((detail-col (+ (viewport-width (timeline-viewport (ui-timeline ui))) 2)))
+        (render-detail-panel (ui-detail-panel ui)
+                             detail-col
+                             2))))
 
   (render-status-bar ui)
   (force-output))
