@@ -84,13 +84,14 @@
        (:file "config")))
       (:module "viz"
        :serial t
-       :depends-on ("core" "snapshot")
+       :depends-on ("core" "snapshot" "interface")
        :components
        ((:file "packages")
         (:file "util")
         (:file "config")
         (:file "timeline")
         (:file "detail-panel")
+        (:file "navigator")
         (:file "terminal-ui"))
  )
      ;; Main package that reexports everything

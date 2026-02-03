@@ -106,6 +106,7 @@
    #:cursor-down-branch
    #:jump-to-snapshot
    #:search-snapshots
+   #:current-snapshot-at-cursor
 
    ;; Terminal UI
    #:terminal-ui

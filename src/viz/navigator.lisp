@@ -116,7 +116,9 @@
         (remove-if-not
          (lambda (snap)
            (or (search query (snapshot-id snap) :test #'char-equal)
-               (search query (princ-to-string (snapshot-type snap)) :test #'char-equal)))
+               (let ((snap-type (getf (snapshot-metadata snap) :type)))
+                 (and snap-type
+                      (search query (princ-to-string snap-type) :test #'char-equal)))))
          snaps)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════

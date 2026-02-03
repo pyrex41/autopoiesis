@@ -206,7 +206,7 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
     (force-output)))
 
 (defun branch-fork-col (timeline branch-name)
-  \"Compute the fork column for BRANCH-NAME in TIMELINE.\"
+  "Compute the fork column for BRANCH-NAME in TIMELINE."
   (let* ((branches (timeline-branches timeline))
          (snap-ids (gethash branch-name branches))
          (first-id (first snap-ids)))
@@ -226,9 +226,9 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
             col))))))
 
 (defun render-branch-labels (timeline label-row main-row)
-  \"Render branch names at fork points on LABEL-ROW above MAIN-ROW.\"
+  "Render branch names at fork points on LABEL-ROW above MAIN-ROW."
   (let ((layout (compute-branch-layout timeline)))
-    (dolist (entry (remove-if (lambda (entry) (string= (car entry) \"main\")) layout))
+    (dolist (entry (remove-if (lambda (entry) (string= (car entry) "main")) layout))
       (let* ((branch (car entry))
              (col (branch-fork-col timeline branch)))
         (when (and col (>= col 1) (< col 100))
@@ -239,7 +239,7 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
   (force-output *standard-output*))
 
 (defun branch-y-position (layout branch-name)
-  \"Get Y-position for BRANCH-NAME from LAYOUT alist.\"
+  "Get Y-position for BRANCH-NAME from LAYOUT alist."
   (cdr (assoc branch-name layout :test #'string-equal)))
 
 (defun render-timeline (timeline)
