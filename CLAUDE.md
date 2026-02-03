@@ -6,17 +6,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Autopoiesis is a self-configuring, self-extending agent platform built on Common Lisp's homoiconic foundation. Agent cognition, conversation, and configuration are represented as S-expressions (code-as-data, data-as-code), enabling agents to modify their own behavior, full state snapshots for time-travel debugging, and human-in-the-loop interaction at any point.
 
-**Current Status:** Specification-only (v0.1.0-draft). No implementation code exists yet. The repository contains comprehensive specification documents in `docs/specs/`.
+**Current Status:** Phases 0-6 complete, Phase 7 (2D Visualization) in progress. Core functionality is implemented and tested.
 
-## Build & Development Commands (Planned)
+## Build & Development Commands
+
+```bash
+# Run all tests
+./scripts/test.sh
+
+# Build/load the system
+./scripts/build.sh
+```
 
 ```lisp
-;; Load the system
+;; Load the system in SBCL with Quicklisp
 (ql:quickload :autopoiesis)
-(autopoiesis:initialize)
 
 ;; Run tests
 (asdf:test-system :autopoiesis)
+
+;; Run specific test suite
+(5am:run! 'autopoiesis.test::core-tests)
+(5am:run! 'autopoiesis.test::e2e-tests)
+(5am:run! 'autopoiesis.test::viz-tests)
 ```
 
 **Environment:** SBCL (recommended), Quicklisp for dependencies, SLIME/SLY for IDE integration.
@@ -29,34 +41,46 @@ Six-layer architecture (bottom to top):
 2. **Agent Layer** (`src/agent/`) - Agent runtime, capability registry, agent spawner
 3. **Snapshot Layer** (`src/snapshot/`) - Content-addressable storage, branch manager, diff engine
 4. **Human Interface Layer** (`src/interface/`) - Navigator, viewport, annotator for human-in-the-loop
-5. **Visualization Layer** (`src/viz/`) - ECS-based 3D "Jarvis-style" holodeck, timeline view
+5. **Visualization Layer** (`src/viz/`) - 2D terminal timeline (in progress), 3D holodeck (planned)
 6. **Integration Layer** (`src/integration/`) - Claude bridge, MCP servers, external tools
 
-## Key Dependencies (Planned)
+## Implementation Status
 
-- `cl-fast-ecs` - ECS for visualization
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | Project setup, ASDF, dependencies | Complete |
+| 1 | S-expression utilities, cognitive primitives | Complete |
+| 2 | Agent class, capability system, cognitive loop | Complete |
+| 3 | Snapshot persistence, branching, time-travel | Complete |
+| 4 | Human entry points, viewport, CLI session | Complete |
+| 5 | Claude API integration | Complete |
+| 6 | MCP server integration | Complete |
+| 7 | 2D terminal visualization | In Progress |
+| 8 | 3D holodeck visualization | Planned |
+| 9 | Self-extension, agent-written code | Planned |
+| 10 | Performance, security, deployment | Planned |
+
+## Key Dependencies
+
 - `bordeaux-threads` - Concurrency
 - `cl-json` - Serialization
 - `dexador` - HTTP client (Claude API)
 - `local-time` - Timestamps
 - `alexandria` - Utilities
 - `fiveam` - Testing
-- Trial or Raylib - 3D rendering
+- `uiop` - System utilities
 
-## Implementation Roadmap
+## Test Suites
 
-The project follows a 10-phase implementation plan (see `docs/specs/07-implementation-roadmap.md`):
+All tests passing (801+ checks):
 
-- **Phase 0:** Project setup, ASDF system definition, dependencies
-- **Phase 1:** S-expression utilities, cognitive primitives
-- **Phase 2:** Agent class, capability system, cognitive loop
-- **Phase 3:** Snapshot persistence, branching, time-travel navigation
-- **Phase 4:** Human entry points, viewport, CLI human-in-the-loop
-- **Phase 5:** Claude API integration
-- **Phase 6:** MCP server integration
-- **Phase 7-8:** 2D terminal and 3D holodeck visualization
-- **Phase 9:** Self-extension, agent-written code
-- **Phase 10:** Performance, security, deployment
+- `core-tests` - S-expression operations, cognitive primitives (35 checks)
+- `agent-tests` - Agent creation, capabilities, context window (94 checks)
+- `snapshot-tests` - Persistence, DAG traversal, compaction (83 checks)
+- `interface-tests` - Blocking requests, sessions (40 checks)
+- `integration-tests` - Claude API, MCP, tools (404 checks)
+- `e2e-tests` - End-to-end user story tests (134 checks)
+- `viz-tests` - Visualization rendering (11 checks)
 
 ## Specification Documents
 
@@ -68,11 +92,38 @@ The project follows a 10-phase implementation plan (see `docs/specs/07-implement
 - `docs/specs/05-visualization.md` - ECS architecture, 3D holodeck design
 - `docs/specs/06-integration.md` - Claude bridge, MCP integration
 - `docs/specs/07-implementation-roadmap.md` - Phased implementation plan
+- `docs/user-stories.md` - 15 practical user stories with examples
 
 ## Code Conventions
 
-- Package hierarchy: `autopoiesis.core`, `autopoiesis.agent`, `autopoiesis.snapshot`, etc. with top-level `autopoiesis` reexporting all
+- Package hierarchy: `autopoiesis.core`, `autopoiesis.agent`, `autopoiesis.snapshot`, etc. with top-level `autopoiesis` reexporting public APIs
 - CLOS classes with `:initarg`, `:accessor`, `:initform`, and `:documentation` on slots
 - Condition hierarchy with restarts for error handling
 - Pure functions preferred (e.g., `sexpr-diff`, `sexpr-patch` are non-mutating)
 - Content-addressable storage using structural hashing for snapshots
+- FiveAM for testing with descriptive test names
+
+## Key Function Signatures
+
+```lisp
+;; Creating observations and decisions
+(make-observation raw &key source interpreted)
+(make-decision alternatives chosen &key rationale confidence)
+
+;; Agent cognitive loop
+(cognitive-cycle agent environment)
+
+;; Stream operations (returns vector, use helpers for lists)
+(stream-length stream)
+(stream-last stream n)  ; returns list of last n thoughts
+
+;; Tool name conversion (returns keyword)
+(tool-name-to-lisp-name "snake_case")  ; => :SNAKE-CASE
+(lisp-name-to-tool-name :kebab-case)   ; => "kebab_case"
+```
+
+## Development Notes
+
+- The `ralph/` directory contains automation tooling for implementation
+- See `ralph/IMPLEMENTATION_PLAN.md` for current task status
+- Research documents are in `thoughts/shared/research/`

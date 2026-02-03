@@ -88,10 +88,10 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [ ] Implement branch switching in UI (Tab or number keys)
 
 ### Phase 7.8: Tests
-- [ ] Create `test/viz-tests.lisp` with test package
-- [ ] Write tests for timeline rendering (string output comparison)
+- [x] Create `test/viz-tests.lisp` with test package
+- [x] Write tests for timeline rendering (string output comparison)
 - [ ] Write tests for navigation (cursor movement, jump)
-- [ ] Write tests for snapshot glyph mapping
+- [x] Write tests for snapshot glyph mapping
 
 ### Phase 7.9: Integration and Polish
 - [ ] Integrate terminal UI with existing interface/session system

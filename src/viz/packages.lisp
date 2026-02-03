@@ -10,7 +10,9 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defpackage #:autopoiesis.viz
-  (:use #:cl #:uiop #:alexandria #:autopoiesis.core #:autopoiesis.snapshot)
+  (:use #:cl #:autopoiesis.core #:autopoiesis.snapshot)
+  (:import-from #:uiop #:getenv)
+  (:import-from #:alexandria #:when-let #:if-let #:ensure-list)
   (:export
    ;; Configuration
    #:*viz-config*

@@ -64,7 +64,7 @@
                  :viewport (or viewport (make-instance 'timeline-viewport))))
 
 (defun render-timeline-row (timeline row)
-  \"Render basic ASCII timeline row at screen ROW for TIMELINE.\"
+  "Render basic ASCII timeline row at screen ROW for TIMELINE."
   (let* ((snaps (timeline-snapshots timeline))
          (sorted-snaps (sort (copy-seq snaps) #'< :key #'snapshot-timestamp))
          (current-id (timeline-current timeline))
@@ -89,12 +89,12 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
     (force-output *standard-output*))))
 
 (defun find-snapshot (timeline id)
-  \"Find snapshot by ID in TIMELINE.\"
+  "Find snapshot by ID in TIMELINE."
   (find id (timeline-snapshots timeline)
         :key #'snapshot-id :test #'string-equal))
 
 (defun compute-fork-cols (timeline)
-  \"Compute column positions for fork points.\"
+  "Compute column positions for fork points."
   (let (fork-cols)
     (maphash (lambda (bname branch-ids)
                (unless (string-equal bname "main")
@@ -135,8 +135,9 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
                  ((<= (+ main-row 1) row (+ main-row 5))
                   (with-color (+color-border+)
                     (princ "|")))
-                 (t nil))))
-  (defun render-snapshot-node (timeline row col snapshot)
+                 (t nil)))))))
+
+(defun render-snapshot-node (timeline row col snapshot)
     (let* ((current-id (timeline-current timeline))
            (meta-type (getf (snapshot-metadata snapshot) :type))
            (type (or meta-type :snapshot))
@@ -160,12 +161,11 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
           for col from 10 by 12
           do
              (move-cursor row (+ col 1))
-             (with-color (snapshot-type-color type))
-               (princ (snapshot-glyph type))
-             (reset-color)
+             (with-color (snapshot-type-color type)
+               (princ (snapshot-glyph type)))
              (move-cursor row (+ col 3))
-             (with-color (+color-text+))
-               (princ (subseq (string-downcase (symbol-name type)) 0 6)))
+             (with-color (+color-text+)
+               (princ (subseq (string-downcase (symbol-name type)) 0 6))))
     (force-output)))
 
 (defun render-timeline (timeline)
