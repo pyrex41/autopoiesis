@@ -1,6 +1,6 @@
 # Autopoiesis Implementation Plan
 
-Last updated: 2026-02-02
+Last updated: 2026-02-03
 Current Phase: 7 (2D Visualization) - Ready for implementation
 
 ## Completed
@@ -97,7 +97,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Integrate terminal UI with existing interface/session system
 - [x] Add resize handling for terminal window changes
 - [x] Implement help overlay (? key shows keybindings)
-- [ ] Update `autopoiesis.asd` to include viz subsystem in main load
+- [x] Update `autopoiesis.asd` to include viz subsystem in main load
 
 ## Recently Completed
 

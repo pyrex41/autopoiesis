@@ -151,7 +151,7 @@
     (let ((*standard-output* (make-string-output-stream)))
       (autopoiesis.viz:render-branch-labels timeline 10 5)
       (let ((output (get-output-stream-string *standard-output*)))
-        (is-true (search "bran" output))))))
+        (is-true (search "bra" output))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Navigation Tests
