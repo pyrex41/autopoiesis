@@ -56,7 +56,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 
 ### Phase 7.2: Terminal Timeline Core
 - [x] Create `src/viz/timeline.lisp` with `timeline` class (holds snapshot references, viewport state)
-- [ ] Implement `timeline-viewport` class (visible window into timeline: start, end, width, height)
+- [x] Implement `timeline-viewport` class (visible window into timeline: start, end, width, height)
 - [ ] Implement basic ASCII timeline rendering function `render-timeline-row`
 - [ ] Implement `render-branch-connections` for fork visualization (vertical lines, corners)
 
