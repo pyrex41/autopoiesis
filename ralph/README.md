@@ -4,9 +4,9 @@ This directory contains the Ralph Wiggum implementation for building Autopoiesis
 
 ## What is the Ralph Wiggum Method?
 
-A bash loop that feeds prompts to Claude Code repeatedly, with state persisting through files (not LLM context). Each iteration starts fresh to avoid "context rot."
+A bash loop that feeds prompts to opencode repeatedly, with state persisting through files (not LLM context). Each iteration starts fresh to avoid "context rot."
 
-**Core principle:** `while :; do cat PROMPT.md | claude -p ; done`
+**Core principle:** `while :; do opencode --model xai/grok-4-1-fast run "$(cat PROMPT.md)"; done`
 
 ## Quick Start
 
@@ -57,7 +57,7 @@ A bash loop that feeds prompts to Claude Code repeatedly, with state persisting 
 
 ## Safety
 
-The loop uses `--dangerously-skip-permissions` for autonomy. For safer operation:
+opencode handles permissions interactively or via config. For safer operation:
 - Run in a Docker container
 - Use a git branch for Ralph's work
 - Review commits before merging to main

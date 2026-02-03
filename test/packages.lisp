@@ -10,8 +10,10 @@
   (:shadow #:run-all-tests)
   (:export
    #:run-all-tests
+   #:run-e2e-tests
    #:core-tests
    #:agent-tests
    #:snapshot-tests
    #:interface-tests
-   #:integration-tests))
+   #:integration-tests
+   #:e2e-tests))

@@ -40,7 +40,7 @@
   ((snapshots :initarg :snapshots
               :accessor timeline-snapshots
               :initform nil
-              :documentation "Chronologically sorted list of snapshot IDs (strings).")
+              :documentation "Chronologically sorted list of snapshot objects (loaded for viz).")
    (branches :initarg :branches
              :accessor timeline-branches
              :initform (make-hash-table :test #'equal)
@@ -62,3 +62,85 @@
                  :branches (or branches (make-hash-table :test #'equal))
                  :current current
                  :viewport (or viewport (make-instance 'timeline-viewport))))
+
+(defun render-timeline-row (timeline row)
+  \"Render basic ASCII timeline row at screen ROW for TIMELINE.\"
+  (let* ((snaps (timeline-snapshots timeline))
+         (sorted-snaps (sort (copy-seq snaps) #'< :key #'snapshot-timestamp))
+         (current-id (timeline-current timeline))
+         (num-slots 20)
+         (slot-width 4)
+         (total-width (* num-slots slot-width)))
+    ;; Draw horizontal backbone
+    (move-cursor row 1)
+    (set-color +color-border+)
+    (dotimes (i total-width)
+      (princ #\- *standard-output*))
+    (reset-color)
+    ;; Draw snapshot nodes
+    (loop for slot from 0 below num-slots
+          for fraction = (if (= num-slots 1) 0 (/ slot (1- num-slots)))
+for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length sorted-snaps)))))
+          for snap = (elt sorted-snaps snap-idx)
+          for col = (+ 2 (* slot slot-width))
+          do
+             (move-cursor row col)
+(let* ((meta-type (getf (snapshot-metadata snap) :type))
+                    (type (or meta-type :snapshot))
+                    (glyph (if (string= (snapshot-id snap) current-id)
+                               +glyph-current+
+                               (snapshot-glyph type)))
+                    (color (snapshot-type-color type)))
+               (set-color color)
+               (princ glyph *standard-output*)
+               (reset-color))
+    (force-output *standard-output*))))
+
+(defun find-snapshot (timeline id)
+  \"Find snapshot by ID in TIMELINE.\"
+  (find id (timeline-snapshots timeline)
+        :key #'snapshot-id :test #'string-equal))
+
+(defun compute-fork-cols (timeline)
+  \"Compute column positions for fork points.\"
+  (let (fork-cols)
+    (maphash (lambda (bname branch-ids)
+               (unless (string-equal bname \"main\")
+                 (let ((first-id (first branch-ids)))
+                   (when first-id
+                     (let ((branch-snap (find-snapshot timeline first-id)))
+                       (when branch-snap
+                         (let ((parent-id (snapshot-parent branch-snap)))
+                           (when parent-id
+                             (let ((parent-snap (find-snapshot timeline parent-id)))
+                               (when parent-snap
+                                 (let* ((sorted (sort (copy-list (timeline-snapshots timeline)) #'< :key #'snapshot-timestamp))
+                                        (max-t (reduce #'max (mapcar #'snapshot-timestamp sorted)
+                                                       :initial-value 0d0))
+                                        (fraction (if (zerop max-t) 0 (/ (snapshot-timestamp parent-snap) max-t)))
+                                        (num-slots 20)
+                                        (slot-width 4)
+                                        (slot (max 0 (min (1- num-slots)
+                                                          (round (* fraction (1- num-slots))))))
+                                        (col (+ 2 (* slot slot-width))))
+                                   (push col fork-cols)))))))))))
+              (timeline-branches timeline))
+    (remove-duplicates fork-cols)))
+
+(defun render-branch-connections (timeline row &optional (main-row 10))
+  \"Render branch connections on ROW, main timeline on MAIN-ROW.\"
+  (let* ((fork-cols (compute-fork-cols timeline))
+         (vp (timeline-viewport timeline))
+         (scroll (viewport-scroll vp))
+         (width (viewport-width vp)))
+    (dolist (col fork-cols)
+      (let ((rel-col (- col scroll)))
+        (when (and (>= rel-col 0) (< rel-col width))
+          (move-cursor row rel-col)
+          (cond ((= row main-row)
+                 (with-color (+color-fork+)
+                   (princ "T")))
+                ((<= (+ main-row 1) row (+ main-row 5))
+                 (with-color (+color-border+)
+                   (princ "|")))
+                (t nil)))))))

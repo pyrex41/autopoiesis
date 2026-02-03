@@ -31,9 +31,11 @@
    ;; Annotations
    #:annotation
    #:make-annotation
+   #:annotation-id
    #:annotation-target
    #:annotation-content
    #:annotation-author
+   #:annotation-timestamp
    #:add-annotation
    #:remove-annotation
    #:find-annotations

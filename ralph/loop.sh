@@ -1,16 +1,17 @@
 #!/bin/bash
 # Ralph Wiggum Loop for Autopoiesis
-# Usage: ./loop.sh [plan|build] [max_iterations]
+# Usage: ./loop.sh [plan|build] [max_iterations] [model]
 #
 # Examples:
 #   ./loop.sh plan 3      # Run 3 planning iterations
-#   ./loop.sh build 10    # Run 10 build iterations
-#   ./loop.sh build       # Run build indefinitely (ctrl-c to stop)
+#   ./loop.sh build 10 xai/grok-4-1-fast    # Run 10 build iterations
+#   ./loop.sh build xai/grok-4-1-fast       # Run build indefinitely (ctrl-c to stop)
 
 set -e
 
 MODE="${1:-build}"
 MAX_ITERATIONS="${2:-0}"  # 0 = infinite
+MODEL="${3:-xai/grok-4-1-fast}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -61,10 +62,10 @@ while true; do
     log_info "Iteration $iteration (Mode: $MODE)"
     log_info "═══════════════════════════════════════════════════════════"
 
-    # Run Claude with the prompt
-    # -p flag = print mode (non-interactive, reads from stdin)
-    # --dangerously-skip-permissions = skip permission prompts (use with caution!)
-    if cat "$PROMPT_FILE" | claude -p --dangerously-skip-permissions; then
+    # Run opencode with the prompt
+    # run subcommand for non-interactive execution
+
+    if opencode --model "$MODEL" run "$(cat "$PROMPT_FILE")"; then
         log_success "Iteration $iteration completed successfully"
     else
         exit_code=$?

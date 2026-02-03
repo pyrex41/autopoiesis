@@ -1,12 +1,13 @@
 #!/bin/bash
 # Supervised Ralph loop - pauses for human approval after each iteration
 #
-# Usage: ./supervised.sh [plan|build] [max_iterations]
+# Usage: ./supervised.sh [plan|build] [max_iterations] [model]
 
 set -e
 
 MODE="${1:-build}"
 MAX_ITERATIONS="${2:-0}"
+MODEL="${3:-xai/grok-4-1-fast}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -37,8 +38,8 @@ while true; do
     echo "════════════════════════════════════════════════════════════"
     echo ""
 
-    # Run Claude WITHOUT --dangerously-skip-permissions for safety
-    cat "$PROMPT_FILE" | claude -p
+    # Run opencode for supervised execution
+    opencode --model "$MODEL" run "$(cat "$PROMPT_FILE")"
 
     echo ""
     echo "────────────────────────────────────────────────────────────"

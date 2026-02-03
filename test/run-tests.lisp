@@ -18,7 +18,8 @@
   (run! 'agent-tests)
   (run! 'snapshot-tests)
   (run! 'interface-tests)
-  (run! 'integration-tests))
+  (run! 'integration-tests)
+  (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
 (defun test-core ()
@@ -40,3 +41,7 @@
 (defun test-integration ()
   "Run only integration tests."
   (run! 'integration-tests))
+
+(defun test-e2e ()
+  "Run only E2E user story tests."
+  (run! 'e2e-tests))

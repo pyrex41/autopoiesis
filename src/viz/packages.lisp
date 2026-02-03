@@ -25,6 +25,7 @@
    #:move-cursor
    #:set-color
    #:reset-color
+    #:with-color
    #:hide-cursor
    #:show-cursor
    #:get-terminal-size
@@ -46,6 +47,7 @@
 
    ;; Snapshot symbols
    #:snapshot-glyph
+    #:snapshot-type-color
    #:+glyph-snapshot+
    #:+glyph-decision+
    #:+glyph-fork+
