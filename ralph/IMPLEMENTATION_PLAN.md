@@ -1,7 +1,7 @@
 # Autopoiesis Implementation Plan
 
 Last updated: 2026-02-02
-Current Phase: 6 (MCP Integration)
+Current Phase: 6 Complete - Planning needed for Phase 7
 
 ## Completed
 
@@ -48,15 +48,17 @@ Current Phase: 6 (MCP Integration)
 
 ## Next Up (Priority Order)
 
-### Phase 6: MCP Integration
+(empty - planning mode needed to populate Phase 7 tasks)
+
+## Recently Completed
+
+### Phase 6: MCP Integration (Completed)
 - [x] Implement MCP server management (stdio transport)
 - [x] Implement MCP protocol (initialize, tools/list, tools/call)
 - [x] Implement MCP resource handling (resources/list, resources/read)
 - [x] Implement built-in tools (file, web, shell)
 - [x] Implement integration event system
 - [x] Write MCP integration tests (mocked)
-
-## Recently Completed
 
 ### Phase 2: Agent Runtime (Remaining)
 - [x] Create `defcapability` macro
@@ -84,10 +86,15 @@ Current Phase: 6 (MCP Integration)
 
 (none yet)
 
-## Future (Waiting for Earlier Phases)
+## Future (Ready for Planning)
 
-### Phase 7+: Visualization
-- Depends on: Phase 6 complete
+### Phase 7: 2D Visualization (Ready)
+- Phase 6 complete - this phase is now ready for planning
+- See `docs/specs/07-implementation-roadmap.md` for task breakdown
+- Requires: terminal timeline (ncurses), snapshot rendering, navigation integration
+
+### Phase 8+: 3D Holodeck, Self-Extension, Production
+- Depends on: Phase 7 complete
 
 ---
 
