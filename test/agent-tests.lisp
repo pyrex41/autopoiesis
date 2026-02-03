@@ -1146,6 +1146,154 @@
     ;; Check using string comparison for package independence
     (is (string= "CONTEXT-HAS-KEY" (symbol-name (first condition))))))
 
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Learning System Tests - Heuristic Generation
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test generate-heuristic-from-success-pattern
+  "Test generating a heuristic from a success pattern"
+  (let* ((pattern '(:pattern ((test) (commit))
+                    :outcome :success
+                    :frequency 0.8
+                    :count 4
+                    :task-types (:coding)))
+         (heur (autopoiesis.agent:generate-heuristic pattern)))
+    ;; Should create a valid heuristic
+    (is (not (null heur)))
+    (is (not (null (autopoiesis.agent:heuristic-id heur))))
+    ;; Confidence should be based on frequency
+    (is (= 0.8 (autopoiesis.agent:heuristic-confidence heur)))
+    ;; Recommendation should prefer the actions
+    (let ((rec (autopoiesis.agent:heuristic-recommendation heur)))
+      (is (eq :prefer-actions (first rec)))
+      (is (equal '((test) (commit)) (second rec))))
+    ;; Source pattern should be stored
+    (is (equal pattern (autopoiesis.agent:heuristic-source-pattern heur)))
+    ;; Name should be auto-generated
+    (is (stringp (autopoiesis.agent:heuristic-name heur)))))
+
+(test generate-heuristic-from-failure-pattern
+  "Test generating a heuristic from a failure pattern"
+  (let* ((pattern '(:pattern ((commit) (test))
+                    :outcome :failure
+                    :frequency 0.6))
+         (heur (autopoiesis.agent:generate-heuristic pattern)))
+    ;; Should create a valid heuristic
+    (is (not (null heur)))
+    ;; Confidence should be slightly reduced for failure patterns
+    (is (= (* 0.6 0.9) (autopoiesis.agent:heuristic-confidence heur)))
+    ;; Recommendation should avoid the actions
+    (let ((rec (autopoiesis.agent:heuristic-recommendation heur)))
+      (is (eq :avoid-actions (first rec)))
+      (is (equal '((commit) (test)) (second rec))))))
+
+(test generate-heuristic-from-context-pattern
+  "Test generating a heuristic from a context pattern"
+  (let* ((pattern '(:pattern :file
+                    :outcome :success
+                    :frequency 0.9
+                    :type :context))
+         (heur (autopoiesis.agent:generate-heuristic pattern)))
+    ;; Should create a valid heuristic
+    (is (not (null heur)))
+    ;; Recommendation should prefer the context
+    (let ((rec (autopoiesis.agent:heuristic-recommendation heur)))
+      (is (eq :prefer-context (first rec)))
+      (is (eq :file (second rec))))))
+
+(test generate-heuristic-with-custom-name
+  "Test generating a heuristic with a custom name"
+  (let* ((pattern '(:pattern ((read) (edit))
+                    :outcome :success
+                    :frequency 0.7))
+         (heur (autopoiesis.agent:generate-heuristic pattern :name "my-custom-heuristic")))
+    (is (string= "my-custom-heuristic" (autopoiesis.agent:heuristic-name heur)))))
+
+(test generate-recommendation-success-actions
+  "Test generating recommendation for success action patterns"
+  (let ((rec (autopoiesis.agent:generate-recommendation
+              '((test) (commit)) :success nil)))
+    (is (eq :prefer-actions (first rec)))
+    (is (equal '((test) (commit)) (second rec)))))
+
+(test generate-recommendation-failure-actions
+  "Test generating recommendation for failure action patterns"
+  (let ((rec (autopoiesis.agent:generate-recommendation
+              '((delete) (commit)) :failure nil)))
+    (is (eq :avoid-actions (first rec)))
+    (is (equal '((delete) (commit)) (second rec)))))
+
+(test generate-recommendation-context
+  "Test generating recommendation for context patterns"
+  (let ((success-rec (autopoiesis.agent:generate-recommendation
+                      :has-tests :success :context))
+        (failure-rec (autopoiesis.agent:generate-recommendation
+                      :no-tests :failure :context)))
+    (is (eq :prefer-context (first success-rec)))
+    (is (eq :avoid-context (first failure-rec)))))
+
+(test calculate-pattern-confidence-success
+  "Test confidence calculation for success patterns"
+  (is (= 0.8 (autopoiesis.agent:calculate-pattern-confidence 0.8 :success)))
+  (is (= 1.0 (autopoiesis.agent:calculate-pattern-confidence 1.0 :success)))
+  (is (= 0.0 (autopoiesis.agent:calculate-pattern-confidence 0.0 :success)))
+  ;; Should clamp to bounds
+  (is (= 1.0 (autopoiesis.agent:calculate-pattern-confidence 1.5 :success)))
+  (is (= 0.0 (autopoiesis.agent:calculate-pattern-confidence -0.5 :success))))
+
+(test calculate-pattern-confidence-failure
+  "Test confidence calculation for failure patterns"
+  ;; Failure patterns get 90% of the frequency as confidence
+  (is (= (* 0.8 0.9) (autopoiesis.agent:calculate-pattern-confidence 0.8 :failure)))
+  (is (= (* 1.0 0.9) (autopoiesis.agent:calculate-pattern-confidence 1.0 :failure))))
+
+(test generate-heuristic-name-actions
+  "Test auto-generating heuristic names for action patterns"
+  ;; Success pattern with multiple actions
+  (let ((name (autopoiesis.agent:generate-heuristic-name
+               '((read-file) (analyze) (commit)) :success nil)))
+    (is (stringp name))
+    (is (search "prefer" name)))
+  ;; Failure pattern
+  (let ((name (autopoiesis.agent:generate-heuristic-name
+               '((delete) (commit)) :failure nil)))
+    (is (search "avoid" name)))
+  ;; Single action
+  (let ((name (autopoiesis.agent:generate-heuristic-name
+               '((test)) :success nil)))
+    (is (search "prefer" name))))
+
+(test generate-heuristic-name-context
+  "Test auto-generating heuristic names for context patterns"
+  (let ((name (autopoiesis.agent:generate-heuristic-name :file :success :context)))
+    (is (search "context-prefer" name)))
+  (let ((name (autopoiesis.agent:generate-heuristic-name :no-tests :failure :context)))
+    (is (search "context-avoid" name))))
+
+(test generate-heuristics-from-patterns-basic
+  "Test batch generation of heuristics from patterns"
+  (let* ((patterns '((:pattern ((test) (commit))
+                      :outcome :success
+                      :frequency 0.8)
+                     (:pattern ((delete) (force-push))
+                      :outcome :failure
+                      :frequency 0.6)
+                     (:pattern ((read))
+                      :outcome :success
+                      :frequency 0.2)))  ; Below threshold
+         (heuristics (autopoiesis.agent:generate-heuristics-from-patterns
+                      patterns :min-frequency 0.3)))
+    ;; Should generate 2 heuristics (third is below threshold)
+    (is (= 2 (length heuristics)))
+    ;; All should be valid heuristics
+    (is (every (lambda (h) (not (null (autopoiesis.agent:heuristic-id h))))
+               heuristics))))
+
+(test generate-heuristics-from-patterns-empty
+  "Test batch generation with empty patterns"
+  (is (null (autopoiesis.agent:generate-heuristics-from-patterns nil)))
+  (is (null (autopoiesis.agent:generate-heuristics-from-patterns '()))))
+
 (test extract-patterns-with-task-types
   "Test that patterns track which task types they came from"
   (let* ((exp1 (autopoiesis.agent:make-experience

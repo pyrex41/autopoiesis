@@ -214,7 +214,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Define `experience` and `heuristic` classes
 - [x] Implement `extract-patterns` from experiences
 - [x] Implement `extract-action-sequences` (n-gram analysis)
-- [ ] Implement `generate-heuristic` from patterns
+- [x] Implement `generate-heuristic` from patterns
 - [ ] Implement `apply-heuristics` to decisions
 - [ ] Implement `update-heuristic-confidence` feedback loop
 

@@ -186,4 +186,11 @@
    #:extract-context-patterns
    #:extract-context-keys
    #:pattern-to-condition
-   #:actions-contain-sequence-p))
+   #:actions-contain-sequence-p
+
+   ;; Learning system - Heuristic Generation
+   #:generate-heuristic
+   #:generate-recommendation
+   #:calculate-pattern-confidence
+   #:generate-heuristic-name
+   #:generate-heuristics-from-patterns))

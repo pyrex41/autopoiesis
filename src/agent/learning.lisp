@@ -666,3 +666,160 @@
           when (equal (subseq actions i (+ i (length sequence))) sequence)
           return t
           finally (return nil))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Heuristic Generation
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun generate-heuristic (pattern &key name)
+  "Generate a heuristic from an extracted pattern.
+   
+   Takes a pattern plist (as returned by extract-patterns or 
+   extract-action-sequences) and creates a heuristic that can be
+   used to guide future decisions.
+   
+   Arguments:
+     pattern - A pattern plist with keys:
+               :pattern   - The action sequence or context pattern
+               :outcome   - :success or :failure
+               :frequency - How often this pattern appeared (0.0 to 1.0)
+               :count     - Absolute count of occurrences (optional)
+               :type      - :context for context patterns (optional)
+               :task-types - List of task types where pattern was found (optional)
+     name    - Optional human-readable name for the heuristic
+   
+   Returns: A new heuristic instance with:
+     - condition derived from the pattern
+     - recommendation based on outcome (:prefer-actions or :avoid-actions)
+     - confidence based on frequency and outcome
+     - source-pattern storing the original pattern
+   
+   Example:
+     (generate-heuristic '(:pattern ((test) (commit))
+                           :outcome :success
+                           :frequency 0.8))
+     => #<HEURISTIC prefer-actions: ((test) (commit)) confidence: 0.8>"
+  (let* ((action-pattern (getf pattern :pattern))
+         (outcome (getf pattern :outcome))
+         (frequency (or (getf pattern :frequency) 0.5))
+         (pattern-type (getf pattern :type))
+         ;; Generate condition from pattern
+         (condition (pattern-to-condition pattern))
+         ;; Generate recommendation based on outcome
+         (recommendation (generate-recommendation action-pattern outcome pattern-type))
+         ;; Calculate confidence based on frequency and outcome
+         (confidence (calculate-pattern-confidence frequency outcome))
+         ;; Generate a name if not provided
+         (heur-name (or name (generate-heuristic-name action-pattern outcome pattern-type))))
+    (make-heuristic
+     :name heur-name
+     :condition condition
+     :recommendation recommendation
+     :confidence confidence
+     :source-pattern pattern)))
+
+(defun generate-recommendation (action-pattern outcome pattern-type)
+  "Generate a recommendation based on the pattern and outcome.
+   
+   Arguments:
+     action-pattern - The action sequence or context key
+     outcome        - :success or :failure
+     pattern-type   - :context for context patterns, nil for action patterns
+   
+   Returns: A recommendation s-expression"
+  (cond
+    ;; Context pattern - recommend seeking or avoiding this context
+    ((eq pattern-type :context)
+     (if (eq outcome :success)
+         `(:prefer-context ,action-pattern)
+         `(:avoid-context ,action-pattern)))
+    ;; Action pattern - recommend using or avoiding this sequence
+    ((eq outcome :success)
+     `(:prefer-actions ,action-pattern))
+    ((eq outcome :failure)
+     `(:avoid-actions ,action-pattern))
+    ;; Default to neutral
+    (t `(:consider-actions ,action-pattern))))
+
+(defun calculate-pattern-confidence (frequency outcome)
+  "Calculate heuristic confidence from pattern frequency and outcome.
+   
+   For success patterns, confidence scales directly with frequency.
+   For failure patterns, confidence is negative (inverted) to indicate
+   the pattern should be avoided.
+   
+   Arguments:
+     frequency - Pattern frequency (0.0 to 1.0)
+     outcome   - :success or :failure
+   
+   Returns: Confidence value between 0.0 and 1.0"
+  (let ((base-confidence (max 0.0 (min 1.0 frequency))))
+    ;; For failure patterns, we still want positive confidence
+    ;; (the heuristic is confident that this pattern should be avoided)
+    ;; We scale it slightly lower since anti-patterns are less reliable
+    (if (eq outcome :failure)
+        (* base-confidence 0.9)
+        base-confidence)))
+
+(defun generate-heuristic-name (action-pattern outcome pattern-type)
+  "Generate a human-readable name for a heuristic.
+   
+   Arguments:
+     action-pattern - The action sequence or context key
+     outcome        - :success or :failure
+     pattern-type   - :context for context patterns
+   
+   Returns: A string name for the heuristic"
+  (let ((prefix (cond
+                  ((eq pattern-type :context)
+                   (if (eq outcome :success) "context-prefer" "context-avoid"))
+                  ((eq outcome :success) "prefer")
+                  ((eq outcome :failure) "avoid")
+                  (t "consider")))
+        (pattern-desc (cond
+                        ((and (listp action-pattern) (> (length action-pattern) 0))
+                         ;; For action sequences, use first and last action
+                         (let ((first-action (first action-pattern))
+                               (last-action (car (last action-pattern))))
+                           (if (equal first-action last-action)
+                               (format nil "~a" (action-to-string first-action))
+                               (format nil "~a-to-~a"
+                                       (action-to-string first-action)
+                                       (action-to-string last-action)))))
+                        ((keywordp action-pattern)
+                         (string-downcase (symbol-name action-pattern)))
+                        ((symbolp action-pattern)
+                         (string-downcase (symbol-name action-pattern)))
+                        (t "pattern"))))
+    (format nil "~a-~a" prefix pattern-desc)))
+
+(defun action-to-string (action)
+  "Convert an action to a short string representation.
+   
+   Arguments:
+     action - An action s-expression
+   
+   Returns: A string representation"
+  (cond
+    ((null action) "nil")
+    ((symbolp action) (string-downcase (symbol-name action)))
+    ((keywordp action) (string-downcase (symbol-name action)))
+    ((and (listp action) (symbolp (first action)))
+     (string-downcase (symbol-name (first action))))
+    ((listp action) (format nil "~a" (first action)))
+    (t (format nil "~a" action))))
+
+(defun generate-heuristics-from-patterns (patterns &key (min-frequency 0.3))
+  "Generate heuristics from a list of extracted patterns.
+   
+   Convenience function that generates heuristics from all patterns
+   that meet the minimum frequency threshold.
+   
+   Arguments:
+     patterns      - List of pattern plists from extract-patterns
+     min-frequency - Minimum frequency threshold for generating heuristics
+   
+   Returns: List of generated heuristics"
+  (loop for pattern in patterns
+        when (>= (or (getf pattern :frequency) 0) min-frequency)
+        collect (generate-heuristic pattern)))
