@@ -97,7 +97,7 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
   \"Compute column positions for fork points.\"
   (let (fork-cols)
     (maphash (lambda (bname branch-ids)
-               (unless (string-equal bname \"main\")
+               (unless (string-equal bname "main")
                  (let ((first-id (first branch-ids)))
                    (when first-id
                      (let ((branch-snap (find-snapshot timeline first-id)))
@@ -120,7 +120,7 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
     (remove-duplicates fork-cols)))
 
 (defun render-branch-connections (timeline row &optional (main-row 10))
-  \"Render branch connections on ROW, main timeline on MAIN-ROW.\"
+  "Render branch connections on ROW, main timeline on MAIN-ROW."
   (let* ((fork-cols (compute-fork-cols timeline))
          (vp (timeline-viewport timeline))
          (scroll (viewport-scroll vp))

@@ -28,21 +28,21 @@
                   :legend-width 20)))
 
 (defun viz-config ()
-  \"Return the current visualization configuration plist.\"
+  "Return the current visualization configuration plist."
   *viz-config*)
 
 (defun (setf viz-config) (new-config)
-  \"Set the visualization configuration to NEW-CONFIG.\"
+  "Set the visualization configuration to NEW-CONFIG."
   (setf *viz-config* new-config))
 
 (defun config-colors ()
-  \"Return the colors configuration plist.\"
+  "Return the colors configuration plist."
   (getf *viz-config* :colors))
 
 (defun config-symbols ()
-  \"Return the symbols configuration plist.\"
+  "Return the symbols configuration plist."
   (getf *viz-config* :symbols))
 
 (defun config-dimensions ()
-  \"Return the dimensions configuration plist.\"
+  "Return the dimensions configuration plist."
   (getf *viz-config* :dimensions))

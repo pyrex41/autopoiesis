@@ -89,7 +89,9 @@
       ((:file "packages")
        (:file "util")
         (:file "config")
-        (:file "timeline")))
+                (:file "timeline")
+        (:file "detail-panel"))
+)
      ;; Main package that reexports everything
      (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
