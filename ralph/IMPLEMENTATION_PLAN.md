@@ -179,7 +179,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Create HUD panel system with position, agent, timeline, hints panels
 - [x] Implement `update-hud` from current state
 - [x] Implement `render-hud` with transparency and borders
-- [ ] Add timeline scrubber at bottom
+- [x] Add timeline scrubber at bottom
 
 #### 8.5: Input Handling
 - [ ] Define holodeck key bindings (WASD fly, []/step, F/fork, etc.)

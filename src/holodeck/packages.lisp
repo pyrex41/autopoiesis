@@ -403,6 +403,28 @@
    #:*hud-border-width*
    #:*hud-glow-width*
 
+   ;; Timeline scrubber
+   #:timeline-scrubber
+   #:make-timeline-scrubber
+   #:scrubber-total-snapshots
+   #:scrubber-current-index
+   #:scrubber-branch-count
+   #:scrubber-snapshot-entries
+   #:scrubber-track-x-range
+   #:scrubber-index-to-x
+   #:render-scrubber-commands
+   #:build-scrubber-entries
+   #:update-timeline-scrubber
+   #:hud-timeline-scrubber
+   #:*scrubber-track-color*
+   #:*scrubber-marker-color*
+   #:*scrubber-current-color*
+   #:*scrubber-track-height*
+   #:*scrubber-marker-radius*
+   #:*scrubber-current-radius*
+   #:*scrubber-track-margin*
+   #:*scrubber-track-y-offset*
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck

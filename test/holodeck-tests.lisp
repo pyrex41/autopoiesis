@@ -3284,16 +3284,20 @@ out vec4 color;")))
     (is (null (panel-visible-p (hud-panel hud :agent))))))
 
 (test update-timeline-panel-content
-  "Test updating timeline panel with snapshot info."
+  "Test updating timeline panel populates scrubber data."
   (let ((hud (make-hud)))
     (update-timeline-panel hud :total-snapshots 42
                                :current-index 15
                                :branch-count 3)
-    (let ((content (panel-content (hud-panel hud :timeline))))
-      (is (= 1 (length content)))
-      (is (search "15" (first content)))
-      (is (search "42" (first content)))
-      (is (search "3" (first content))))))
+    ;; Panel text content is cleared (scrubber renders its own label)
+    (is (null (panel-content (hud-panel hud :timeline))))
+    ;; Scrubber data should be populated
+    (let ((scrubber (hud-timeline-scrubber hud)))
+      (is (not (null scrubber)))
+      (is (= 42 (scrubber-total-snapshots scrubber)))
+      (is (= 15 (scrubber-current-index scrubber)))
+      (is (= 3 (scrubber-branch-count scrubber)))
+      (is (= 42 (length (scrubber-snapshot-entries scrubber)))))))
 
 ;;; --- Render Descriptions ---
 
@@ -3447,9 +3451,11 @@ out vec4 color;")))
       (is (search "—" (first content))))
     ;; Agent panel should be hidden
     (is (null (panel-visible-p (hud-panel hud :agent))))
-    ;; Timeline panel should show 0 snapshots
-    (let ((content (panel-content (hud-panel hud :timeline))))
-      (is (search "0/0" (first content))))))
+    ;; Timeline scrubber should show 0 snapshots
+    (let ((scrubber (hud-timeline-scrubber hud)))
+      (is (not (null scrubber)))
+      (is (= 0 (scrubber-total-snapshots scrubber)))
+      (is (= 0 (scrubber-current-index scrubber))))))
 
 (test update-hud-with-selected-snapshot
   "Test update-hud populates position panel from selected entity."
@@ -3464,9 +3470,11 @@ out vec4 color;")))
       (is (search "DECISION" (first content)))
       (is (search "snap-abc123" (second content)))
       (is (search "DECISION" (third content))))
-    ;; Timeline should show 1/1
-    (let ((content (panel-content (hud-panel hud :timeline))))
-      (is (search "1/1" (first content))))))
+    ;; Timeline scrubber should show 1/1
+    (let ((scrubber (hud-timeline-scrubber hud)))
+      (is (not (null scrubber)))
+      (is (= 1 (scrubber-total-snapshots scrubber)))
+      (is (= 1 (scrubber-current-index scrubber))))))
 
 (test update-hud-with-agent
   "Test update-hud shows agent panel when agent is bound."
@@ -3680,7 +3688,9 @@ out vec4 color;")))
          (commands (getf result :commands)))
     (dolist (cmd commands)
       (is (not (null (getf cmd :type))))
-      (is (member (getf cmd :type) '(:fill-rect :line :text :title-bar))))))
+      (is (member (getf cmd :type)
+                  '(:fill-rect :line :text :title-bar
+                    :scrubber-track :scrubber-marker :scrubber-current))))))
 
 (test render-hud-command-ordering
   "Test that fill-rect commands precede line and text commands per panel."
@@ -3705,3 +3715,179 @@ out vec4 color;")))
       ;; Should contain the position panel's title and content
       (is (some (lambda (txt) (search "LOCATION" txt)) texts))
       (is (some (lambda (txt) (search "Branch" txt)) texts)))))
+
+;;; ===================================================================
+;;; Timeline Scrubber Tests
+;;; ===================================================================
+
+(def-suite scrubber-tests
+  :in hud-tests
+  :description "Tests for the timeline scrubber bar")
+
+(in-suite scrubber-tests)
+
+;;; --- Scrubber Class ---
+
+(test timeline-scrubber-creation-defaults
+  "Test timeline-scrubber default values."
+  (let ((s (make-timeline-scrubber)))
+    (is (= 0 (scrubber-total-snapshots s)))
+    (is (= 0 (scrubber-current-index s)))
+    (is (= 1 (scrubber-branch-count s)))
+    (is (null (scrubber-snapshot-entries s)))))
+
+(test timeline-scrubber-creation-custom
+  "Test timeline-scrubber with custom values."
+  (let ((s (make-timeline-scrubber :total-snapshots 10
+                                    :current-index 5
+                                    :branch-count 3
+                                    :snapshot-entries '((:index 1 :type :snapshot :selected-p nil)))))
+    (is (= 10 (scrubber-total-snapshots s)))
+    (is (= 5 (scrubber-current-index s)))
+    (is (= 3 (scrubber-branch-count s)))
+    (is (= 1 (length (scrubber-snapshot-entries s))))))
+
+;;; --- Build Scrubber Entries ---
+
+(test build-scrubber-entries-empty
+  "Test build-scrubber-entries with zero snapshots."
+  (let ((entries (build-scrubber-entries 0 0)))
+    (is (null entries))))
+
+(test build-scrubber-entries-marks-selected
+  "Test build-scrubber-entries marks the current index as selected."
+  (let ((entries (build-scrubber-entries 5 3)))
+    (is (= 5 (length entries)))
+    ;; Entry at index 3 should be selected
+    (is (eq t (getf (third entries) :selected-p)))
+    ;; Others should not be selected
+    (is (null (getf (first entries) :selected-p)))
+    (is (null (getf (second entries) :selected-p)))
+    (is (null (getf (fourth entries) :selected-p)))
+    (is (null (getf (fifth entries) :selected-p)))))
+
+(test build-scrubber-entries-indices
+  "Test build-scrubber-entries produces correct 1-based indices."
+  (let ((entries (build-scrubber-entries 3 1)))
+    (is (= 1 (getf (first entries) :index)))
+    (is (= 2 (getf (second entries) :index)))
+    (is (= 3 (getf (third entries) :index)))))
+
+;;; --- Index to X Mapping ---
+
+(test scrubber-index-to-x-single-snapshot
+  "Test scrubber-index-to-x with a single snapshot maps to start."
+  (let ((x (scrubber-index-to-x 1 1 100 500)))
+    (is (= 100 x))))
+
+(test scrubber-index-to-x-first-and-last
+  "Test scrubber-index-to-x maps first to start and last to end."
+  (let ((x-first (scrubber-index-to-x 1 10 100 500))
+        (x-last (scrubber-index-to-x 10 10 100 500)))
+    (is (= 100 x-first))
+    (is (< (abs (- 500 x-last)) 0.01))))
+
+(test scrubber-index-to-x-middle
+  "Test scrubber-index-to-x maps middle index to midpoint."
+  ;; With 3 snapshots, index 2 should be at midpoint
+  (let ((x (scrubber-index-to-x 2 3 0 100)))
+    (is (< (abs (- 50.0 x)) 0.01))))
+
+(test scrubber-index-to-x-zero-total
+  "Test scrubber-index-to-x with zero total returns start."
+  (is (= 100 (scrubber-index-to-x 0 0 100 500))))
+
+;;; --- Track X Range ---
+
+(test scrubber-track-x-range-computation
+  "Test scrubber-track-x-range computes correct range from panel."
+  (let* ((panel (make-instance 'hud-panel :x 20 :width 960))
+         (range (scrubber-track-x-range panel)))
+    (is (= (+ 20 *scrubber-track-margin*) (car range)))
+    (is (= (- (+ 20 960) *scrubber-track-margin*) (cdr range)))))
+
+;;; --- Render Scrubber Commands ---
+
+(test render-scrubber-commands-empty
+  "Test render-scrubber-commands with no snapshots produces track and text."
+  (let* ((scrubber (make-timeline-scrubber))
+         (panel (make-instance 'hud-panel :x 20 :y 900 :width 960 :height 60))
+         (cmds (render-scrubber-commands scrubber panel 1.0))
+         (types (mapcar (lambda (c) (getf c :type)) cmds)))
+    ;; Should have track and text label, no markers or current
+    (is (member :scrubber-track types))
+    (is (member :text types))
+    (is (not (member :scrubber-current types)))
+    (is (not (member :scrubber-marker types)))))
+
+(test render-scrubber-commands-with-snapshots
+  "Test render-scrubber-commands generates markers for each snapshot."
+  (let* ((entries (build-scrubber-entries 5 3))
+         (scrubber (make-timeline-scrubber :total-snapshots 5
+                                            :current-index 3
+                                            :branch-count 2
+                                            :snapshot-entries entries))
+         (panel (make-instance 'hud-panel :x 20 :y 900 :width 960 :height 60))
+         (cmds (render-scrubber-commands scrubber panel 1.0))
+         (types (mapcar (lambda (c) (getf c :type)) cmds)))
+    ;; Should have: track, 5 markers, current indicator, text
+    (is (member :scrubber-track types))
+    (is (= 5 (count :scrubber-marker types)))
+    (is (member :scrubber-current types))
+    (is (member :text types))))
+
+(test render-scrubber-commands-text-label
+  "Test render-scrubber-commands text label contains count info."
+  (let* ((scrubber (make-timeline-scrubber :total-snapshots 42
+                                            :current-index 15
+                                            :branch-count 3))
+         (panel (make-instance 'hud-panel :x 20 :y 900 :width 960 :height 60))
+         (cmds (render-scrubber-commands scrubber panel 1.0))
+         (text-cmds (remove-if-not (lambda (c) (eq :text (getf c :type))) cmds)))
+    (is (= 1 (length text-cmds)))
+    (let ((label (getf (first text-cmds) :text)))
+      (is (search "15" label))
+      (is (search "42" label))
+      (is (search "3" label)))))
+
+(test render-scrubber-commands-alpha-scaling
+  "Test render-scrubber-commands applies global alpha to colors."
+  (let* ((scrubber (make-timeline-scrubber :total-snapshots 1
+                                            :current-index 1
+                                            :snapshot-entries (build-scrubber-entries 1 1)))
+         (panel (make-instance 'hud-panel :x 0 :y 0 :width 200 :height 60))
+         (cmds (render-scrubber-commands scrubber panel 0.5))
+         (track-cmd (find :scrubber-track cmds :key (lambda (c) (getf c :type)))))
+    ;; Track alpha should be original * 0.5
+    (let ((track-alpha (fourth (getf track-cmd :color))))
+      (is (< track-alpha (fourth *scrubber-track-color*))))))
+
+;;; --- Scrubber Integration with HUD ---
+
+(test update-timeline-scrubber-creates-data
+  "Test update-timeline-scrubber stores scrubber in HUD."
+  (let ((hud (make-hud)))
+    (update-timeline-scrubber hud :total-snapshots 10
+                                   :current-index 5
+                                   :branch-count 2)
+    (let ((scrubber (hud-timeline-scrubber hud)))
+      (is (not (null scrubber)))
+      (is (typep scrubber 'timeline-scrubber))
+      (is (= 10 (scrubber-total-snapshots scrubber)))
+      (is (= 5 (scrubber-current-index scrubber)))
+      (is (= 2 (scrubber-branch-count scrubber)))
+      (is (= 10 (length (scrubber-snapshot-entries scrubber)))))))
+
+(test render-hud-includes-scrubber-commands
+  "Test render-hud includes scrubber commands when scrubber data exists."
+  (let ((hud (make-hud)))
+    (update-timeline-panel hud :total-snapshots 5
+                                :current-index 2
+                                :branch-count 1)
+    (let* ((result (render-hud hud))
+           (commands (getf result :commands))
+           (types (mapcar (lambda (c) (getf c :type)) commands)))
+      ;; Should have scrubber commands in addition to panel commands
+      (is (member :scrubber-track types))
+      (is (member :scrubber-marker types))
+      (is (member :scrubber-current types)))))

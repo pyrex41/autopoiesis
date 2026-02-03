@@ -70,7 +70,10 @@
               :documentation "Master visibility toggle for the entire HUD.")
    (opacity :initform 0.8
             :accessor hud-opacity
-            :documentation "Global opacity multiplier applied to all panels."))
+            :documentation "Global opacity multiplier applied to all panels.")
+   (timeline-scrubber :initform nil
+                      :accessor hud-timeline-scrubber-slot
+                      :documentation "Timeline scrubber data object, or NIL if not set."))
   (:documentation
    "Heads-up display overlay containing named panels.
     The HUD manages a collection of hud-panel instances indexed by keyword
@@ -200,14 +203,17 @@
           (setf (panel-visible-p panel) nil)))))
 
 (defun update-timeline-panel (hud &key total-snapshots current-index branch-count)
-  "Update the timeline scrubber panel with snapshot navigation info."
+  "Update the timeline scrubber panel with snapshot navigation info.
+   Also populates the timeline scrubber bar data for visual rendering."
   (let ((panel (hud-panel hud :timeline)))
     (when panel
-      (setf (panel-content panel)
-            (list (format nil "~D/~D snapshots  ~D branch~:P"
-                          (or current-index 0)
-                          (or total-snapshots 0)
-                          (or branch-count 1)))))))
+      ;; Clear text content — the scrubber renders its own label
+      (setf (panel-content panel) nil)))
+  ;; Update the scrubber data
+  (update-timeline-scrubber hud
+                            :total-snapshots total-snapshots
+                            :current-index current-index
+                            :branch-count branch-count))
 
 ;;; ===================================================================
 ;;; Update HUD from Current State
@@ -586,6 +592,13 @@
       (let ((cmds (render-panel-commands desc)))
         (setf all-commands (nconc all-commands cmds))
         (incf panel-count)))
+    ;; Append timeline scrubber commands if scrubber data exists
+    (let ((scrubber (hud-timeline-scrubber hud))
+          (timeline-panel (hud-panel hud :timeline)))
+      (when (and scrubber timeline-panel (panel-visible-p timeline-panel))
+        (let ((scrubber-cmds (render-scrubber-commands
+                              scrubber timeline-panel (hud-opacity hud))))
+          (setf all-commands (nconc all-commands scrubber-cmds)))))
     (list :visible-p t
           :commands all-commands
           :panel-count panel-count)))
@@ -599,3 +612,196 @@
   (if (> (length string) max-length)
       (concatenate 'string (subseq string 0 (max 0 (- max-length 1))) "~")
       string))
+
+;;; ===================================================================
+;;; Timeline Scrubber
+;;; ===================================================================
+;;;
+;;; The timeline scrubber renders a visual bar at the bottom of the HUD
+;;; showing snapshot positions along a track, a current-position
+;;; indicator, and branch-colored markers.  It is associated with the
+;;; :timeline panel and produces additional render commands beyond the
+;;; panel's basic chrome.
+
+(defclass timeline-scrubber ()
+  ((total-snapshots :initarg :total-snapshots
+                    :accessor scrubber-total-snapshots
+                    :initform 0
+                    :documentation "Total number of snapshots in the timeline.")
+   (current-index :initarg :current-index
+                  :accessor scrubber-current-index
+                  :initform 0
+                  :documentation "1-based index of the currently selected snapshot.")
+   (branch-count :initarg :branch-count
+                 :accessor scrubber-branch-count
+                 :initform 1
+                 :documentation "Number of distinct branches.")
+   (snapshot-entries :initarg :snapshot-entries
+                     :accessor scrubber-snapshot-entries
+                     :initform nil
+                     :documentation "List of scrubber-entry plists for each snapshot.
+                      Each entry is (:index N :type KEYWORD :selected-p BOOL)."))
+  (:documentation
+   "Data model for the timeline scrubber bar.
+    Holds the state needed to render snapshot markers along a track
+    with a current-position highlight."))
+
+(defun make-timeline-scrubber (&key (total-snapshots 0)
+                                     (current-index 0)
+                                     (branch-count 1)
+                                     (snapshot-entries nil))
+  "Create a new timeline-scrubber instance."
+  (make-instance 'timeline-scrubber
+                 :total-snapshots total-snapshots
+                 :current-index current-index
+                 :branch-count branch-count
+                 :snapshot-entries snapshot-entries))
+
+;;; --- Scrubber Render Constants ---
+
+(defparameter *scrubber-track-color* '(0.2 0.4 0.7 0.6)
+  "RGBA color for the scrubber track line.")
+
+(defparameter *scrubber-marker-color* '(0.3 0.6 1.0 0.8)
+  "Default RGBA color for snapshot markers on the track.")
+
+(defparameter *scrubber-current-color* '(0.6 1.0 0.8 1.0)
+  "RGBA color for the current-position indicator.")
+
+(defparameter *scrubber-track-height* 2
+  "Height in pixels of the scrubber track line.")
+
+(defparameter *scrubber-marker-radius* 3
+  "Radius in pixels of snapshot markers on the track.")
+
+(defparameter *scrubber-current-radius* 5
+  "Radius in pixels of the current-position indicator.")
+
+(defparameter *scrubber-track-margin* 15
+  "Horizontal margin in pixels from panel edges to track ends.")
+
+(defparameter *scrubber-track-y-offset* 30
+  "Vertical offset in pixels from panel top to the track center.")
+
+;;; --- Scrubber Render Commands ---
+
+(defun scrubber-track-x-range (panel)
+  "Compute the (start-x . end-x) pixel range for the scrubber track
+   within PANEL, accounting for margins."
+  (let ((start (+ (panel-x panel) *scrubber-track-margin*))
+        (end (- (+ (panel-x panel) (panel-width panel))
+                *scrubber-track-margin*)))
+    (cons start end)))
+
+(defun scrubber-index-to-x (index total start-x end-x)
+  "Map a 1-based snapshot INDEX (out of TOTAL) to an x-pixel position
+   along the scrubber track from START-X to END-X."
+  (if (or (<= total 0) (<= index 0))
+      start-x
+      (let ((fraction (/ (1- (min index total))
+                         (max 1 (1- total)))))
+        (+ start-x (* fraction (- end-x start-x))))))
+
+(defun render-scrubber-commands (scrubber panel &optional (global-alpha 1.0))
+  "Generate render commands for the timeline scrubber visual elements.
+   Returns a list of command plists to be appended to the panel's commands.
+
+   Commands generated:
+     :scrubber-track   - The horizontal track line
+     :scrubber-marker  - A snapshot marker dot
+     :scrubber-current - The current-position indicator (larger, highlighted)
+     :text             - Count label text
+
+   PANEL provides position/dimensions.  GLOBAL-ALPHA scales all alphas."
+  (let* ((x-range (scrubber-track-x-range panel))
+         (start-x (car x-range))
+         (end-x (cdr x-range))
+         (track-y (+ (panel-y panel) *scrubber-track-y-offset*))
+         (total (scrubber-total-snapshots scrubber))
+         (current (scrubber-current-index scrubber))
+         (commands nil))
+    ;; 1. Track line (horizontal bar)
+    (let ((tc (copy-list *scrubber-track-color*)))
+      (when (fourth tc)
+        (setf (fourth tc) (* (fourth tc) global-alpha)))
+      (push (list :type :scrubber-track
+                  :x1 start-x :y1 track-y
+                  :x2 end-x :y2 track-y
+                  :color tc
+                  :width *scrubber-track-height*)
+            commands))
+    ;; 2. Snapshot markers along track
+    (dolist (entry (scrubber-snapshot-entries scrubber))
+      (let* ((idx (getf entry :index))
+             (selected-p (getf entry :selected-p))
+             (mx (scrubber-index-to-x idx total start-x end-x))
+             (mc (if selected-p
+                     (copy-list *scrubber-current-color*)
+                     (copy-list *scrubber-marker-color*)))
+             (radius (if selected-p
+                         *scrubber-current-radius*
+                         *scrubber-marker-radius*)))
+        (when (fourth mc)
+          (setf (fourth mc) (* (fourth mc) global-alpha)))
+        (push (list :type :scrubber-marker
+                    :cx mx :cy track-y
+                    :radius radius
+                    :color mc
+                    :selected-p selected-p)
+              commands)))
+    ;; 3. Current position indicator (even if not in entries)
+    (when (and (> total 0) (> current 0))
+      (let ((cx (scrubber-index-to-x current total start-x end-x))
+            (cc (copy-list *scrubber-current-color*)))
+        (when (fourth cc)
+          (setf (fourth cc) (* (fourth cc) global-alpha)))
+        (push (list :type :scrubber-current
+                    :cx cx :cy track-y
+                    :radius *scrubber-current-radius*
+                    :color cc)
+              commands)))
+    ;; 4. Text label: "N/M snapshots  B branches"
+    (let ((label (format nil "~D/~D snapshots  ~D branch~:P"
+                         (or current 0) (or total 0)
+                         (or (scrubber-branch-count scrubber) 1)))
+          (tc (copy-list *hud-text-color*)))
+      (when (fourth tc)
+        (setf (fourth tc) (* (fourth tc) global-alpha)))
+      (push (list :type :text
+                  :text label
+                  :x (+ (panel-x panel) *hud-text-padding*)
+                  :y (+ (panel-y panel) *scrubber-track-y-offset*
+                        *scrubber-current-radius* 8)
+                  :color tc
+                  :size 11
+                  :style :normal)
+            commands))
+    (nreverse commands)))
+
+;;; --- Scrubber Integration with HUD ---
+
+(defun build-scrubber-entries (total current)
+  "Build a list of scrubber entry plists for TOTAL snapshots with
+   CURRENT as the 1-based selected index."
+  (loop for i from 1 to total
+        collect (list :index i
+                      :type :snapshot
+                      :selected-p (= i current))))
+
+(defun update-timeline-scrubber (hud &key total-snapshots current-index branch-count)
+  "Update (or create) the timeline scrubber state on the HUD's :timeline panel.
+   Stores a timeline-scrubber instance in the HUD's dedicated slot."
+  (let ((scrubber (make-timeline-scrubber
+                   :total-snapshots (or total-snapshots 0)
+                   :current-index (or current-index 0)
+                   :branch-count (or branch-count 1)
+                   :snapshot-entries (build-scrubber-entries
+                                     (or total-snapshots 0)
+                                     (or current-index 0)))))
+    ;; Store scrubber in the dedicated HUD slot
+    (setf (hud-timeline-scrubber-slot hud) scrubber)
+    scrubber))
+
+(defun hud-timeline-scrubber (hud)
+  "Retrieve the timeline-scrubber object from HUD, or NIL if not set."
+  (hud-timeline-scrubber-slot hud))
