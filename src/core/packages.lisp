@@ -76,6 +76,11 @@
    #:stream-by-type
    #:stream-to-sexpr
    #:sexpr-to-stream
+   ;; Thought stream compaction
+   #:compact-thought-stream
+   #:archive-thoughts
+   #:load-archived-thoughts
+   #:*thought-archive-path*
 
    ;; Conditions
    #:autopoiesis-condition

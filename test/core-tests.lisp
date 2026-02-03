@@ -98,6 +98,109 @@
       (is (= 2 (length (stream-last stream 2)))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Thought Stream Compaction Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test compact-thought-stream-no-op-when-small
+  "Test compact-thought-stream does nothing when stream is small"
+  (let ((stream (make-thought-stream)))
+    ;; Add 10 thoughts (less than default keep-last * 2)
+    (dotimes (i 10)
+      (stream-append stream (make-thought `(thought ,i))))
+    (multiple-value-bind (archived kept)
+        (autopoiesis.core:compact-thought-stream stream :keep-last 100)
+      (is (= 0 archived))
+      (is (= 10 kept))
+      ;; Stream should be unchanged
+      (is (= 10 (stream-length stream))))))
+
+(test compact-thought-stream-compacts-when-large
+  "Test compact-thought-stream removes old thoughts when stream is large"
+  (let ((stream (make-thought-stream)))
+    ;; Add 250 thoughts (more than 100 * 2)
+    (dotimes (i 250)
+      (stream-append stream (make-thought `(thought ,i))))
+    (is (= 250 (stream-length stream)))
+    ;; Compact without archiving
+    (multiple-value-bind (archived kept)
+        (autopoiesis.core:compact-thought-stream stream :keep-last 100)
+      (is (= 150 archived))
+      (is (= 100 kept))
+      ;; Stream should now have only 100 thoughts
+      (is (= 100 (stream-length stream))))))
+
+(test compact-thought-stream-keeps-recent
+  "Test compact-thought-stream keeps the most recent thoughts"
+  (let ((stream (make-thought-stream)))
+    ;; Add 250 thoughts with identifiable content
+    (dotimes (i 250)
+      (stream-append stream (make-thought `(thought ,i))))
+    ;; Compact to keep last 100
+    (autopoiesis.core:compact-thought-stream stream :keep-last 100)
+    ;; Check that we kept thoughts 150-249
+    (let ((first-kept (first (stream-last stream 100)))
+          (last-kept (first (stream-last stream 1))))
+      ;; Last thought should be (thought 249)
+      (is (equal '(thought 249) (thought-content last-kept)))
+      ;; First kept thought should be (thought 150)
+      (is (equal '(thought 150) (thought-content first-kept))))))
+
+(test compact-thought-stream-rebuilds-indices
+  "Test compact-thought-stream rebuilds lookup indices correctly"
+  (let ((stream (make-thought-stream))
+        (kept-ids nil))
+    ;; Add 250 thoughts, save IDs of last 100
+    (dotimes (i 250)
+      (let ((thought (make-thought `(thought ,i))))
+        (stream-append stream thought)
+        (when (>= i 150)
+          (push (thought-id thought) kept-ids))))
+    (setf kept-ids (nreverse kept-ids))
+    ;; Compact
+    (autopoiesis.core:compact-thought-stream stream :keep-last 100)
+    ;; All kept IDs should still be findable
+    (dolist (id kept-ids)
+      (is-true (stream-find stream id)))))
+
+(test compact-thought-stream-with-archive
+  "Test compact-thought-stream archives to disk when path provided"
+  (let ((stream (make-thought-stream))
+        (archive-dir (merge-pathnames "test-archive/"
+                                      (uiop:temporary-directory))))
+    ;; Ensure clean test directory
+    (when (probe-file archive-dir)
+      (uiop:delete-directory-tree archive-dir :validate t))
+    (ensure-directories-exist archive-dir)
+    (unwind-protect
+        (progn
+          ;; Add 250 thoughts
+          (dotimes (i 250)
+            (stream-append stream (make-thought `(thought ,i))))
+          ;; Compact with archiving
+          (multiple-value-bind (archived kept)
+              (autopoiesis.core:compact-thought-stream stream
+                                                       :keep-last 100
+                                                       :archive-path archive-dir)
+            (is (= 150 archived))
+            (is (= 100 kept))
+            ;; Check archive file was created
+            (let ((archive-files (directory (merge-pathnames "thoughts-*.sexpr" archive-dir))))
+              (is (= 1 (length archive-files)))
+              ;; Load and verify archived thoughts
+              (let ((loaded (autopoiesis.core:load-archived-thoughts (first archive-files))))
+                (is (= 150 (length loaded)))
+                ;; First archived thought should be (thought 0)
+                (is (equal '(thought 0) (thought-content (first loaded))))))))
+      ;; Cleanup
+      (when (probe-file archive-dir)
+        (uiop:delete-directory-tree archive-dir :validate t)))))
+
+(test load-archived-thoughts-handles-missing-file
+  "Test load-archived-thoughts returns NIL for missing file"
+  (let ((result (autopoiesis.core:load-archived-thoughts #p"/nonexistent/file.sexpr")))
+    (is (null result))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Extension Compiler Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 

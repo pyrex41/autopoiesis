@@ -98,3 +98,115 @@
        (loop for ,var across ,thoughts-var
              do (progn ,@body))
        ,result)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Memory Compaction
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *thought-archive-path* nil
+  "Base path for archiving thoughts. If NIL, archiving is disabled.")
+
+(defun compact-thought-stream (stream &key (keep-last 100) (archive-path *thought-archive-path*))
+  "Compact old thoughts to reduce memory usage.
+
+   Arguments:
+     stream      - The thought stream to compact
+     keep-last   - Number of recent thoughts to keep in memory (default 100)
+     archive-path - Path to archive old thoughts (if NIL, old thoughts are discarded)
+
+   Returns: (values archived-count kept-count)
+     archived-count - Number of thoughts archived (or discarded if no archive-path)
+     kept-count     - Number of thoughts kept in memory
+
+   When the stream has more than (* keep-last 2) thoughts, this function:
+   1. Archives thoughts older than keep-last to disk (if archive-path provided)
+   2. Removes archived thoughts from memory
+   3. Rebuilds the stream index
+
+   Example:
+     (compact-thought-stream my-stream :keep-last 50 :archive-path #p\"/tmp/thoughts/\")"
+  (let* ((thoughts (stream-thoughts stream))
+         (total-count (length thoughts)))
+    ;; Only compact if we have significantly more than keep-last
+    (when (> total-count (* keep-last 2))
+      (let* ((archive-count (- total-count keep-last))
+             (to-archive (subseq thoughts 0 archive-count))
+             (to-keep (subseq thoughts archive-count)))
+        ;; Archive to disk if path provided
+        (when archive-path
+          (archive-thoughts to-archive archive-path))
+        ;; Update stream with only recent thoughts
+        (let ((new-thoughts (make-array (length to-keep)
+                                        :adjustable t
+                                        :fill-pointer (length to-keep))))
+          (loop for i from 0 below (length to-keep)
+                do (setf (aref new-thoughts i) (aref to-keep i)))
+          (setf (stream-thoughts stream) new-thoughts))
+        ;; Rebuild indices
+        (rebuild-stream-indices stream)
+        (return-from compact-thought-stream
+          (values archive-count (length to-keep)))))
+    ;; No compaction needed
+    (values 0 total-count)))
+
+(defun archive-thoughts (thoughts archive-path)
+  "Archive THOUGHTS vector to ARCHIVE-PATH.
+
+   Creates a timestamped archive file containing the serialized thoughts.
+   File format: thoughts-TIMESTAMP.sexpr
+
+   Arguments:
+     thoughts     - Vector of thought objects to archive
+     archive-path - Directory path for archive files"
+  (let* ((timestamp (get-precise-time))
+         (filename (format nil "thoughts-~,6f.sexpr" timestamp))
+         (full-path (merge-pathnames filename archive-path)))
+    ;; Ensure directory exists
+    (ensure-directories-exist full-path)
+    ;; Write thoughts to file
+    (with-open-file (out full-path
+                         :direction :output
+                         :if-exists :supersede
+                         :if-does-not-exist :create
+                         :external-format :utf-8)
+      (let ((*print-readably* t)
+            (*print-circle* t)
+            (*print-array* t)
+            (*print-length* nil)
+            (*print-level* nil))
+        (prin1 `(:thought-archive
+                 :version 1
+                 :timestamp ,timestamp
+                 :count ,(length thoughts)
+                 :thoughts ,(map 'list #'thought-to-sexpr thoughts))
+               out)))
+    full-path))
+
+(defun rebuild-stream-indices (stream)
+  "Rebuild the ID -> position index for STREAM after compaction."
+  (let ((indices (make-hash-table :test 'equal))
+        (thoughts (stream-thoughts stream)))
+    (loop for i from 0 below (length thoughts)
+          for thought = (aref thoughts i)
+          do (setf (gethash (thought-id thought) indices) i))
+    (setf (stream-indices stream) indices)))
+
+(defun load-archived-thoughts (archive-file)
+  "Load thoughts from an archive file.
+
+   Arguments:
+     archive-file - Path to the archive file
+
+   Returns: List of thought objects, or NIL if file doesn't exist or is invalid"
+  (when (probe-file archive-file)
+    (handler-case
+        (with-open-file (in archive-file
+                            :direction :input
+                            :external-format :utf-8)
+          (let* ((sexpr (read in))
+                 (plist (rest sexpr))
+                 (thought-sexprs (getf plist :thoughts)))
+            (mapcar #'sexpr-to-thought thought-sexprs)))
+      (error (e)
+        (warn "Failed to load archived thoughts from ~a: ~a" archive-file e)
+        nil))))
