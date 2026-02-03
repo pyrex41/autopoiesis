@@ -159,6 +159,7 @@
     (format out "  back, b        - Navigate back in history~%")
     (format out "  pending        - Show pending input requests~%")
     (format out "  respond <id> <value> - Respond to pending request~%")
+    (format out "  viz, v         - Launch timeline visualization~%")
     (format out "  quit, q        - End session~%")
     (format out "~%")
     (force-output out)))
@@ -337,6 +338,23 @@
                                (subseq (blocking-request-id matching) 0 8)))
                      (format out "No pending request matching '~a'~%" id-prefix)))
                (format out "Usage: respond <request-id-prefix> <response>~%")))
+         :continue)
+
+        ((:viz :v)
+         (let ((viz-pkg (find-package :autopoiesis.viz)))
+           (if viz-pkg
+               (let ((launch-fn (find-symbol "LAUNCH-SESSION-VIZ" viz-pkg)))
+                 (if launch-fn
+                     (progn
+                       (format out "Launching timeline visualization...~%")
+                       (force-output out)
+                       (handler-case
+                           (funcall launch-fn session)
+                         (error (e)
+                           (format out "Visualization error: ~a~%" e)))
+                       (cli-display-header session))
+                     (format out "Visualization not available (function not found).~%")))
+               (format out "Visualization not available (package not loaded).~%")))
          :continue)
 
         ((:quit :q)

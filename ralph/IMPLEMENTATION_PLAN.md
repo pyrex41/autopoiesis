@@ -94,7 +94,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Write tests for snapshot glyph mapping
 
 ### Phase 7.9: Integration and Polish
-- [ ] Integrate terminal UI with existing interface/session system
+- [x] Integrate terminal UI with existing interface/session system
 - [ ] Add resize handling for terminal window changes
 - [ ] Implement help overlay (? key shows keybindings)
 - [ ] Update `autopoiesis.asd` to include viz subsystem in main load

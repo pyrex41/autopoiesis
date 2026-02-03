@@ -64,7 +64,8 @@
    #:timeline-viewport #:make-timeline-viewport
    #:timeline-navigator #:make-timeline-navigator
    #:terminal-ui #:run-terminal-ui #:stop-terminal-ui
-   #:snapshot-glyph #:render-snapshot-node))
+   #:snapshot-glyph #:render-snapshot-node
+   #:session-to-timeline #:launch-session-viz))
 
 (in-package #:autopoiesis)
 

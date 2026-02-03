@@ -131,4 +131,9 @@
 
    ;; Help overlay
    #:render-help-overlay
-   #:toggle-help))
+   #:toggle-help
+
+   ;; Session integration
+   #:ui-session
+   #:session-to-timeline
+   #:launch-session-viz))

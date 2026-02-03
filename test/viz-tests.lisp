@@ -277,3 +277,74 @@
     (let ((results (autopoiesis.viz:search-snapshots nav "GENESIS")))
       (is (= 1 (length results)))
       (is (member snap0 results)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Session Integration Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test session-to-timeline-basic
+  "Test building a timeline from a session with thoughts."
+  (let* ((agent (autopoiesis.agent:make-agent :name "viz-test-agent"))
+         (session (autopoiesis.interface:make-session "test-user" agent)))
+    ;; Add some thoughts to the agent's thought stream
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-observation "first event" :source :test))
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-observation "second event" :source :test))
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-decision '((:a . 0.8) (:b . 0.2)) :a :rationale "chose a"))
+    ;; Build timeline
+    (let ((timeline (autopoiesis.viz:session-to-timeline session)))
+      ;; Should have 3 snapshots
+      (is (= 3 (length (autopoiesis.viz:timeline-snapshots timeline))))
+      ;; Should have a current snapshot set
+      (is (not (null (autopoiesis.viz:timeline-current timeline))))
+      ;; Main branch should exist
+      (is (= 3 (length (gethash "main" (autopoiesis.viz:timeline-branches timeline)))))
+      ;; Snapshots should be chained via parent
+      (let ((snaps (autopoiesis.viz:timeline-snapshots timeline)))
+        (is (null (autopoiesis.snapshot:snapshot-parent (first snaps))))
+        (is (string= (autopoiesis.snapshot:snapshot-id (first snaps))
+                      (autopoiesis.snapshot:snapshot-parent (second snaps))))
+        (is (string= (autopoiesis.snapshot:snapshot-id (second snaps))
+                      (autopoiesis.snapshot:snapshot-parent (third snaps))))))))
+
+(test session-to-timeline-empty
+  "Test building a timeline from a session with no thoughts."
+  (let* ((agent (autopoiesis.agent:make-agent :name "empty-agent"))
+         (session (autopoiesis.interface:make-session "test-user" agent)))
+    (let ((timeline (autopoiesis.viz:session-to-timeline session)))
+      (is (= 0 (length (autopoiesis.viz:timeline-snapshots timeline))))
+      (is (null (autopoiesis.viz:timeline-current timeline))))))
+
+(test session-to-timeline-preserves-types
+  "Test that thought types are preserved as snapshot metadata types."
+  (let* ((agent (autopoiesis.agent:make-agent :name "type-test-agent"))
+         (session (autopoiesis.interface:make-session "test-user" agent)))
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-observation "saw something" :source :test))
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-decision '((:x . 0.7) (:y . 0.3)) :x :rationale "picked x"))
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-reflection "previous thought" "learned something"))
+    (let* ((timeline (autopoiesis.viz:session-to-timeline session))
+           (snaps (autopoiesis.viz:timeline-snapshots timeline)))
+      (is (eq :observation
+              (getf (autopoiesis.snapshot:snapshot-metadata (first snaps)) :type)))
+      (is (eq :decision
+              (getf (autopoiesis.snapshot:snapshot-metadata (second snaps)) :type)))
+      (is (eq :reflection
+              (getf (autopoiesis.snapshot:snapshot-metadata (third snaps)) :type))))))
+
+(test terminal-ui-session-slot
+  "Test that terminal-ui can hold a session reference."
+  (let* ((agent (autopoiesis.agent:make-agent :name "ui-session-agent"))
+         (session (autopoiesis.interface:make-session "test-user" agent))
+         (ui (autopoiesis.viz:make-terminal-ui :session session)))
+    (is (eq session (autopoiesis.viz:ui-session ui)))))

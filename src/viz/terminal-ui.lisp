@@ -7,6 +7,8 @@
               :documentation "Navigator for cursor movement.")
    (detail-panel :initarg :detail-panel :accessor ui-detail-panel :initform nil
                  :documentation "Detail panel for selected snapshot.")
+   (session :initarg :session :accessor ui-session :initform nil
+            :documentation "Associated interface session, if launched from one.")
    (terminal-width :accessor ui-terminal-width :initform 0
                    :documentation "Detected terminal width.")
    (terminal-height :accessor ui-terminal-height :initform 0
@@ -17,12 +19,15 @@
               :documentation "Whether the UI main loop is running."))
   (:documentation "Main terminal UI class managing screen layout, input, and rendering."))
 
-(defun make-terminal-ui (&key timeline navigator detail-panel)
-  "Create and initialize a terminal UI instance."
-  (let ((ui (make-instance 'terminal-ui)))
-    (setf (ui-timeline ui) (or timeline (make-timeline))
-          (ui-navigator ui) (or navigator (make-timeline-navigator))
-          (ui-detail-panel ui) (or detail-panel (make-detail-panel)))
+(defun make-terminal-ui (&key timeline navigator detail-panel session)
+  "Create and initialize a terminal UI instance.
+   If SESSION is provided, links the UI back to the interface session."
+  (let* ((tl (or timeline (make-timeline)))
+         (ui (make-instance 'terminal-ui)))
+    (setf (ui-timeline ui) tl
+          (ui-navigator ui) (or navigator (make-timeline-navigator :timeline tl))
+          (ui-detail-panel ui) (or detail-panel (make-detail-panel))
+          (ui-session ui) session)
     (update ui)
     ui))
 
@@ -140,3 +145,49 @@
 
 (defun stop-terminal-ui (ui)
   (setf (ui-running-p ui) nil))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Session Integration
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun session-to-timeline (session)
+  "Build a timeline from an interface SESSION's agent thought stream.
+   Each thought becomes a snapshot in the timeline, enabling visualization
+   of the agent's cognitive history."
+  (let* ((agent (autopoiesis.interface:session-agent session))
+         (ts (autopoiesis.agent:agent-thought-stream agent))
+         (thoughts (autopoiesis.core:stream-thoughts ts))
+         (snapshots nil)
+         (prev-id nil))
+    ;; Convert each thought to a snapshot for timeline display
+    (loop for thought across thoughts
+          for i from 0
+          for snap = (make-instance 'autopoiesis.snapshot:snapshot
+                       :id (autopoiesis.core:thought-id thought)
+                       :timestamp (autopoiesis.core:thought-timestamp thought)
+                       :parent prev-id
+                       :agent-state (autopoiesis.core:thought-content thought)
+                       :metadata (list :type (autopoiesis.core:thought-type thought)
+                                       :branch "main"))
+          do (push snap snapshots)
+             (setf prev-id (autopoiesis.core:thought-id thought)))
+    (let* ((snaps (nreverse snapshots))
+           (timeline (make-timeline
+                      :snapshots snaps
+                      :current (when prev-id prev-id))))
+      ;; Set up the main branch
+      (setf (gethash "main" (timeline-branches timeline))
+            (mapcar #'autopoiesis.snapshot:snapshot-id snaps))
+      timeline)))
+
+(defun launch-session-viz (session)
+  "Launch the terminal visualization UI for an interface SESSION.
+   Builds a timeline from the session's agent thought stream and runs
+   the interactive terminal UI. Returns the UI instance when done."
+  (let* ((timeline (session-to-timeline session))
+         (navigator (make-timeline-navigator :timeline timeline))
+         (ui (make-terminal-ui :timeline timeline
+                               :navigator navigator
+                               :session session)))
+    (run-terminal-ui ui)
+    ui))
