@@ -178,4 +178,12 @@
    #:record-heuristic-application
    #:decay-heuristic-confidence
    #:condition-matches-p
-   #:find-applicable-heuristics))
+   #:find-applicable-heuristics
+
+   ;; Learning system - Pattern Extraction
+   #:extract-patterns
+   #:extract-action-sequences
+   #:extract-context-patterns
+   #:extract-context-keys
+   #:pattern-to-condition
+   #:actions-contain-sequence-p))

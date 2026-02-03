@@ -390,3 +390,279 @@
                  (push heur applicable)))
              store)
     (sort applicable #'> :key #'heuristic-confidence)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Pattern Extraction
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun extract-patterns (experiences &key (min-frequency 0.2) (max-ngram-size 4))
+  "Extract common patterns from a list of experiences.
+   
+   This function analyzes experiences to find:
+   - Repeated action sequences that led to success (positive patterns)
+   - Context patterns that predict good outcomes
+   - Anti-patterns that led to failure (negative patterns)
+   
+   Arguments:
+     experiences   - List of experience objects to analyze
+     min-frequency - Minimum frequency threshold (0.0 to 1.0) for a pattern
+                     to be included. Default 0.2 means pattern must appear
+                     in at least 20% of relevant experiences.
+     max-ngram-size - Maximum size of action sequence n-grams to extract.
+                      Default 4 means sequences of 2, 3, and 4 actions.
+   
+   Returns: List of pattern plists with keys:
+     :pattern   - The action sequence or context pattern
+     :outcome   - :success or :failure
+     :frequency - How often this pattern appeared (0.0 to 1.0)
+     :count     - Absolute count of occurrences
+     :task-types - List of task types where this pattern was found
+   
+   Example:
+     (extract-patterns experiences)
+     => ((:pattern ((read-file) (analyze)) :outcome :success :frequency 0.4 ...)
+         (:pattern ((delete) (commit)) :outcome :failure :frequency 0.3 ...))"
+  (when (null experiences)
+    (return-from extract-patterns nil))
+  
+  (let ((success-exps (remove-if-not
+                       (lambda (e) (eq (experience-outcome e) :success))
+                       experiences))
+        (failure-exps (remove-if-not
+                       (lambda (e) (eq (experience-outcome e) :failure))
+                       experiences))
+        (all-patterns nil))
+    
+    ;; Extract success patterns (action sequences that led to success)
+    (when success-exps
+      (let ((success-patterns (extract-action-sequences 
+                               success-exps 
+                               :outcome :success
+                               :min-frequency min-frequency
+                               :max-ngram-size max-ngram-size)))
+        (setf all-patterns (append all-patterns success-patterns))))
+    
+    ;; Extract failure anti-patterns (action sequences that led to failure)
+    (when failure-exps
+      (let ((failure-patterns (extract-action-sequences 
+                               failure-exps 
+                               :outcome :failure
+                               :min-frequency min-frequency
+                               :max-ngram-size max-ngram-size)))
+        (setf all-patterns (append all-patterns failure-patterns))))
+    
+    ;; Extract context patterns from successful experiences
+    (when success-exps
+      (let ((context-patterns (extract-context-patterns
+                               success-exps
+                               :min-frequency min-frequency)))
+        (setf all-patterns (append all-patterns context-patterns))))
+    
+    ;; Sort by frequency (most common patterns first)
+    (sort all-patterns #'> :key (lambda (p) (getf p :frequency)))))
+
+(defun extract-action-sequences (experiences &key outcome (min-frequency 0.2) (max-ngram-size 4))
+  "Find common action sequences (n-grams) in experiences.
+   
+   This function performs n-gram analysis on action sequences from experiences
+   to identify patterns that appear frequently.
+   
+   Arguments:
+     experiences    - List of experience objects to analyze
+     outcome        - The outcome to associate with found patterns (:success or :failure)
+     min-frequency  - Minimum frequency threshold (0.0 to 1.0)
+     max-ngram-size - Maximum n-gram size to extract (default 4)
+   
+   Returns: List of pattern plists with keys:
+     :pattern    - The action sequence (list of actions)
+     :outcome    - The outcome parameter value
+     :frequency  - Frequency of occurrence (0.0 to 1.0)
+     :count      - Absolute count of occurrences
+     :ngram-size - Size of the n-gram (2, 3, 4, etc.)
+     :task-types - List of task types where this pattern was found
+   
+   Algorithm:
+   1. Extract action lists from all experiences
+   2. For each n-gram size (2 to max-ngram-size):
+      a. Generate all n-grams from each action sequence
+      b. Count occurrences of each unique n-gram
+      c. Keep n-grams that appear in >= min-frequency of experiences
+   3. Return patterns sorted by frequency"
+  (when (or (null experiences) (< (length experiences) 2))
+    (return-from extract-action-sequences nil))
+  
+  (let ((sequences (mapcar #'experience-actions experiences))
+        (task-type-map (make-hash-table :test 'equal))  ; pattern -> task-types
+        (common-patterns nil)
+        (num-experiences (length experiences)))
+    
+    ;; Build task-type map for each experience
+    (dolist (exp experiences)
+      (let ((actions (experience-actions exp))
+            (task-type (experience-task-type exp)))
+        (when (and actions (>= (length actions) 2))
+          ;; Generate n-grams for this experience
+          (loop for n from 2 to (min max-ngram-size (length actions))
+                do (loop for i from 0 to (- (length actions) n)
+                         for ngram = (subseq actions i (+ i n))
+                         do (pushnew task-type 
+                                     (gethash ngram task-type-map)
+                                     :test #'eq))))))
+    
+    ;; Count n-gram occurrences across all sequences
+    (loop for n from 2 to max-ngram-size
+          do (let ((ngram-counts (make-hash-table :test 'equal)))
+               ;; Count n-grams
+               (dolist (seq sequences)
+                 (when (and seq (>= (length seq) n))
+                   (let ((seen-in-seq (make-hash-table :test 'equal)))
+                     ;; Only count each n-gram once per sequence
+                     (loop for i from 0 to (- (length seq) n)
+                           for ngram = (subseq seq i (+ i n))
+                           unless (gethash ngram seen-in-seq)
+                           do (setf (gethash ngram seen-in-seq) t)
+                              (incf (gethash ngram ngram-counts 0))))))
+               
+               ;; Keep patterns that meet frequency threshold
+               (maphash (lambda (pattern count)
+                          (let ((frequency (/ count num-experiences)))
+                            (when (>= frequency min-frequency)
+                              (push (list :pattern pattern
+                                          :outcome outcome
+                                          :frequency (float frequency)
+                                          :count count
+                                          :ngram-size n
+                                          :task-types (gethash pattern task-type-map))
+                                    common-patterns))))
+                        ngram-counts)))
+    
+    ;; Sort by frequency descending
+    (sort common-patterns #'> :key (lambda (p) (getf p :frequency)))))
+
+(defun extract-context-patterns (experiences &key (min-frequency 0.2))
+  "Extract common context patterns from experiences.
+   
+   Analyzes the context s-expressions from experiences to find
+   common structural patterns that appear frequently.
+   
+   Arguments:
+     experiences   - List of experience objects to analyze
+     min-frequency - Minimum frequency threshold (0.0 to 1.0)
+   
+   Returns: List of pattern plists with keys:
+     :pattern   - The context pattern (generalized s-expression)
+     :outcome   - :success (context patterns are from successful experiences)
+     :frequency - Frequency of occurrence
+     :count     - Absolute count
+     :type      - :context to distinguish from action patterns"
+  (when (or (null experiences) (< (length experiences) 2))
+    (return-from extract-context-patterns nil))
+  
+  (let ((context-keys (make-hash-table :test 'equal))
+        (num-experiences (length experiences))
+        (patterns nil))
+    
+    ;; Extract keys/structure from each context
+    (dolist (exp experiences)
+      (let ((context (experience-context exp)))
+        (when context
+          (let ((keys (extract-context-keys context)))
+            (dolist (key keys)
+              (incf (gethash key context-keys 0)))))))
+    
+    ;; Keep patterns that meet frequency threshold
+    (maphash (lambda (key count)
+               (let ((frequency (/ count num-experiences)))
+                 (when (>= frequency min-frequency)
+                   (push (list :pattern key
+                               :outcome :success
+                               :frequency (float frequency)
+                               :count count
+                               :type :context)
+                         patterns))))
+             context-keys)
+    
+    (sort patterns #'> :key (lambda (p) (getf p :frequency)))))
+
+(defun extract-context-keys (context)
+  "Extract structural keys from a context s-expression.
+   
+   For a plist-like context, extracts the keys.
+   For a list, extracts the first element (type indicator).
+   
+   Arguments:
+     context - An s-expression context
+   
+   Returns: List of extracted keys/patterns"
+  (cond
+    ;; Nil context
+    ((null context) nil)
+    
+    ;; Atom - return as-is if keyword or symbol
+    ((atom context)
+     (if (or (keywordp context) (symbolp context))
+         (list context)
+         nil))
+    
+    ;; Plist-like structure (starts with keyword)
+    ((and (listp context) (keywordp (first context)))
+     (loop for item in context by #'cddr
+           when (keywordp item)
+           collect item))
+    
+    ;; List with symbol head (type indicator)
+    ((and (listp context) (symbolp (first context)))
+     (list (first context)))
+    
+    ;; Other list - extract from first element
+    ((listp context)
+     (extract-context-keys (first context)))
+    
+    (t nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Pattern Utilities
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun pattern-to-condition (pattern)
+  "Convert an extracted pattern to a heuristic condition.
+   
+   Arguments:
+     pattern - A pattern plist from extract-patterns
+   
+   Returns: An s-expression condition suitable for heuristic-condition"
+  (let ((action-pattern (getf pattern :pattern))
+        (task-types (getf pattern :task-types))
+        (pattern-type (getf pattern :type)))
+    (cond
+      ;; Context pattern
+      ((eq pattern-type :context)
+       `(context-has-key ,action-pattern))
+      
+      ;; Action pattern with specific task types
+      ((and task-types (= 1 (length task-types)))
+       `(and (task-type ,(first task-types))
+             (action-sequence-contains ,action-pattern)))
+      
+      ;; Action pattern across multiple task types
+      (task-types
+       `(and (task-type (:member ,task-types))
+             (action-sequence-contains ,action-pattern)))
+      
+      ;; Generic action pattern
+      (t
+       `(action-sequence-contains ,action-pattern)))))
+
+(defun actions-contain-sequence-p (actions sequence)
+  "Check if ACTIONS contains SEQUENCE as a contiguous subsequence.
+   
+   Arguments:
+     actions  - List of actions to search in
+     sequence - List of actions to search for
+   
+   Returns: T if sequence is found, NIL otherwise"
+  (when (and actions sequence (<= (length sequence) (length actions)))
+    (loop for i from 0 to (- (length actions) (length sequence))
+          when (equal (subseq actions i (+ i (length sequence))) sequence)
+          return t
+          finally (return nil))))

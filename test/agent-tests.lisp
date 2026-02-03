@@ -945,3 +945,229 @@
                          '(:task-type :debugging)
                          :store store)))
         (is (= 0 (length applicable)))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Learning System Tests - Pattern Extraction
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test extract-patterns-empty
+  "Test extract-patterns with empty or nil input"
+  (is (null (autopoiesis.agent:extract-patterns nil)))
+  (is (null (autopoiesis.agent:extract-patterns '()))))
+
+(test extract-patterns-single-experience
+  "Test extract-patterns with single experience (needs at least 2)"
+  (let ((exp (autopoiesis.agent:make-experience
+              :task-type :coding
+              :actions '((read-file) (edit-file) (save-file))
+              :outcome :success)))
+    ;; Single experience should return nil (need at least 2 for patterns)
+    (is (null (autopoiesis.agent:extract-patterns (list exp))))))
+
+(test extract-action-sequences-basic
+  "Test basic action sequence extraction"
+  (let* ((exp1 (autopoiesis.agent:make-experience
+                :task-type :coding
+                :actions '((read-file) (analyze) (edit) (save))
+                :outcome :success))
+         (exp2 (autopoiesis.agent:make-experience
+                :task-type :coding
+                :actions '((read-file) (analyze) (refactor) (save))
+                :outcome :success))
+         (exp3 (autopoiesis.agent:make-experience
+                :task-type :coding
+                :actions '((read-file) (analyze) (test) (save))
+                :outcome :success))
+         (experiences (list exp1 exp2 exp3))
+         (patterns (autopoiesis.agent:extract-action-sequences
+                    experiences
+                    :outcome :success
+                    :min-frequency 0.5)))
+    ;; Should find common sequences
+    (is (not (null patterns)))
+    ;; (read-file analyze) should appear in all 3 (100%)
+    (let ((read-analyze (find '((read-file) (analyze)) patterns
+                              :key (lambda (p) (getf p :pattern))
+                              :test #'equal)))
+      (is (not (null read-analyze)))
+      (is (= 1.0 (getf read-analyze :frequency)))
+      (is (= 3 (getf read-analyze :count))))))
+
+(test extract-action-sequences-with-frequency-threshold
+  "Test that frequency threshold filters patterns correctly"
+  (let* ((exp1 (autopoiesis.agent:make-experience
+                :actions '((a) (b) (c) (d))
+                :outcome :success))
+         (exp2 (autopoiesis.agent:make-experience
+                :actions '((a) (b) (x) (y))
+                :outcome :success))
+         (exp3 (autopoiesis.agent:make-experience
+                :actions '((a) (b) (c) (z))
+                :outcome :success))
+         (exp4 (autopoiesis.agent:make-experience
+                :actions '((p) (q) (r) (s))
+                :outcome :success))
+         (experiences (list exp1 exp2 exp3 exp4)))
+    ;; With 50% threshold, (a b) should appear (3/4 = 75%)
+    (let ((patterns (autopoiesis.agent:extract-action-sequences
+                     experiences :outcome :success :min-frequency 0.5)))
+      (is (find '((a) (b)) patterns
+                :key (lambda (p) (getf p :pattern))
+                :test #'equal)))
+    ;; With 80% threshold, (a b) should NOT appear (75% < 80%)
+    (let ((patterns (autopoiesis.agent:extract-action-sequences
+                     experiences :outcome :success :min-frequency 0.8)))
+      (is (null (find '((a) (b)) patterns
+                      :key (lambda (p) (getf p :pattern))
+                      :test #'equal))))))
+
+(test extract-action-sequences-ngram-sizes
+  "Test that different n-gram sizes are extracted"
+  (let* ((exp1 (autopoiesis.agent:make-experience
+                :actions '((a) (b) (c) (d))
+                :outcome :success))
+         (exp2 (autopoiesis.agent:make-experience
+                :actions '((a) (b) (c) (d))
+                :outcome :success))
+         (experiences (list exp1 exp2))
+         (patterns (autopoiesis.agent:extract-action-sequences
+                    experiences :outcome :success :min-frequency 0.5)))
+    ;; Should have 2-grams, 3-grams, and 4-grams
+    (is (find 2 patterns :key (lambda (p) (getf p :ngram-size))))
+    (is (find 3 patterns :key (lambda (p) (getf p :ngram-size))))
+    (is (find 4 patterns :key (lambda (p) (getf p :ngram-size))))))
+
+(test extract-patterns-success-and-failure
+  "Test that extract-patterns separates success and failure patterns"
+  (let* ((success1 (autopoiesis.agent:make-experience
+                    :actions '((test) (fix) (commit))
+                    :outcome :success))
+         (success2 (autopoiesis.agent:make-experience
+                    :actions '((test) (fix) (commit))
+                    :outcome :success))
+         (failure1 (autopoiesis.agent:make-experience
+                    :actions '((commit) (test) (revert))
+                    :outcome :failure))
+         (failure2 (autopoiesis.agent:make-experience
+                    :actions '((commit) (test) (revert))
+                    :outcome :failure))
+         (experiences (list success1 success2 failure1 failure2))
+         (patterns (autopoiesis.agent:extract-patterns experiences :min-frequency 0.4)))
+    ;; Should have both success and failure patterns
+    (is (find :success patterns :key (lambda (p) (getf p :outcome))))
+    (is (find :failure patterns :key (lambda (p) (getf p :outcome))))
+    ;; Success pattern: (test fix)
+    (let ((success-pattern (find-if (lambda (p)
+                                      (and (eq (getf p :outcome) :success)
+                                           (equal (getf p :pattern) '((test) (fix)))))
+                                    patterns)))
+      (is (not (null success-pattern))))
+    ;; Failure pattern: (commit test)
+    (let ((failure-pattern (find-if (lambda (p)
+                                      (and (eq (getf p :outcome) :failure)
+                                           (equal (getf p :pattern) '((commit) (test)))))
+                                    patterns)))
+      (is (not (null failure-pattern))))))
+
+(test extract-context-keys-plist
+  "Test extracting keys from plist-style context"
+  (let ((keys (autopoiesis.agent:extract-context-keys
+               '(:file "test.lisp" :language :lisp :size 100))))
+    (is (member :file keys))
+    (is (member :language keys))
+    (is (member :size keys))))
+
+(test extract-context-keys-list
+  "Test extracting keys from list-style context"
+  (let ((keys (autopoiesis.agent:extract-context-keys '(error "null pointer"))))
+    (is (member 'error keys))))
+
+(test extract-context-keys-nil
+  "Test extracting keys from nil context"
+  (is (null (autopoiesis.agent:extract-context-keys nil))))
+
+(test extract-context-patterns-basic
+  "Test basic context pattern extraction"
+  (let* ((exp1 (autopoiesis.agent:make-experience
+                :context '(:file "a.lisp" :type :source)
+                :outcome :success))
+         (exp2 (autopoiesis.agent:make-experience
+                :context '(:file "b.lisp" :type :source)
+                :outcome :success))
+         (exp3 (autopoiesis.agent:make-experience
+                :context '(:file "c.lisp" :type :test)
+                :outcome :success))
+         (experiences (list exp1 exp2 exp3))
+         (patterns (autopoiesis.agent:extract-context-patterns
+                    experiences :min-frequency 0.5)))
+    ;; :file should appear in all (100%)
+    (is (find :file patterns :key (lambda (p) (getf p :pattern))))
+    ;; :type should appear in all (100%)
+    (is (find :type patterns :key (lambda (p) (getf p :pattern))))))
+
+(test actions-contain-sequence-p-basic
+  "Test basic sequence containment check"
+  (is-true (autopoiesis.agent:actions-contain-sequence-p
+            '((a) (b) (c) (d))
+            '((b) (c))))
+  (is-true (autopoiesis.agent:actions-contain-sequence-p
+            '((a) (b) (c) (d))
+            '((a) (b))))
+  (is-true (autopoiesis.agent:actions-contain-sequence-p
+            '((a) (b) (c) (d))
+            '((c) (d))))
+  (is-false (autopoiesis.agent:actions-contain-sequence-p
+             '((a) (b) (c) (d))
+             '((a) (c))))  ; Not contiguous
+  (is-false (autopoiesis.agent:actions-contain-sequence-p
+             '((a) (b))
+             '((a) (b) (c))))  ; Sequence longer than actions
+  (is-false (autopoiesis.agent:actions-contain-sequence-p
+             nil
+             '((a)))))
+
+(test pattern-to-condition-basic
+  "Test converting patterns to heuristic conditions"
+  ;; Action pattern with single task type
+  (let* ((pattern '(:pattern ((read) (analyze))
+                    :outcome :success
+                    :task-types (:coding)))
+         (condition (autopoiesis.agent:pattern-to-condition pattern)))
+    (is (eq 'and (first condition)))
+    ;; Check that task-type is somewhere in the condition (using string comparison for package independence)
+    (is (find "TASK-TYPE" (flatten condition) 
+              :key (lambda (x) (when (symbolp x) (symbol-name x)))
+              :test #'string=)))
+  
+  ;; Context pattern
+  (let* ((pattern '(:pattern :file
+                    :type :context))
+         (condition (autopoiesis.agent:pattern-to-condition pattern)))
+    ;; Check using string comparison for package independence
+    (is (string= "CONTEXT-HAS-KEY" (symbol-name (first condition))))))
+
+(test extract-patterns-with-task-types
+  "Test that patterns track which task types they came from"
+  (let* ((exp1 (autopoiesis.agent:make-experience
+                :task-type :coding
+                :actions '((read) (edit) (save))
+                :outcome :success))
+         (exp2 (autopoiesis.agent:make-experience
+                :task-type :coding
+                :actions '((read) (edit) (test))
+                :outcome :success))
+         (exp3 (autopoiesis.agent:make-experience
+                :task-type :review
+                :actions '((read) (edit) (comment))
+                :outcome :success))
+         (experiences (list exp1 exp2 exp3))
+         (patterns (autopoiesis.agent:extract-action-sequences
+                    experiences :outcome :success :min-frequency 0.5)))
+    ;; (read edit) should appear in all 3
+    (let ((read-edit (find '((read) (edit)) patterns
+                           :key (lambda (p) (getf p :pattern))
+                           :test #'equal)))
+      (is (not (null read-edit)))
+      ;; Should have both task types
+      (is (member :coding (getf read-edit :task-types)))
+      (is (member :review (getf read-edit :task-types))))))

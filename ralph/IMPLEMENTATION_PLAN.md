@@ -212,8 +212,8 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 
 #### 9.3: Learning System
 - [x] Define `experience` and `heuristic` classes
-- [ ] Implement `extract-patterns` from experiences
-- [ ] Implement `extract-action-sequences` (n-gram analysis)
+- [x] Implement `extract-patterns` from experiences
+- [x] Implement `extract-action-sequences` (n-gram analysis)
 - [ ] Implement `generate-heuristic` from patterns
 - [ ] Implement `apply-heuristics` to decisions
 - [ ] Implement `update-heuristic-confidence` feedback loop
