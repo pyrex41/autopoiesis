@@ -770,3 +770,175 @@
         (autopoiesis.integration:claude-complete
          client
          '((("role" . "user") ("content" . "Hello"))))))))
+
+;;; ===================================================================
+;;; MCP Client Tests
+;;; ===================================================================
+
+(test mcp-server-creation
+  "Test creating an MCP server configuration"
+  (let ((server (autopoiesis.integration:make-mcp-server
+                 "test-server"
+                 "echo"
+                 :args '("hello")
+                 :working-directory "/tmp")))
+    (is (equal "test-server" (autopoiesis.integration:mcp-name server)))
+    (is (equal "echo" (autopoiesis.integration:mcp-command server)))
+    (is (equal '("hello") (autopoiesis.integration:mcp-args server)))
+    (is (not (autopoiesis.integration:mcp-connected-p server)))
+    (is (null (autopoiesis.integration:mcp-tools server)))))
+
+(test mcp-server-registry
+  "Test MCP server registry operations"
+  ;; Clear registry for test isolation
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((server (autopoiesis.integration:make-mcp-server "registry-test" "echo")))
+    ;; Initially not registered
+    (is (null (autopoiesis.integration:find-mcp-server "registry-test")))
+    ;; Register
+    (autopoiesis.integration:register-mcp-server server)
+    (is (eq server (autopoiesis.integration:find-mcp-server "registry-test")))
+    ;; List
+    (is (member server (autopoiesis.integration:list-mcp-servers)))
+    ;; Unregister
+    (autopoiesis.integration:unregister-mcp-server "registry-test")
+    (is (null (autopoiesis.integration:find-mcp-server "registry-test")))))
+
+(test mcp-jsonrpc-request-creation
+  "Test JSON-RPC request creation"
+  (let ((req (autopoiesis.integration::make-jsonrpc-request 1 "test/method")))
+    (is (equal "2.0" (cdr (assoc "jsonrpc" req :test #'string=))))
+    (is (= 1 (cdr (assoc "id" req :test #'string=))))
+    (is (equal "test/method" (cdr (assoc "method" req :test #'string=)))))
+  ;; With params
+  (let ((req (autopoiesis.integration::make-jsonrpc-request 2 "method"
+               '(("arg1" . "value1")))))
+    (is (consp (cdr (assoc "params" req :test #'string=))))))
+
+(test mcp-jsonrpc-notification-creation
+  "Test JSON-RPC notification creation"
+  (let ((notif (autopoiesis.integration::make-jsonrpc-notification "notify/done")))
+    (is (equal "2.0" (cdr (assoc "jsonrpc" notif :test #'string=))))
+    (is (null (assoc "id" notif :test #'string=)))
+    (is (equal "notify/done" (cdr (assoc "method" notif :test #'string=))))))
+
+(test mcp-disconnected-server-errors
+  "Test that operations on disconnected server raise errors"
+  (let ((server (autopoiesis.integration:make-mcp-server "offline" "echo")))
+    ;; list-tools should error
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.integration:mcp-list-tools server))
+    ;; call-tool should error
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.integration:mcp-call-tool server "test" nil))
+    ;; get-resource should error
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.integration:mcp-get-resource server "file:///test"))))
+
+(test mcp-server-status
+  "Test MCP server status reporting"
+  (let* ((server (autopoiesis.integration:make-mcp-server
+                  "status-test" "cmd"
+                  :args '("arg1" "arg2")))
+         (status (autopoiesis.integration:mcp-server-status server)))
+    (is (equal "status-test" (getf status :name)))
+    (is (not (getf status :connected)))
+    (is (equal "cmd" (getf status :command)))
+    (is (equal '("arg1" "arg2") (getf status :args)))
+    (is (= 0 (getf status :tools-count)))))
+
+(test mcp-connect-mcp-server-config
+  "Test connect-mcp-server-config creates server correctly"
+  ;; We can't actually connect (no real server), but we can test that
+  ;; the config is parsed correctly by checking what errors
+  (let ((config '(:name "config-test"
+                  :command "/nonexistent/binary"
+                  :args ("--stdio")
+                  :working-directory "/tmp")))
+    ;; Should fail because binary doesn't exist
+    (signals error
+      (autopoiesis.integration:connect-mcp-server-config config))))
+
+(test mcp-tool-to-capability-conversion
+  "Test converting MCP tool definition to capability"
+  ;; Clear registry for test isolation
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  ;; Create and register a mock server (not connected but in registry)
+  (let* ((server (autopoiesis.integration:make-mcp-server "mock-server" "echo")))
+    (autopoiesis.integration:register-mcp-server server)
+    (let* ((tool '((:name . "read_file")
+                   (:description . "Read a file from disk")
+                   (:input-schema . (("type" . "object")
+                                     ("properties" . (("path" . (("type" . "string")
+                                                                 ("description" . "File path")))))
+                                     ("required" . ("path"))))))
+           (cap (autopoiesis.integration:mcp-tool-to-capability tool "mock-server")))
+      ;; Check capability properties
+      (is (eq :read-file (autopoiesis.agent:capability-name cap)))
+      ;; Description should include MCP server info
+      (is (search "Read a file from disk" (autopoiesis.agent:capability-description cap)))
+      (is (search "mock-server" (autopoiesis.agent:capability-description cap)))
+      ;; Check parameters were converted
+      (let ((params (autopoiesis.agent:capability-parameters cap)))
+        (is (not (null params)))
+        (let ((path-param (find :path params :key #'first)))
+          (is (not (null path-param)))
+          (is (eq 'string (second path-param))))))))
+
+(test mcp-register-tools-as-capabilities
+  "Test registering MCP tools as capabilities"
+  ;; Clear registries
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((test-registry (make-hash-table :test 'eq)))
+    ;; Create a server with mock tools
+    (let ((server (autopoiesis.integration:make-mcp-server "tool-reg-test" "echo")))
+      ;; Manually set tools (since we can't connect)
+      (setf (autopoiesis.integration:mcp-tools server)
+            '(((:name . "tool_one") (:description . "First tool"))
+              ((:name . "tool_two") (:description . "Second tool"))))
+      (autopoiesis.integration:register-mcp-server server)
+      ;; Register as capabilities
+      (let ((caps (autopoiesis.integration:register-mcp-tools-as-capabilities
+                   server :registry test-registry)))
+        (is (= 2 (length caps)))
+        ;; Check they're in the registry
+        (is (not (null (autopoiesis.agent:find-capability :tool-one :registry test-registry))))
+        (is (not (null (autopoiesis.agent:find-capability :tool-two :registry test-registry))))
+        ;; Unregister
+        (autopoiesis.integration:unregister-mcp-tools server :registry test-registry)
+        (is (null (autopoiesis.agent:find-capability :tool-one :registry test-registry)))
+        (is (null (autopoiesis.agent:find-capability :tool-two :registry test-registry)))))))
+
+;;; ===================================================================
+;;; MCP Protocol Mocking Tests
+;;; ===================================================================
+
+;;; These tests mock the I/O to test protocol handling
+
+(defun make-mock-mcp-server ()
+  "Create an MCP server with mocked streams for testing."
+  (let* ((input-string (make-string-output-stream))
+         (server (autopoiesis.integration:make-mcp-server "mock" "echo")))
+    ;; Mark as connected without actually connecting
+    (setf (autopoiesis.integration::mcp-connected-p server) t)
+    server))
+
+(test mcp-request-id-incrementing
+  "Test that request IDs increment properly"
+  (let ((server (make-mock-mcp-server)))
+    (is (= 1 (autopoiesis.integration::next-request-id server)))
+    (is (= 2 (autopoiesis.integration::next-request-id server)))
+    (is (= 3 (autopoiesis.integration::next-request-id server)))))
+
+(test mcp-disconnect-all
+  "Test disconnecting all MCP servers"
+  ;; Clear and add some test servers
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((s1 (autopoiesis.integration:make-mcp-server "s1" "echo"))
+        (s2 (autopoiesis.integration:make-mcp-server "s2" "echo")))
+    (autopoiesis.integration:register-mcp-server s1)
+    (autopoiesis.integration:register-mcp-server s2)
+    (is (= 2 (hash-table-count autopoiesis.integration:*mcp-servers*)))
+    ;; Disconnect all
+    (autopoiesis.integration:disconnect-all-mcp-servers)
+    (is (= 0 (hash-table-count autopoiesis.integration:*mcp-servers*)))))

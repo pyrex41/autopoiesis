@@ -37,7 +37,27 @@
    #:mcp-disconnect
    #:mcp-call-tool
    #:mcp-list-tools
+   #:mcp-list-resources
    #:mcp-get-resource
+   #:mcp-name
+   #:mcp-command
+   #:mcp-args
+   #:mcp-connected-p
+   #:mcp-tools
+   #:mcp-resources
+   #:mcp-server-info
+   #:mcp-server-capabilities
+   #:find-mcp-server
+   #:list-mcp-servers
+   #:register-mcp-server
+   #:unregister-mcp-server
+   #:disconnect-all-mcp-servers
+   #:connect-mcp-server-config
+   #:mcp-server-status
+   #:mcp-tool-to-capability
+   #:register-mcp-tools-as-capabilities
+   #:unregister-mcp-tools
+   #:*mcp-servers*
 
    ;; Tool registry
    #:external-tool

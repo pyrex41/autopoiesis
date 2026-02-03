@@ -48,6 +48,16 @@ Current Phase: 5 (Claude Integration)
 
 ## Next Up (Priority Order)
 
+### Phase 6: MCP Integration
+- [x] Implement MCP server management (stdio transport)
+- [ ] Implement MCP protocol (initialize, tools/list, tools/call)
+- [ ] Implement MCP resource handling (resources/list, resources/read)
+- [ ] Implement built-in tools (file, web, shell)
+- [ ] Implement integration event system
+- [ ] Write MCP integration tests (mocked)
+
+## Recently Completed
+
 ### Phase 2: Agent Runtime (Remaining)
 - [x] Create `defcapability` macro
 - [x] Implement `context-window` class
@@ -75,9 +85,6 @@ Current Phase: 5 (Claude Integration)
 (none yet)
 
 ## Future (Waiting for Earlier Phases)
-
-### Phase 6: MCP Integration
-- Depends on: Phase 5 complete
 
 ### Phase 7+: Visualization
 - Depends on: Phase 6 complete
