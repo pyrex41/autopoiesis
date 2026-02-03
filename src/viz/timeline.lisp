@@ -205,13 +205,52 @@ for snap-idx = (min (1- (length sorted-snaps)) (round (* fraction (1- (length so
                (princ (subseq (string-downcase (symbol-name type)) 0 6))))
     (force-output)))
 
+(defun branch-fork-col (timeline branch-name)
+  \"Compute the fork column for BRANCH-NAME in TIMELINE.\"
+  (let* ((branches (timeline-branches timeline))
+         (snap-ids (gethash branch-name branches))
+         (first-id (first snap-ids)))
+    (when first-id
+      (let* ((snap (find-snapshot timeline first-id))
+             (parent-id (snapshot-parent snap)))
+        (when parent-id
+          (let* ((parent-snap (find-snapshot timeline parent-id))
+                 (sorted-snaps (sort (copy-seq (timeline-snapshots timeline)) #'< :key #'snapshot-timestamp))
+                 (max-t (reduce #'max (mapcar #'snapshot-timestamp sorted-snaps)
+                                :initial-value 0d0))
+                 (fraction (if (zerop max-t) 0d0 (/ (snapshot-timestamp parent-snap) max-t)))
+                 (num-slots 20)
+                 (slot-width 4)
+                 (slot (max 0 (min (1- num-slots) (round (* fraction (1- num-slots))))))
+                 (col (+ 2 (* slot slot-width))))
+            col))))))
+
+(defun render-branch-labels (timeline label-row main-row)
+  \"Render branch names at fork points on LABEL-ROW above MAIN-ROW.\"
+  (let ((layout (compute-branch-layout timeline)))
+    (dolist (entry (remove-if (lambda (entry) (string= (car entry) \"main\")) layout))
+      (let* ((branch (car entry))
+             (col (branch-fork-col timeline branch)))
+        (when (and col (>= col 1) (< col 100))
+          (let ((name (truncate-string branch 4)))
+            (move-cursor label-row col)
+            (with-color (+color-fork+)
+              (princ name)))))))
+  (force-output *standard-output*))
+
+(defun branch-y-position (layout branch-name)
+  \"Get Y-position for BRANCH-NAME from LAYOUT alist.\"
+  (cdr (assoc branch-name layout :test #'string-equal)))
+
 (defun render-timeline (timeline)
   "Render full timeline: legend, rows, branches, legend."
   (let* ((vp (timeline-viewport timeline))
          (legend-row 1)
+         (label-row 3)
          (main-row 5)
          (branch-rows 6))
     (render-legend legend-row)
+    (render-branch-labels timeline label-row main-row)
     (render-timeline-row timeline main-row)
     (dotimes (i branch-rows)
       (render-branch-connections timeline (+ main-row i 1) main-row))
