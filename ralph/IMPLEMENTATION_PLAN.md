@@ -176,7 +176,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Handle orbit (right-drag) and zoom (scroll) input
 
 #### 8.4: HUD System
-- [ ] Create HUD panel system with position, agent, timeline, hints panels
+- [x] Create HUD panel system with position, agent, timeline, hints panels
 - [ ] Implement `update-hud` from current state
 - [ ] Implement `render-hud` with transparency and borders
 - [ ] Add timeline scrubber at bottom

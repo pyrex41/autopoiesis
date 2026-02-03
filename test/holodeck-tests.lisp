@@ -3099,3 +3099,257 @@ out vec4 color;")))
     ;; prev should now equal current
     (is (= 100.0 (input-handler-prev-mouse-x handler)))
     (is (= 200.0 (input-handler-prev-mouse-y handler)))))
+
+;;; ===================================================================
+;;; HUD Panel System Tests
+;;; ===================================================================
+
+(def-suite hud-tests
+  :in holodeck-tests
+  :description "Tests for the HUD panel system")
+
+(in-suite hud-tests)
+
+;;; --- HUD Panel Class ---
+
+(test hud-panel-creation-defaults
+  "Test hud-panel default slot values."
+  (let ((p (make-instance 'hud-panel)))
+    (is (= 0 (panel-x p)))
+    (is (= 0 (panel-y p)))
+    (is (= 200 (panel-width p)))
+    (is (= 100 (panel-height p)))
+    (is (null (panel-title p)))
+    (is (null (panel-content p)))
+    (is (eq t (panel-visible-p p)))
+    (is (= 0.7 (panel-alpha p)))))
+
+(test hud-panel-creation-custom
+  "Test hud-panel with custom initargs."
+  (let ((p (make-instance 'hud-panel
+                           :x 50 :y 100
+                           :width 300 :height 200
+                           :title "TEST"
+                           :content '("line1" "line2")
+                           :visible-p nil
+                           :alpha 0.5)))
+    (is (= 50 (panel-x p)))
+    (is (= 100 (panel-y p)))
+    (is (= 300 (panel-width p)))
+    (is (= 200 (panel-height p)))
+    (is (string= "TEST" (panel-title p)))
+    (is (equal '("line1" "line2") (panel-content p)))
+    (is (null (panel-visible-p p)))
+    (is (= 0.5 (panel-alpha p)))))
+
+;;; --- HUD Class ---
+
+(test hud-creation-defaults
+  "Test hud default slot values."
+  (let ((h (make-instance 'hud)))
+    (is (eq t (hud-visible-p h)))
+    (is (= 0.8 (hud-opacity h)))
+    (is (= 0 (hud-panel-count h)))
+    (is (null (hud-panel-names h)))))
+
+;;; --- make-hud Standard Panels ---
+
+(test make-hud-creates-four-panels
+  "Test that make-hud creates exactly four standard panels."
+  (let ((hud (make-hud)))
+    (is (= 4 (hud-panel-count hud)))
+    (is (not (null (hud-panel hud :position))))
+    (is (not (null (hud-panel hud :agent))))
+    (is (not (null (hud-panel hud :timeline))))
+    (is (not (null (hud-panel hud :hints))))))
+
+(test make-hud-position-panel-placement
+  "Test position panel is placed at top-left."
+  (let* ((hud (make-hud :window-width 1920 :window-height 1080))
+         (p (hud-panel hud :position)))
+    (is (= 20 (panel-x p)))
+    (is (= 20 (panel-y p)))
+    (is (= 250 (panel-width p)))
+    (is (= 100 (panel-height p)))
+    (is (string= "LOCATION" (panel-title p)))
+    (is (eq t (panel-visible-p p)))))
+
+(test make-hud-agent-panel-placement
+  "Test agent panel is placed at top-right and starts hidden."
+  (let* ((hud (make-hud :window-width 1920 :window-height 1080))
+         (p (hud-panel hud :agent)))
+    (is (= (- 1920 270) (panel-x p)))
+    (is (= 20 (panel-y p)))
+    (is (= 250 (panel-width p)))
+    (is (= 150 (panel-height p)))
+    (is (string= "AGENT" (panel-title p)))
+    (is (null (panel-visible-p p)))))
+
+(test make-hud-timeline-panel-placement
+  "Test timeline panel is placed at bottom."
+  (let* ((hud (make-hud :window-width 1920 :window-height 1080))
+         (p (hud-panel hud :timeline)))
+    (is (= 20 (panel-x p)))
+    (is (= (- 1080 80) (panel-y p)))
+    (is (= (- 1920 40) (panel-width p)))
+    (is (= 60 (panel-height p)))))
+
+(test make-hud-hints-panel-placement
+  "Test hints panel is placed at bottom-right with pre-filled content."
+  (let* ((hud (make-hud :window-width 1920 :window-height 1080))
+         (p (hud-panel hud :hints)))
+    (is (= (- 1920 220) (panel-x p)))
+    (is (= (- 1080 150) (panel-y p)))
+    (is (= 200 (panel-width p)))
+    (is (= 130 (panel-height p)))
+    (is (= 0.5 (panel-alpha p)))
+    (is (= 6 (length (panel-content p))))))
+
+(test make-hud-custom-dimensions
+  "Test that make-hud adapts panel positions to custom window size."
+  (let* ((hud (make-hud :window-width 800 :window-height 600))
+         (agent-p (hud-panel hud :agent))
+         (timeline-p (hud-panel hud :timeline))
+         (hints-p (hud-panel hud :hints)))
+    (is (= (- 800 270) (panel-x agent-p)))
+    (is (= (- 600 80) (panel-y timeline-p)))
+    (is (= (- 800 40) (panel-width timeline-p)))
+    (is (= (- 800 220) (panel-x hints-p)))
+    (is (= (- 600 150) (panel-y hints-p)))))
+
+;;; --- HUD Panel Access ---
+
+(test hud-panel-accessor
+  "Test getting and setting panels by name."
+  (let ((hud (make-instance 'hud))
+        (panel (make-instance 'hud-panel :x 10 :y 20)))
+    (is (null (hud-panel hud :test)))
+    (setf (hud-panel hud :test) panel)
+    (is (eq panel (hud-panel hud :test)))
+    (is (= 1 (hud-panel-count hud)))
+    (is (equal '(:test) (hud-panel-names hud)))))
+
+;;; --- Visibility Toggles ---
+
+(test toggle-hud-visibility
+  "Test toggling master HUD visibility."
+  (let ((hud (make-hud)))
+    (is (eq t (hud-visible-p hud)))
+    (toggle-hud-visibility hud)
+    (is (null (hud-visible-p hud)))
+    (toggle-hud-visibility hud)
+    (is (eq t (hud-visible-p hud)))))
+
+(test toggle-panel-visibility
+  "Test toggling individual panel visibility."
+  (let ((hud (make-hud)))
+    (is (eq t (panel-visible-p (hud-panel hud :position))))
+    (toggle-panel-visibility hud :position)
+    (is (null (panel-visible-p (hud-panel hud :position))))
+    (toggle-panel-visibility hud :position)
+    (is (eq t (panel-visible-p (hud-panel hud :position))))
+    ;; Non-existent panel returns NIL
+    (is (null (toggle-panel-visibility hud :nonexistent)))))
+
+;;; --- Content Updates ---
+
+(test update-position-panel-content
+  "Test updating position panel with navigation state."
+  (let ((hud (make-hud)))
+    (update-position-panel hud
+                           :branch "main"
+                           :snapshot-id "abc123def456ghi789"
+                           :snapshot-type :decision)
+    (let ((content (panel-content (hud-panel hud :position))))
+      (is (= 3 (length content)))
+      (is (search "main" (first content)))
+      (is (search "abc123" (second content)))
+      (is (search "DECISION" (third content))))))
+
+(test update-agent-panel-shows-and-hides
+  "Test that updating agent panel controls visibility."
+  (let ((hud (make-hud)))
+    ;; Agent panel starts hidden
+    (is (null (panel-visible-p (hud-panel hud :agent))))
+    ;; Providing agent-name makes it visible
+    (update-agent-panel hud :agent-name "Watson"
+                            :agent-status :running
+                            :agent-task "Analyzing data")
+    (is (eq t (panel-visible-p (hud-panel hud :agent))))
+    (let ((content (panel-content (hud-panel hud :agent))))
+      (is (= 3 (length content)))
+      (is (search "Watson" (first content))))
+    ;; Clearing agent-name hides it
+    (update-agent-panel hud :agent-name nil)
+    (is (null (panel-visible-p (hud-panel hud :agent))))))
+
+(test update-timeline-panel-content
+  "Test updating timeline panel with snapshot info."
+  (let ((hud (make-hud)))
+    (update-timeline-panel hud :total-snapshots 42
+                               :current-index 15
+                               :branch-count 3)
+    (let ((content (panel-content (hud-panel hud :timeline))))
+      (is (= 1 (length content)))
+      (is (search "15" (first content)))
+      (is (search "42" (first content)))
+      (is (search "3" (first content))))))
+
+;;; --- Render Descriptions ---
+
+(test collect-visible-panels-respects-visibility
+  "Test that collect-visible-panels filters hidden panels."
+  (let ((hud (make-hud)))
+    ;; Agent panel starts hidden, so 3 visible panels
+    (let ((visible (collect-visible-panels hud)))
+      (is (= 3 (length visible))))
+    ;; Show agent panel -> 4 visible
+    (setf (panel-visible-p (hud-panel hud :agent)) t)
+    (is (= 4 (length (collect-visible-panels hud))))
+    ;; Hide entire HUD -> NIL
+    (setf (hud-visible-p hud) nil)
+    (is (null (collect-visible-panels hud)))))
+
+(test panel-render-description-structure
+  "Test that panel render descriptions contain expected keys."
+  (let* ((panel (make-instance 'hud-panel
+                                :x 10 :y 20 :width 300 :height 100
+                                :title "TEST" :alpha 0.7
+                                :content '("Hello" "World")))
+         (desc (panel-render-description panel 0.8)))
+    (is (= 10 (getf desc :x)))
+    (is (= 20 (getf desc :y)))
+    (is (= 300 (getf desc :width)))
+    (is (= 100 (getf desc :height)))
+    ;; Alpha = panel alpha * global opacity = 0.7 * 0.8 = 0.56
+    (is (< (abs (- 0.56 (getf desc :alpha))) 0.01))
+    (is (string= "TEST" (getf desc :title)))
+    (is (equal '("Hello" "World") (getf desc :lines)))
+    (is (listp (getf desc :border-color)))
+    (is (listp (getf desc :text-color)))
+    (is (listp (getf desc :bg-color)))))
+
+(test collect-hud-render-descriptions-count
+  "Test that collect-hud-render-descriptions returns correct count."
+  (let ((hud (make-hud)))
+    ;; 3 visible by default (agent hidden)
+    (is (= 3 (length (collect-hud-render-descriptions hud))))
+    ;; Show agent panel
+    (setf (panel-visible-p (hud-panel hud :agent)) t)
+    (is (= 4 (length (collect-hud-render-descriptions hud))))))
+
+;;; --- Utility ---
+
+(test truncate-id-short-string
+  "Test that short strings are returned unchanged."
+  (is (string= "hello" (truncate-id "hello" 10))))
+
+(test truncate-id-exact-length
+  "Test that strings at exact max length are returned unchanged."
+  (is (string= "hello" (truncate-id "hello" 5))))
+
+(test truncate-id-long-string
+  "Test that long strings are truncated with ellipsis marker."
+  (let ((result (truncate-id "abcdefghij" 5)))
+    (is (= 5 (length result)))
+    (is (char= #\~ (char result 4)))))

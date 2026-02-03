@@ -347,6 +347,37 @@
    #:*mouse-button-right*
    #:*mouse-button-middle*
 
+   ;; HUD panel system
+   #:hud
+   #:hud-panels
+   #:hud-visible-p
+   #:hud-opacity
+   #:hud-panel
+   #:hud-panel-names
+   #:hud-panel-count
+   #:hud-panel
+   #:make-hud
+   #:toggle-hud-visibility
+   #:toggle-panel-visibility
+   #:update-position-panel
+   #:update-agent-panel
+   #:update-timeline-panel
+   #:collect-visible-panels
+   #:panel-render-description
+   #:collect-hud-render-descriptions
+   #:truncate-id
+
+   ;; HUD panel class
+   #:hud-panel
+   #:panel-x
+   #:panel-y
+   #:panel-width
+   #:panel-height
+   #:panel-title
+   #:panel-content
+   #:panel-visible-p
+   #:panel-alpha
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck
