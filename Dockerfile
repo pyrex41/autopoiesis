@@ -17,10 +17,12 @@ RUN apt-get update && apt-get install -y \
     libncurses-dev \
     # For cryptographic hashing (ironclad)
     libffi-dev \
-    # Build tools
+    # Build tools and utilities
     build-essential \
     curl \
     git \
+    # For HTTP healthchecks in docker-compose
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Setup Quicklisp
@@ -41,7 +43,7 @@ COPY autopoiesis.asd .
 # Pre-load dependencies (cached layer)
 RUN sbcl --noinform --non-interactive \
     --eval "(push #P\"/app/\" asdf:*central-registry*)" \
-    --eval "(ql:quickload '(:alexandria :bordeaux-threads :cl-json :local-time :cl-ppcre :log4cl :ironclad :flexi-streams :babel :dexador :cl-charms :fiveam) :silent t)" \
+    --eval "(ql:quickload '(:alexandria :bordeaux-threads :cl-json :local-time :cl-ppcre :log4cl :ironclad :flexi-streams :babel :dexador :cl-charms :hunchentoot :fiveam) :silent t)" \
     --eval "(quit)"
 
 # Copy source code
@@ -74,8 +76,8 @@ RUN mkdir -p /data/logs /data/snapshots
 # Volume for persistent data (snapshots, logs, config)
 VOLUME /data
 
-# Expose HTTP port
-EXPOSE 8080
+# Expose HTTP ports (main app and monitoring)
+EXPOSE 8080 8081
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

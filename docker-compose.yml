@@ -1,0 +1,116 @@
+# docker-compose.yml - Full stack deployment for Autopoiesis
+#
+# Autopoiesis is a self-configuring, self-extending agent platform
+# built on Common Lisp's homoiconic foundation.
+#
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop all services
+#   docker-compose down -v        # Stop and remove volumes
+#
+# Services:
+#   - autopoiesis: Main application with REPL
+#   - autopoiesis-server: HTTP server with monitoring endpoints
+#
+# Volumes:
+#   - autopoiesis-data: Persistent storage for snapshots, logs, config
+#
+# Networks:
+#   - autopoiesis-net: Internal network for service communication
+
+services:
+  # Main Autopoiesis application
+  # Provides an interactive REPL for development and debugging
+  autopoiesis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autopoiesis:latest
+    container_name: autopoiesis
+    hostname: autopoiesis
+    stdin_open: true
+    tty: true
+    volumes:
+      - autopoiesis-data:/data
+      - ./config:/app/config:ro
+    environment:
+      - AUTOPOIESIS_DATA_DIR=/data
+      - AUTOPOIESIS_LOG_DIR=/data/logs
+      - AUTOPOIESIS_LOG_LEVEL=${LOG_LEVEL:-info}
+      - AUTOPOIESIS_HOST=0.0.0.0
+      - AUTOPOIESIS_PORT=8080
+      # Claude API configuration (optional)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    networks:
+      - autopoiesis-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sbcl", "--noinform", "--non-interactive",
+             "--eval", "(push #P\"/app/\" asdf:*central-registry*)",
+             "--eval", "(ql:quickload :autopoiesis :silent t)",
+             "--eval", "(if (autopoiesis:health-check-ok-p) (quit :unix-status 0) (quit :unix-status 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Autopoiesis HTTP server with monitoring endpoints
+  # Exposes /health, /healthz, /readyz, /metrics
+  autopoiesis-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autopoiesis:latest
+    container_name: autopoiesis-server
+    hostname: autopoiesis-server
+    volumes:
+      - autopoiesis-data:/data
+      - ./config:/app/config:ro
+    environment:
+      - AUTOPOIESIS_DATA_DIR=/data
+      - AUTOPOIESIS_LOG_DIR=/data/logs
+      - AUTOPOIESIS_LOG_LEVEL=${LOG_LEVEL:-info}
+      - AUTOPOIESIS_HOST=0.0.0.0
+      - AUTOPOIESIS_PORT=8080
+      - AUTOPOIESIS_MONITORING_PORT=8081
+      # Claude API configuration (optional)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    ports:
+      # Main application port
+      - "${APP_PORT:-8080}:8080"
+      # Monitoring endpoints port
+      - "${MONITORING_PORT:-8081}:8081"
+    networks:
+      - autopoiesis-net
+    restart: unless-stopped
+    # Start the monitoring server
+    command: >
+      sbcl --noinform
+           --eval "(push #P\"/app/\" asdf:*central-registry*)"
+           --eval "(ql:quickload :autopoiesis :silent t)"
+           --eval "(in-package :autopoiesis)"
+           --eval "(autopoiesis.monitoring:start-monitoring-server :port 8081)"
+           --eval "(format t \"~%Autopoiesis server running.~%\")"
+           --eval "(format t \"Monitoring: http://0.0.0.0:8081/health~%\")"
+           --eval "(loop (sleep 60))"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - autopoiesis
+
+# Named volumes for data persistence
+volumes:
+  autopoiesis-data:
+    driver: local
+    name: autopoiesis-data
+
+# Internal network for service communication
+networks:
+  autopoiesis-net:
+    driver: bridge
+    name: autopoiesis-net

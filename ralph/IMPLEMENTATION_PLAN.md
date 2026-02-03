@@ -246,8 +246,8 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Create Dockerfile with SBCL and dependencies
 - [x] Implement configuration management (load/merge)
 - [x] Implement health check endpoints
-- [ ] Implement metrics collection
-- [ ] Create docker-compose for full stack
+- [x] Implement metrics collection
+- [x] Create docker-compose for full stack
 - [ ] Write deployment documentation
 
 ---
