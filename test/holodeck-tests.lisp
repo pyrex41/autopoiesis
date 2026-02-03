@@ -2647,3 +2647,226 @@ out vec4 color;")))
     ;; Velocity should be zero
     (let ((vel (fly-camera-velocity cam)))
       (is (< (3d-vectors:vlength vel) 0.001)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Camera Focus Function Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite camera-focus-tests
+  :in holodeck-tests
+  :description "Tests for focus-on-snapshot, focus-on-agent, camera-overview")
+
+(in-suite camera-focus-tests)
+
+;;; --- entity-position-vec3 ---
+
+(test entity-position-vec3-extracts-position
+  "Test that entity-position-vec3 extracts position3d as vec3."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 10.0 :y 20.0 :z 30.0)
+    (let ((pos (entity-position-vec3 e)))
+      (is (< (abs (- (3d-vectors:vx pos) 10.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy pos) 20.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz pos) 30.0)) 0.001)))))
+
+;;; --- focus-on-snapshot ---
+
+(test focus-on-snapshot-orbit-returns-transition
+  "Test that focus-on-snapshot with orbit camera returns a camera-transition."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera))
+        (e (make-snapshot-entity "snap-1" :decision :x 10.0 :y 5.0 :z 0.0)))
+    (let ((trans (focus-on-snapshot cam e)))
+      (is (typep trans 'camera-transition))
+      (is (not (camera-transition-complete-p trans))))))
+
+(test focus-on-snapshot-orbit-targets-entity-position
+  "Test that focus-on-snapshot transition targets the entity position."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera))
+        (e (make-snapshot-entity "snap-2" :action :x 15.0 :y 3.0 :z 7.0)))
+    (let ((trans (focus-on-snapshot cam e)))
+      ;; End target should be the entity position
+      (let ((end-target (transition-end-target trans)))
+        (is (< (abs (- (3d-vectors:vx end-target) 15.0)) 0.001))
+        (is (< (abs (- (3d-vectors:vy end-target) 3.0)) 0.001))
+        (is (< (abs (- (3d-vectors:vz end-target) 7.0)) 0.001))))))
+
+(test focus-on-snapshot-orbit-end-position-offset
+  "Test that focus-on-snapshot end position is entity + offset."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera))
+        (e (make-snapshot-entity "snap-3" :genesis :x 0.0 :y 0.0 :z 0.0)))
+    (let* ((trans (focus-on-snapshot cam e))
+           (end-pos (transition-end-position trans))
+           (offset *focus-camera-offset*))
+      ;; End position should be entity position + default offset
+      (is (< (abs (- (3d-vectors:vx end-pos) (3d-vectors:vx offset))) 0.001))
+      (is (< (abs (- (3d-vectors:vy end-pos) (3d-vectors:vy offset))) 0.001))
+      (is (< (abs (- (3d-vectors:vz end-pos) (3d-vectors:vz offset))) 0.001)))))
+
+(test focus-on-snapshot-fly-returns-transition
+  "Test that focus-on-snapshot with fly camera returns a camera-transition."
+  (init-holodeck-storage)
+  (let ((cam (make-fly-camera))
+        (e (make-snapshot-entity "snap-4" :fork :x 20.0 :y 10.0 :z 5.0)))
+    (let ((trans (focus-on-snapshot cam e)))
+      (is (typep trans 'camera-transition))
+      (is (not (camera-transition-complete-p trans))))))
+
+(test focus-on-snapshot-custom-offset
+  "Test that focus-on-snapshot respects custom offset."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera))
+        (e (make-snapshot-entity "snap-5" :action :x 5.0 :y 5.0 :z 5.0))
+        (custom-offset (3d-vectors:vec3 0.0 10.0 0.0)))
+    (let* ((trans (focus-on-snapshot cam e :offset custom-offset))
+           (end-pos (transition-end-position trans)))
+      ;; End position should be (5, 15, 5) = entity + custom offset
+      (is (< (abs (- (3d-vectors:vx end-pos) 5.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy end-pos) 15.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz end-pos) 5.0)) 0.001)))))
+
+(test focus-on-snapshot-custom-duration
+  "Test that focus-on-snapshot respects custom duration."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera))
+        (e (make-snapshot-entity "snap-6" :action :x 0.0 :y 0.0 :z 0.0)))
+    (let ((trans (focus-on-snapshot cam e :duration 3.0)))
+      (is (< (abs (- (transition-duration trans) 3.0)) 0.001)))))
+
+;;; --- focus-on-agent ---
+
+(test focus-on-agent-orbit-returns-transition
+  "Test that focus-on-agent with orbit camera returns a camera-transition."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera))
+        (e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 8.0 :y 4.0 :z 2.0)
+    (make-agent-binding e :agent-id "agent-1" :agent-name "Test Agent")
+    (let ((trans (focus-on-agent cam e)))
+      (is (typep trans 'camera-transition)))))
+
+(test focus-on-agent-targets-agent-position
+  "Test that focus-on-agent transition targets the agent entity position."
+  (init-holodeck-storage)
+  (let ((cam (make-fly-camera))
+        (e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 12.0 :y 6.0 :z 3.0)
+    (make-agent-binding e :agent-id "agent-2" :agent-name "Agent Two")
+    (let* ((trans (focus-on-agent cam e))
+           (end-target (transition-end-target trans)))
+      (is (< (abs (- (3d-vectors:vx end-target) 12.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy end-target) 6.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz end-target) 3.0)) 0.001)))))
+
+;;; --- compute-scene-bounds ---
+
+(test compute-scene-bounds-empty-scene
+  "Test that compute-scene-bounds returns origin for empty entity list."
+  (init-holodeck-storage)
+  (multiple-value-bind (min-c max-c)
+      (compute-scene-bounds nil)
+    (is (< (3d-vectors:vlength min-c) 0.001))
+    (is (< (3d-vectors:vlength max-c) 0.001))))
+
+(test compute-scene-bounds-single-entity
+  "Test scene bounds with a single entity."
+  (init-holodeck-storage)
+  (let ((e (cl-fast-ecs:make-entity)))
+    (make-position3d e :x 5.0 :y 10.0 :z 15.0)
+    (multiple-value-bind (min-c max-c)
+        (compute-scene-bounds (list e))
+      (is (< (abs (- (3d-vectors:vx min-c) 5.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy min-c) 10.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz min-c) 15.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vx max-c) 5.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy max-c) 10.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz max-c) 15.0)) 0.001)))))
+
+(test compute-scene-bounds-multiple-entities
+  "Test scene bounds encompasses all entities."
+  (init-holodeck-storage)
+  (let ((e1 (cl-fast-ecs:make-entity))
+        (e2 (cl-fast-ecs:make-entity))
+        (e3 (cl-fast-ecs:make-entity)))
+    (make-position3d e1 :x -10.0 :y 0.0 :z 5.0)
+    (make-position3d e2 :x 20.0 :y 15.0 :z -5.0)
+    (make-position3d e3 :x 5.0 :y 8.0 :z 25.0)
+    (multiple-value-bind (min-c max-c)
+        (compute-scene-bounds (list e1 e2 e3))
+      (is (< (abs (- (3d-vectors:vx min-c) -10.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy min-c) 0.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz min-c) -5.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vx max-c) 20.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy max-c) 15.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz max-c) 25.0)) 0.001)))))
+
+;;; --- camera-overview ---
+
+(test camera-overview-orbit-returns-transition
+  "Test that camera-overview with orbit camera returns a transition."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera)))
+    ;; Create some entities to define a scene
+    (let ((e1 (make-snapshot-entity "ov-1" :decision :x 0.0 :y 0.0 :z 0.0))
+          (e2 (make-snapshot-entity "ov-2" :action :x 10.0 :y 10.0 :z 10.0)))
+      (reset-snapshot-entities)
+      (track-snapshot-entity e1)
+      (track-snapshot-entity e2)
+      (let ((trans (camera-overview cam)))
+        (is (typep trans 'camera-transition))
+        (is (not (camera-transition-complete-p trans)))))))
+
+(test camera-overview-fly-returns-transition
+  "Test that camera-overview with fly camera returns a transition."
+  (init-holodeck-storage)
+  (let ((cam (make-fly-camera)))
+    (let ((e1 (make-snapshot-entity "ov-3" :genesis :x -5.0 :y 0.0 :z -5.0))
+          (e2 (make-snapshot-entity "ov-4" :fork :x 5.0 :y 5.0 :z 5.0)))
+      (reset-snapshot-entities)
+      (track-snapshot-entity e1)
+      (track-snapshot-entity e2)
+      (let ((trans (camera-overview cam)))
+        (is (typep trans 'camera-transition))))))
+
+(test camera-overview-targets-scene-center
+  "Test that camera-overview transition targets the center of the scene."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera)))
+    (let ((e1 (make-snapshot-entity "ov-5" :genesis :x 0.0 :y 0.0 :z 0.0))
+          (e2 (make-snapshot-entity "ov-6" :action :x 20.0 :y 10.0 :z 30.0)))
+      (reset-snapshot-entities)
+      (track-snapshot-entity e1)
+      (track-snapshot-entity e2)
+      (let* ((trans (camera-overview cam))
+             (end-target (transition-end-target trans)))
+        ;; Center should be midpoint: (10, 5, 15)
+        (is (< (abs (- (3d-vectors:vx end-target) 10.0)) 0.001))
+        (is (< (abs (- (3d-vectors:vy end-target) 5.0)) 0.001))
+        (is (< (abs (- (3d-vectors:vz end-target) 15.0)) 0.001))))))
+
+(test camera-overview-positions-above-scene
+  "Test that camera-overview positions camera above and behind the center."
+  (init-holodeck-storage)
+  (let ((cam (make-orbit-camera)))
+    (let ((e1 (make-snapshot-entity "ov-7" :genesis :x 0.0 :y 0.0 :z 0.0))
+          (e2 (make-snapshot-entity "ov-8" :action :x 20.0 :y 10.0 :z 30.0)))
+      (reset-snapshot-entities)
+      (track-snapshot-entity e1)
+      (track-snapshot-entity e2)
+      (let* ((trans (camera-overview cam))
+             (end-pos (transition-end-position trans)))
+        ;; Camera should be above center (y > center-y)
+        (is (> (3d-vectors:vy end-pos) 5.0))
+        ;; Camera should be behind center (z > center-z)
+        (is (> (3d-vectors:vz end-pos) 15.0))))))
+
+(test camera-overview-empty-scene-still-works
+  "Test that camera-overview handles empty scene without error."
+  (init-holodeck-storage)
+  (reset-snapshot-entities)
+  (let ((cam (make-orbit-camera)))
+    (let ((trans (camera-overview cam)))
+      (is (typep trans 'camera-transition)))))

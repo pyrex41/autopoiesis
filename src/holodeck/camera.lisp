@@ -856,3 +856,156 @@
     ;; Stop any velocity during transition
     (setf (fly-camera-velocity cam) (vec3 0.0 0.0 0.0)))
   (not (camera-transition-complete-p trans)))
+
+;;; ===================================================================
+;;; Camera Focus Functions
+;;; ===================================================================
+;;;
+;;; High-level functions that position the camera to view specific
+;;; entities or the entire scene.  Each returns a camera-transition
+;;; that the caller should drive with apply-camera-transition each frame.
+
+(defparameter *focus-camera-offset* (vec3 5.0 3.0 10.0)
+  "Default offset from target entity when focusing camera.
+   Positions the camera above and to the side of the target.")
+
+(defparameter *focus-duration* 1.0
+  "Default duration in seconds for camera focus transitions.")
+
+(defparameter *overview-padding* 1.5
+  "Multiplier for distance when computing overview camera position.
+   Values > 1.0 add breathing room around the scene bounds.")
+
+(defun entity-position-vec3 (entity)
+  "Extract position3d component from ENTITY as a vec3.
+   Returns (vec3 0 0 0) if entity has no position3d component."
+  (handler-case
+      (vec3 (position3d-x entity)
+            (position3d-y entity)
+            (position3d-z entity))
+    (error () (vec3 0.0 0.0 0.0))))
+
+(defgeneric focus-on-snapshot (camera entity &key offset duration easing)
+  (:documentation "Focus CAMERA on a snapshot ENTITY.
+    Creates a smooth transition to view the entity from a comfortable offset.
+    Returns a camera-transition object."))
+
+(defmethod focus-on-snapshot ((cam orbit-camera) entity
+                              &key (offset *focus-camera-offset*)
+                                   (duration *focus-duration*)
+                                   (easing :ease-out-cubic))
+  "Focus orbit camera on snapshot ENTITY.
+   Positions camera at entity-position + OFFSET, looking at the entity."
+  (let* ((target-pos (entity-position-vec3 entity))
+         (camera-pos (v+ target-pos offset)))
+    (animate-camera-to cam camera-pos target-pos
+                       :duration duration :easing easing)))
+
+(defmethod focus-on-snapshot ((cam fly-camera) entity
+                              &key (offset *focus-camera-offset*)
+                                   (duration *focus-duration*)
+                                   (easing :ease-out-cubic))
+  "Focus fly camera on snapshot ENTITY.
+   Positions camera at entity-position + OFFSET, looking at the entity."
+  (let* ((target-pos (entity-position-vec3 entity))
+         (camera-pos (v+ target-pos offset)))
+    (animate-camera-to cam camera-pos target-pos
+                       :duration duration :easing easing)))
+
+(defgeneric focus-on-agent (camera entity &key offset duration easing)
+  (:documentation "Focus CAMERA on an agent ENTITY.
+    Creates a smooth transition to view the agent entity.
+    Returns a camera-transition object."))
+
+(defmethod focus-on-agent ((cam orbit-camera) entity
+                           &key (offset *focus-camera-offset*)
+                                (duration *focus-duration*)
+                                (easing :ease-out-cubic))
+  "Focus orbit camera on agent ENTITY.
+   Positions camera at entity-position + OFFSET, looking at the entity."
+  (let* ((target-pos (entity-position-vec3 entity))
+         (camera-pos (v+ target-pos offset)))
+    (animate-camera-to cam camera-pos target-pos
+                       :duration duration :easing easing)))
+
+(defmethod focus-on-agent ((cam fly-camera) entity
+                           &key (offset *focus-camera-offset*)
+                                (duration *focus-duration*)
+                                (easing :ease-out-cubic))
+  "Focus fly camera on agent ENTITY.
+   Positions camera at entity-position + OFFSET, looking at the entity."
+  (let* ((target-pos (entity-position-vec3 entity))
+         (camera-pos (v+ target-pos offset)))
+    (animate-camera-to cam camera-pos target-pos
+                       :duration duration :easing easing)))
+
+(defun compute-scene-bounds (&optional (entities *snapshot-entities*))
+  "Compute axis-aligned bounding box of ENTITIES (defaults to *snapshot-entities*).
+   Each entity must have a position3d component.
+   Returns two values: min-corner (vec3) and max-corner (vec3).
+   If no entities exist, returns origin for both."
+  (let ((min-x most-positive-single-float)
+        (min-y most-positive-single-float)
+        (min-z most-positive-single-float)
+        (max-x most-negative-single-float)
+        (max-y most-negative-single-float)
+        (max-z most-negative-single-float)
+        (found nil))
+    (dolist (e entities)
+      (handler-case
+          (let ((px (position3d-x e))
+                (py (position3d-y e))
+                (pz (position3d-z e)))
+            (setf found t)
+            (when (< px min-x) (setf min-x px))
+            (when (< py min-y) (setf min-y py))
+            (when (< pz min-z) (setf min-z pz))
+            (when (> px max-x) (setf max-x px))
+            (when (> py max-y) (setf max-y py))
+            (when (> pz max-z) (setf max-z pz)))
+        (error () nil)))
+    (if found
+        (values (vec3 min-x min-y min-z)
+                (vec3 max-x max-y max-z))
+        (values (vec3 0.0 0.0 0.0)
+                (vec3 0.0 0.0 0.0)))))
+
+(defgeneric camera-overview (camera &key padding duration easing)
+  (:documentation "Move CAMERA to show an overview of the entire scene.
+    Computes bounding box of all positioned entities and places the
+    camera far enough back to see everything.
+    Returns a camera-transition object."))
+
+(defmethod camera-overview ((cam orbit-camera)
+                            &key (padding *overview-padding*)
+                                 (duration 1.5)
+                                 (easing :ease-in-out-cubic))
+  "Move orbit camera to overview position.
+   Computes scene bounds, centers on the midpoint, and positions the
+   camera at a distance proportional to the scene size."
+  (multiple-value-bind (min-corner max-corner)
+      (compute-scene-bounds)
+    (let* ((center (v* (v+ min-corner max-corner) 0.5))
+           (extent (v- max-corner min-corner))
+           (size (max (vx extent) (vy extent) (vz extent) 1.0))
+           (dist (* size padding))
+           (camera-pos (v+ center (vec3 0.0 (* dist 0.7) dist))))
+      (animate-camera-to cam camera-pos center
+                         :duration duration :easing easing))))
+
+(defmethod camera-overview ((cam fly-camera)
+                            &key (padding *overview-padding*)
+                                 (duration 1.5)
+                                 (easing :ease-in-out-cubic))
+  "Move fly camera to overview position.
+   Computes scene bounds, centers on the midpoint, and positions the
+   camera at a distance proportional to the scene size."
+  (multiple-value-bind (min-corner max-corner)
+      (compute-scene-bounds)
+    (let* ((center (v* (v+ min-corner max-corner) 0.5))
+           (extent (v- max-corner min-corner))
+           (size (max (vx extent) (vy extent) (vz extent) 1.0))
+           (dist (* size padding))
+           (camera-pos (v+ center (vec3 0.0 (* dist 0.7) dist))))
+      (animate-camera-to cam camera-pos center
+                         :duration duration :easing easing))))

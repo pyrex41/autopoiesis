@@ -316,6 +316,16 @@
    #:animate-camera-to
    #:apply-camera-transition
 
+   ;; Camera focus functions
+   #:*focus-camera-offset*
+   #:*focus-duration*
+   #:*overview-padding*
+   #:entity-position-vec3
+   #:focus-on-snapshot
+   #:focus-on-agent
+   #:compute-scene-bounds
+   #:camera-overview
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck
