@@ -232,7 +232,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 #### 10.2: Security Hardening
 - [x] Define permission system (resource × action matrix)
 - [x] Implement `check-permission` and `with-permission-check`
-- [ ] Implement audit logging with rotation
+- [x] Implement audit logging with rotation
 - [ ] Implement input validation framework
 - [ ] Security test sandbox escape attempts
 

@@ -399,3 +399,352 @@
             "workflow-agent" :snapshot :write))
   
   (autopoiesis.security:clear-agent-permissions))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Audit Entry Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test audit-entry-creation
+  "Test creating audit entry instances"
+  (let ((entry (autopoiesis.security:make-audit-entry
+                :agent-id "test-agent"
+                :action :read
+                :resource :snapshot
+                :result :success)))
+    (is-true (autopoiesis.security:audit-entry-p entry))
+    (is (string= "test-agent" (autopoiesis.security:audit-entry-agent-id entry)))
+    (is (eq :read (autopoiesis.security:audit-entry-action entry)))
+    (is (eq :snapshot (autopoiesis.security:audit-entry-resource entry)))
+    (is (eq :success (autopoiesis.security:audit-entry-result entry)))
+    (is (integerp (autopoiesis.security:audit-entry-timestamp entry)))))
+
+(test audit-entry-with-details
+  "Test audit entry with details"
+  (let ((entry (autopoiesis.security:make-audit-entry
+                :agent-id "detail-agent"
+                :action :write
+                :resource :file
+                :result :error
+                :details "File not found")))
+    (is (string= "File not found" (autopoiesis.security:audit-entry-details entry)))))
+
+(test audit-entry-copy
+  "Test copying audit entries"
+  (let* ((original (autopoiesis.security:make-audit-entry
+                    :agent-id "orig-agent"
+                    :action :delete
+                    :resource :agent
+                    :result :failure))
+         (copy (autopoiesis.security:copy-audit-entry original)))
+    (is-true (autopoiesis.security:audit-entry-p copy))
+    (is (string= (autopoiesis.security:audit-entry-agent-id original)
+                 (autopoiesis.security:audit-entry-agent-id copy)))
+    (is (eq (autopoiesis.security:audit-entry-action original)
+            (autopoiesis.security:audit-entry-action copy)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Audit Serialization Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test audit-entry-serialization
+  "Test serializing audit entries to JSON"
+  (let* ((entry (autopoiesis.security:make-audit-entry
+                 :agent-id "serial-agent"
+                 :action :execute
+                 :resource :capability
+                 :result :success))
+         (json (autopoiesis.security:serialize-audit-entry entry)))
+    (is (stringp json))
+    (is (search "serial-agent" json))
+    (is (search "execute" json))
+    (is (search "capability" json))
+    (is (search "success" json))))
+
+(test audit-entry-deserialization
+  "Test deserializing audit entries from JSON"
+  (let* ((original (autopoiesis.security:make-audit-entry
+                    :agent-id "deserial-agent"
+                    :action :create
+                    :resource :extension
+                    :result :success
+                    :details "Created new extension"))
+         (json (autopoiesis.security:serialize-audit-entry original))
+         (restored (autopoiesis.security:deserialize-audit-entry json)))
+    (is-true (autopoiesis.security:audit-entry-p restored))
+    (is (string= "deserial-agent" (autopoiesis.security:audit-entry-agent-id restored)))
+    (is (eq :create (autopoiesis.security:audit-entry-action restored)))
+    (is (eq :extension (autopoiesis.security:audit-entry-resource restored)))
+    (is (eq :success (autopoiesis.security:audit-entry-result restored)))
+    (is (string= "Created new extension" (autopoiesis.security:audit-entry-details restored)))))
+
+(test audit-entry-roundtrip
+  "Test serialization/deserialization roundtrip"
+  (let* ((original (autopoiesis.security:make-audit-entry
+                    :agent-id "roundtrip-agent"
+                    :action :admin
+                    :resource :system
+                    :result :error
+                    :details '(:error-code 500 :message "Internal error")))
+         (json (autopoiesis.security:serialize-audit-entry original))
+         (restored (autopoiesis.security:deserialize-audit-entry json)))
+    (is (string= (autopoiesis.security:audit-entry-agent-id original)
+                 (autopoiesis.security:audit-entry-agent-id restored)))
+    (is (eq (autopoiesis.security:audit-entry-action original)
+            (autopoiesis.security:audit-entry-action restored)))
+    (is (eq (autopoiesis.security:audit-entry-result original)
+            (autopoiesis.security:audit-entry-result restored)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Audit Log Management Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test audit-log-inactive-by-default
+  "Test that audit logging is inactive by default"
+  (is-false (autopoiesis.security:audit-log-active-p)))
+
+(test audit-log-start-stop
+  "Test starting and stopping audit logging"
+  (let ((test-path (merge-pathnames "test-audit.log" 
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           ;; Start logging
+           (is-true (autopoiesis.security:start-audit-logging test-path))
+           (is-true (autopoiesis.security:audit-log-active-p))
+           
+           ;; Stop logging
+           (is-true (autopoiesis.security:stop-audit-logging))
+           (is-false (autopoiesis.security:audit-log-active-p)))
+      ;; Cleanup
+      (when (probe-file test-path)
+        (delete-file test-path)))))
+
+(test audit-log-writes-entries
+  "Test that audit-log writes entries to file"
+  (let ((test-path (merge-pathnames "test-audit-write.log" 
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (autopoiesis.security:start-audit-logging test-path)
+           
+           ;; Log some entries
+           (autopoiesis.security:audit-log "agent-1" :read :snapshot :success)
+           (autopoiesis.security:audit-log "agent-2" :write :file :failure "Permission denied")
+           (autopoiesis.security:audit-log "agent-3" :execute :capability :error)
+           
+           (autopoiesis.security:stop-audit-logging)
+           
+           ;; Read back and verify
+           (let ((entries (autopoiesis.security:read-audit-log test-path)))
+             ;; Should have at least 3 entries (plus start/stop)
+             (is (>= (length entries) 3))
+             ;; Find our test entries
+             (is-true (find "agent-1" entries 
+                            :key #'autopoiesis.security:audit-entry-agent-id
+                            :test #'string=))
+             (is-true (find "agent-2" entries 
+                            :key #'autopoiesis.security:audit-entry-agent-id
+                            :test #'string=))))
+      ;; Cleanup
+      (when (probe-file test-path)
+        (delete-file test-path)))))
+
+(test audit-log-filtering
+  "Test filtering audit log entries"
+  (let ((test-path (merge-pathnames "test-audit-filter.log" 
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (autopoiesis.security:start-audit-logging test-path)
+           
+           ;; Log entries with different attributes
+           (autopoiesis.security:audit-log "filter-agent-a" :read :snapshot :success)
+           (autopoiesis.security:audit-log "filter-agent-b" :write :snapshot :failure)
+           (autopoiesis.security:audit-log "filter-agent-a" :delete :file :error)
+           (autopoiesis.security:audit-log "filter-agent-c" :read :agent :success)
+           
+           (autopoiesis.security:stop-audit-logging)
+           
+           ;; Filter by agent
+           (let ((agent-a-entries (autopoiesis.security:read-audit-log 
+                                   test-path :agent-id "filter-agent-a")))
+             (is (= 2 (length agent-a-entries))))
+           
+           ;; Filter by action
+           (let ((read-entries (autopoiesis.security:read-audit-log 
+                                test-path :action :read)))
+             (is (= 2 (length read-entries))))
+           
+           ;; Filter by result
+           (let ((success-entries (autopoiesis.security:read-audit-log 
+                                   test-path :result :success)))
+             (is (>= (length success-entries) 2)))
+           
+           ;; Filter by resource
+           (let ((snapshot-entries (autopoiesis.security:read-audit-log 
+                                    test-path :resource :snapshot)))
+             (is (= 2 (length snapshot-entries)))))
+      ;; Cleanup
+      (when (probe-file test-path)
+        (delete-file test-path)))))
+
+(test audit-log-limit
+  "Test limiting number of audit log entries returned"
+  (let ((test-path (merge-pathnames "test-audit-limit.log" 
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (autopoiesis.security:start-audit-logging test-path)
+           
+           ;; Log multiple entries
+           (dotimes (i 10)
+             (autopoiesis.security:audit-log 
+              (format nil "limit-agent-~d" i) :read :snapshot :success))
+           
+           (autopoiesis.security:stop-audit-logging)
+           
+           ;; Read with limit
+           (let ((limited (autopoiesis.security:read-audit-log test-path :limit 5)))
+             (is (= 5 (length limited)))))
+      ;; Cleanup
+      (when (probe-file test-path)
+        (delete-file test-path)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Audit Log Rotation Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test audit-log-rotation
+  "Test manual log rotation"
+  (let* ((test-dir (merge-pathnames "audit-rotation-test/" 
+                                    (uiop:temporary-directory)))
+         (test-path (merge-pathnames "audit.log" test-dir)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist test-path)
+           (autopoiesis.security:start-audit-logging test-path)
+           
+           ;; Log some entries
+           (autopoiesis.security:audit-log "rotate-agent" :read :snapshot :success)
+           
+           ;; Force rotation
+           (autopoiesis.security:rotate-audit-log)
+           
+           ;; Check that rotated file exists
+           (let ((rotated-path (make-pathname :defaults test-path
+                                              :type "log.1")))
+             (is-true (probe-file rotated-path)))
+           
+           ;; Log more entries to new file
+           (autopoiesis.security:audit-log "rotate-agent-2" :write :file :success)
+           
+           (autopoiesis.security:stop-audit-logging))
+      ;; Cleanup
+      (uiop:delete-directory-tree test-dir :validate t :if-does-not-exist :ignore))))
+
+(test audit-log-auto-rotation
+  "Test automatic log rotation based on size"
+  (let* ((test-dir (merge-pathnames "audit-auto-rotation-test/" 
+                                    (uiop:temporary-directory)))
+         (test-path (merge-pathnames "audit.log" test-dir)))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist test-path)
+           ;; Start with very small max size to trigger rotation
+           (autopoiesis.security:start-audit-logging test-path 
+                                                     :max-size 500
+                                                     :max-files 3)
+           
+           ;; Log enough entries to trigger rotation
+           (dotimes (i 20)
+             (autopoiesis.security:audit-log 
+              (format nil "auto-rotate-agent-~d" i) 
+              :execute :capability :success
+              "Some additional details to make the entry larger"))
+           
+           (autopoiesis.security:stop-audit-logging)
+           
+           ;; Check that at least one rotated file exists
+           (let ((rotated-path (make-pathname :defaults test-path
+                                              :type "log.1")))
+             (is-true (probe-file rotated-path))))
+      ;; Cleanup
+      (uiop:delete-directory-tree test-dir :validate t :if-does-not-exist :ignore))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; With-Audit Macro Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test with-audit-macro-success
+  "Test with-audit macro on successful operation"
+  (let ((test-path (merge-pathnames "test-with-audit.log" 
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (autopoiesis.security:start-audit-logging test-path)
+           
+           ;; Execute with audit - success case
+           (let ((result (autopoiesis.security:with-audit ("macro-agent" :read :snapshot)
+                           (+ 1 2 3))))
+             (is (= 6 result)))
+           
+           (autopoiesis.security:stop-audit-logging)
+           
+           ;; Verify audit entry was logged
+           (let ((entries (autopoiesis.security:read-audit-log 
+                           test-path :agent-id "macro-agent")))
+             (is (>= (length entries) 1))
+             (is (eq :success (autopoiesis.security:audit-entry-result 
+                               (first entries))))))
+      ;; Cleanup
+      (when (probe-file test-path)
+        (delete-file test-path)))))
+
+(test with-audit-macro-error
+  "Test with-audit macro on error"
+  (let ((test-path (merge-pathnames "test-with-audit-error.log" 
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (autopoiesis.security:start-audit-logging test-path)
+           
+           ;; Execute with audit - error case
+           (signals error
+             (autopoiesis.security:with-audit ("error-agent" :write :file)
+               (error "Intentional test error")))
+           
+           (autopoiesis.security:stop-audit-logging)
+           
+           ;; Verify error was logged
+           (let ((entries (autopoiesis.security:read-audit-log 
+                           test-path :agent-id "error-agent")))
+             (is (>= (length entries) 1))
+             (is (eq :error (autopoiesis.security:audit-entry-result 
+                             (first entries))))))
+      ;; Cleanup
+      (when (probe-file test-path)
+        (delete-file test-path)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; With-Audit-Logging Macro Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test with-audit-logging-macro
+  "Test with-audit-logging convenience macro"
+  (let ((test-path (merge-pathnames "test-with-audit-logging.log" 
+                                    (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (autopoiesis.security:with-audit-logging (test-path)
+             (is-true (autopoiesis.security:audit-log-active-p))
+             (autopoiesis.security:audit-log "scoped-agent" :read :snapshot :success))
+           
+           ;; After macro, logging should be stopped
+           (is-false (autopoiesis.security:audit-log-active-p))
+           
+           ;; But entries should be in file
+           (let ((entries (autopoiesis.security:read-audit-log test-path)))
+             (is (>= (length entries) 1))))
+      ;; Cleanup
+      (when (probe-file test-path)
+        (delete-file test-path)))))

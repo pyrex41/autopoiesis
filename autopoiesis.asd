@@ -103,7 +103,8 @@
       :depends-on ("core" "agent")
       :components
       ((:file "packages")
-       (:file "permissions")))
+       (:file "permissions")
+       (:file "audit")))
      ;; Main package that reexports everything
      (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))

@@ -80,4 +80,32 @@
    ;; Default permission sets
    #:*default-agent-permissions*
    #:*admin-permissions*
-   #:*sandbox-permissions*))
+   #:*sandbox-permissions*
+   
+   ;; Audit logging
+   #:audit-entry
+   #:audit-entry-timestamp
+   #:audit-entry-agent-id
+   #:audit-entry-action
+   #:audit-entry-resource
+   #:audit-entry-result
+   #:audit-entry-details
+   #:make-audit-entry
+   #:audit-entry-p
+   #:copy-audit-entry
+   
+   ;; Audit log management
+   #:*audit-log*
+   #:*audit-log-path*
+   #:*audit-log-max-size*
+   #:*audit-log-max-files*
+   #:audit-log
+   #:with-audit
+   #:with-audit-logging
+   #:start-audit-logging
+   #:stop-audit-logging
+   #:rotate-audit-log
+   #:serialize-audit-entry
+   #:deserialize-audit-entry
+   #:read-audit-log
+   #:audit-log-active-p))
