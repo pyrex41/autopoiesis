@@ -327,3 +327,288 @@
                  :orbit-speed (coerce orbit-speed 'single-float)
                  :zoom-speed (coerce zoom-speed 'single-float)
                  :pan-speed (coerce pan-speed 'single-float)))
+
+;;; ===================================================================
+;;; Fly Camera Class
+;;; ===================================================================
+
+(defclass fly-camera ()
+  ((position :initarg :position
+             :accessor fly-camera-position-vec
+             :initform (vec3 0.0 5.0 30.0)
+             :documentation "Camera position in world space.")
+   (yaw :initarg :yaw
+         :accessor fly-camera-yaw
+         :initform 0.0
+         :type single-float
+         :documentation "Yaw angle around Y axis in radians (0 = looking along -Z).")
+   (pitch :initarg :pitch
+           :accessor fly-camera-pitch
+           :initform 0.0
+           :type single-float
+           :documentation "Pitch angle from XZ plane in radians (positive = up).")
+   (velocity :initarg :velocity
+              :accessor fly-camera-velocity
+              :initform (vec3 0.0 0.0 0.0)
+              :documentation "Current velocity in world space.")
+   (speed :initarg :speed
+           :accessor fly-camera-speed
+           :initform 20.0
+           :type single-float
+           :documentation "Movement speed in world units per second.")
+   (sensitivity :initarg :sensitivity
+                 :accessor fly-camera-sensitivity
+                 :initform 0.003
+                 :type single-float
+                 :documentation "Mouse look sensitivity in radians per pixel.")
+   (damping :initarg :damping
+             :accessor fly-camera-damping
+             :initform 0.9
+             :type single-float
+             :documentation "Velocity damping factor per frame (0.0 = instant stop, 1.0 = no damping).")
+   (up :initarg :up
+        :accessor camera-fly-up
+        :initform (vec3 0.0 1.0 0.0)
+        :documentation "World up direction vector.")
+   (fov :initarg :fov
+         :accessor fly-camera-fov
+         :initform 60.0
+         :type single-float
+         :documentation "Vertical field of view in degrees.")
+   (near-plane :initarg :near-plane
+                :accessor fly-camera-near-plane
+                :initform 0.1
+                :type single-float
+                :documentation "Near clipping plane distance.")
+   (far-plane :initarg :far-plane
+               :accessor fly-camera-far-plane
+               :initform 1000.0
+               :type single-float
+               :documentation "Far clipping plane distance."))
+  (:documentation
+   "First-person fly camera with velocity-based movement.
+    Uses yaw/pitch angles for orientation and applies velocity with
+    damping for smooth acceleration and deceleration."))
+
+;;; ===================================================================
+;;; Fly Camera Pitch Limits
+;;; ===================================================================
+
+(defparameter *pitch-min* -1.5
+  "Minimum pitch angle in radians (looking down).")
+
+(defparameter *pitch-max* 1.5
+  "Maximum pitch angle in radians (looking up).")
+
+;;; ===================================================================
+;;; Fly Camera Position (generic method specialization)
+;;; ===================================================================
+
+(defmethod camera-position ((cam fly-camera))
+  "Return the fly camera's world-space position."
+  (fly-camera-position-vec cam))
+
+;;; ===================================================================
+;;; Fly Camera Direction Vectors
+;;; ===================================================================
+
+(defmethod camera-forward ((cam fly-camera))
+  "Compute normalized forward direction from yaw and pitch."
+  (let* ((yaw (fly-camera-yaw cam))
+         (pitch (fly-camera-pitch cam))
+         (cos-pitch (cos pitch)))
+    (let ((x (* (- (sin yaw)) cos-pitch))
+          (y (sin pitch))
+          (z (* (- (cos yaw)) cos-pitch)))
+      (let* ((v (vec3 x y z))
+             (len (vlength v)))
+        (if (< len 1.0e-6)
+            (vec3 0.0 0.0 -1.0)
+            (v* v (/ 1.0 len)))))))
+
+(defmethod camera-right ((cam fly-camera))
+  "Compute normalized right vector from forward cross up."
+  (let* ((fwd (camera-forward cam))
+         (up (camera-fly-up cam))
+         (cross (3d-vectors:vc fwd up))
+         (len (vlength cross)))
+    (if (< len 1.0e-6)
+        (vec3 1.0 0.0 0.0)
+        (v* cross (/ 1.0 len)))))
+
+;;; ===================================================================
+;;; Fly Camera Look (mouse input)
+;;; ===================================================================
+
+(defgeneric fly-camera-look (camera delta-x delta-y)
+  (:documentation "Rotate the fly camera by mouse delta amounts."))
+
+(defmethod fly-camera-look ((cam fly-camera) delta-x delta-y)
+  "Rotate fly camera by (DELTA-X, DELTA-Y) mouse pixels.
+   DELTA-X rotates yaw (left/right).
+   DELTA-Y rotates pitch (up/down), clamped to avoid flipping."
+  (let ((sens (fly-camera-sensitivity cam)))
+    (incf (fly-camera-yaw cam) (coerce (* delta-x sens) 'single-float))
+    (let ((new-pitch (+ (fly-camera-pitch cam) (coerce (* delta-y sens) 'single-float))))
+      (setf (fly-camera-pitch cam)
+            (coerce (max *pitch-min* (min *pitch-max* new-pitch)) 'single-float))))
+  cam)
+
+;;; ===================================================================
+;;; Fly Camera Movement (acceleration-based)
+;;; ===================================================================
+
+(defgeneric fly-camera-move (camera direction)
+  (:documentation "Apply acceleration to the fly camera in the given direction.
+    DIRECTION is one of :forward :backward :left :right :up :down."))
+
+(defmethod fly-camera-move ((cam fly-camera) direction)
+  "Apply acceleration in DIRECTION relative to camera orientation.
+   Adds to current velocity; damping will slow the camera over time."
+  (let* ((fwd (camera-forward cam))
+         (right (camera-right cam))
+         (up (camera-fly-up cam))
+         (speed (fly-camera-speed cam))
+         (accel (ecase direction
+                  (:forward (v* fwd speed))
+                  (:backward (v* fwd (- speed)))
+                  (:left (v* right (- speed)))
+                  (:right (v* right speed))
+                  (:up (v* up speed))
+                  (:down (v* up (- speed))))))
+    (setf (fly-camera-velocity cam)
+          (v+ (fly-camera-velocity cam) accel)))
+  cam)
+
+;;; ===================================================================
+;;; Fly Camera Update (per-frame)
+;;; ===================================================================
+
+(defgeneric fly-camera-update (camera dt)
+  (:documentation "Update fly camera position from velocity, applying damping.
+    DT is the frame delta time in seconds."))
+
+(defmethod fly-camera-update ((cam fly-camera) dt)
+  "Advance fly camera position by velocity * DT, then apply damping.
+   Velocity is multiplied by damping factor each frame."
+  (let* ((vel (fly-camera-velocity cam))
+         (dt-f (coerce dt 'single-float))
+         (displacement (v* vel dt-f))
+         (new-pos (v+ (fly-camera-position-vec cam) displacement))
+         (damp (fly-camera-damping cam)))
+    (setf (fly-camera-position-vec cam) new-pos)
+    (setf (fly-camera-velocity cam) (v* vel damp)))
+  cam)
+
+;;; ===================================================================
+;;; Fly Camera Stop
+;;; ===================================================================
+
+(defgeneric fly-camera-stop (camera)
+  (:documentation "Immediately stop all camera velocity."))
+
+(defmethod fly-camera-stop ((cam fly-camera))
+  "Set velocity to zero, stopping all movement."
+  (setf (fly-camera-velocity cam) (vec3 0.0 0.0 0.0))
+  cam)
+
+;;; ===================================================================
+;;; Fly Camera View Matrix
+;;; ===================================================================
+
+(defmethod camera-view-matrix-data ((cam fly-camera))
+  "Compute a look-at view matrix for the fly camera.
+   Returns a 3d-matrices:mat4."
+  (let* ((eye (fly-camera-position-vec cam))
+         (fwd (camera-forward cam))
+         (target (v+ eye fwd))
+         (up (camera-fly-up cam)))
+    ;; Compute look-at basis vectors
+    (let* ((f fwd)
+           (s-raw (3d-vectors:vc f up))
+           (s-len (vlength s-raw))
+           (s (if (< s-len 1.0e-6)
+                  (vec3 1.0 0.0 0.0)
+                  (v* s-raw (/ 1.0 s-len))))
+           (u (3d-vectors:vc s f)))
+      ;; Build column-major 4x4 view matrix
+      (let ((dot-s (+ (* (vx s) (vx eye)) (* (vy s) (vy eye)) (* (vz s) (vz eye))))
+            (dot-u (+ (* (vx u) (vx eye)) (* (vy u) (vy eye)) (* (vz u) (vz eye))))
+            (dot-f (+ (* (vx f) (vx eye)) (* (vy f) (vy eye)) (* (vz f) (vz eye))))
+            (m (3d-matrices:mat4)))
+        ;; Column 0
+        (setf (3d-matrices:miref m 0) (vx s))
+        (setf (3d-matrices:miref m 1) (vx u))
+        (setf (3d-matrices:miref m 2) (- (vx f)))
+        (setf (3d-matrices:miref m 3) 0.0)
+        ;; Column 1
+        (setf (3d-matrices:miref m 4) (vy s))
+        (setf (3d-matrices:miref m 5) (vy u))
+        (setf (3d-matrices:miref m 6) (- (vy f)))
+        (setf (3d-matrices:miref m 7) 0.0)
+        ;; Column 2
+        (setf (3d-matrices:miref m 8) (vz s))
+        (setf (3d-matrices:miref m 9) (vz u))
+        (setf (3d-matrices:miref m 10) (- (vz f)))
+        (setf (3d-matrices:miref m 11) 0.0)
+        ;; Column 3
+        (setf (3d-matrices:miref m 12) (- dot-s))
+        (setf (3d-matrices:miref m 13) (- dot-u))
+        (setf (3d-matrices:miref m 14) dot-f)
+        (setf (3d-matrices:miref m 15) 1.0)
+        m))))
+
+;;; ===================================================================
+;;; Fly Camera Projection Matrix
+;;; ===================================================================
+
+(defmethod camera-projection-matrix-data ((cam fly-camera) aspect-ratio)
+  "Compute perspective projection matrix for the fly camera.
+   ASPECT-RATIO is width/height. Returns a 3d-matrices:mat4."
+  (let* ((fov-rad (coerce (* (fly-camera-fov cam) (/ pi 180.0)) 'single-float))
+         (f (coerce (/ 1.0 (tan (* fov-rad 0.5))) 'single-float))
+         (near (fly-camera-near-plane cam))
+         (far (fly-camera-far-plane cam))
+         (ar (coerce aspect-ratio 'single-float))
+         (range (- near far))
+         (m (3d-matrices:mat4)))
+    ;; Column 0
+    (setf (3d-matrices:miref m 0) (/ f ar))
+    ;; Column 1
+    (setf (3d-matrices:miref m 5) f)
+    ;; Column 2
+    (setf (3d-matrices:miref m 10) (/ (+ far near) range))
+    (setf (3d-matrices:miref m 11) -1.0)
+    ;; Column 3
+    (setf (3d-matrices:miref m 14) (/ (* 2.0 far near) range))
+    m))
+
+;;; ===================================================================
+;;; Fly Camera Sync State
+;;; ===================================================================
+
+(defmethod sync-camera-state ((cam fly-camera))
+  "Update *camera-position* from the fly camera's position."
+  (setf *camera-position* (fly-camera-position-vec cam))
+  cam)
+
+;;; ===================================================================
+;;; Fly Camera Convenience Constructor
+;;; ===================================================================
+
+(defun make-fly-camera (&key (position (vec3 0.0 5.0 30.0))
+                              (yaw 0.0) (pitch 0.0)
+                              (speed 20.0) (sensitivity 0.003)
+                              (damping 0.9)
+                              (fov 60.0) (near 0.1) (far 1000.0))
+  "Create a new fly-camera with the given parameters."
+  (make-instance 'fly-camera
+                 :position position
+                 :yaw (coerce yaw 'single-float)
+                 :pitch (coerce pitch 'single-float)
+                 :speed (coerce speed 'single-float)
+                 :sensitivity (coerce sensitivity 'single-float)
+                 :damping (coerce damping 'single-float)
+                 :fov (coerce fov 'single-float)
+                 :near-plane (coerce near 'single-float)
+                 :far-plane (coerce far 'single-float)))

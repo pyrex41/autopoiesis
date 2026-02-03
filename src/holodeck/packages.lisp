@@ -239,6 +239,26 @@
    #:collect-connection-render-descriptions
    #:compute-connection-beam-color
 
+   ;; Fly camera
+   #:fly-camera
+   #:make-fly-camera
+   #:fly-camera-position-vec
+   #:fly-camera-yaw
+   #:fly-camera-pitch
+   #:fly-camera-velocity
+   #:fly-camera-speed
+   #:fly-camera-sensitivity
+   #:fly-camera-damping
+   #:fly-camera-fov
+   #:fly-camera-near-plane
+   #:fly-camera-far-plane
+   #:fly-camera-look
+   #:fly-camera-move
+   #:fly-camera-update
+   #:fly-camera-stop
+   #:*pitch-min*
+   #:*pitch-max*
+
    ;; Orbit camera
    #:orbit-camera
    #:make-orbit-camera

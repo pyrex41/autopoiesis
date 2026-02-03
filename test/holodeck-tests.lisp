@@ -2058,3 +2058,253 @@ out vec4 color;")))
       (is (< (abs (- (3d-vectors:vx end-pos) (3d-vectors:vx start-pos))) 0.1))
       (is (< (abs (- (3d-vectors:vy end-pos) (3d-vectors:vy start-pos))) 0.1))
       (is (< (abs (- (3d-vectors:vz end-pos) (3d-vectors:vz start-pos))) 0.1)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Fly Camera Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite fly-camera-tests
+  :in holodeck-tests
+  :description "Tests for fly-camera class and operations")
+
+(in-suite fly-camera-tests)
+
+;; --- Construction ---
+
+(test fly-camera-creation-defaults
+  "Test that fly-camera is created with correct defaults."
+  (let ((cam (make-fly-camera)))
+    (is (= 0.0 (fly-camera-yaw cam)))
+    (is (= 0.0 (fly-camera-pitch cam)))
+    (is (= 20.0 (fly-camera-speed cam)))
+    (is (< (abs (- (fly-camera-sensitivity cam) 0.003)) 0.0001))
+    (is (< (abs (- (fly-camera-damping cam) 0.9)) 0.001))
+    (is (= 60.0 (fly-camera-fov cam)))
+    (is (< (abs (- (fly-camera-near-plane cam) 0.1)) 0.001))
+    (is (= 1000.0 (fly-camera-far-plane cam)))))
+
+(test fly-camera-creation-custom
+  "Test that fly-camera accepts custom parameters."
+  (let ((cam (make-fly-camera :position (3d-vectors:vec3 1.0 2.0 3.0)
+                              :yaw 1.0 :pitch 0.5
+                              :speed 10.0 :sensitivity 0.01
+                              :damping 0.8 :fov 45.0
+                              :near 1.0 :far 500.0)))
+    (is (= 1.0 (fly-camera-yaw cam)))
+    (is (= 0.5 (fly-camera-pitch cam)))
+    (is (= 10.0 (fly-camera-speed cam)))
+    (is (< (abs (- (fly-camera-sensitivity cam) 0.01)) 0.0001))
+    (is (< (abs (- (fly-camera-damping cam) 0.8)) 0.001))
+    (is (= 45.0 (fly-camera-fov cam)))
+    (is (= 1.0 (fly-camera-near-plane cam)))
+    (is (= 500.0 (fly-camera-far-plane cam)))
+    ;; Check position
+    (let ((pos (fly-camera-position-vec cam)))
+      (is (< (abs (- (3d-vectors:vx pos) 1.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy pos) 2.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz pos) 3.0)) 0.001)))))
+
+;; --- Position ---
+
+(test fly-camera-position-returns-stored-position
+  "Test that camera-position returns the fly camera's position."
+  (let* ((pos (3d-vectors:vec3 5.0 10.0 15.0))
+         (cam (make-fly-camera :position pos))
+         (result (camera-position cam)))
+    (is (< (abs (- (3d-vectors:vx result) 5.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vy result) 10.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vz result) 15.0)) 0.001))))
+
+;; --- Direction Vectors ---
+
+(test fly-camera-forward-default-looks-negative-z
+  "Test that default yaw=0, pitch=0 looks along -Z."
+  (let* ((cam (make-fly-camera :yaw 0.0 :pitch 0.0))
+         (fwd (camera-forward cam)))
+    (is (< (abs (3d-vectors:vx fwd)) 0.001))
+    (is (< (abs (3d-vectors:vy fwd)) 0.001))
+    (is (< (3d-vectors:vz fwd) -0.9))))
+
+(test fly-camera-forward-is-unit-length
+  "Test that forward vector is normalized."
+  (let* ((cam (make-fly-camera :yaw 0.7 :pitch 0.3))
+         (fwd (camera-forward cam)))
+    (is (< (abs (- (3d-vectors:vlength fwd) 1.0)) 0.001))))
+
+(test fly-camera-forward-yaw-rotates
+  "Test that yaw=pi/2 rotates forward toward -X."
+  (let* ((cam (make-fly-camera :yaw (coerce (/ pi 2) 'single-float) :pitch 0.0))
+         (fwd (camera-forward cam)))
+    ;; sin(pi/2)=1, so forward X component should be -1
+    (is (< (3d-vectors:vx fwd) -0.9))
+    (is (< (abs (3d-vectors:vy fwd)) 0.01))
+    (is (< (abs (3d-vectors:vz fwd)) 0.01))))
+
+(test fly-camera-forward-pitch-up
+  "Test that positive pitch tilts forward upward."
+  (let* ((cam (make-fly-camera :yaw 0.0 :pitch 0.5))
+         (fwd (camera-forward cam)))
+    (is (> (3d-vectors:vy fwd) 0.0))))
+
+(test fly-camera-right-perpendicular-to-forward
+  "Test that right vector is perpendicular to forward."
+  (let* ((cam (make-fly-camera :yaw 0.5 :pitch 0.3))
+         (fwd (camera-forward cam))
+         (right (camera-right cam))
+         (dot (+ (* (3d-vectors:vx fwd) (3d-vectors:vx right))
+                 (* (3d-vectors:vy fwd) (3d-vectors:vy right))
+                 (* (3d-vectors:vz fwd) (3d-vectors:vz right)))))
+    (is (< (abs dot) 0.01))))
+
+(test fly-camera-right-is-unit-length
+  "Test that right vector is normalized."
+  (let* ((cam (make-fly-camera :yaw 0.5 :pitch 0.3))
+         (right (camera-right cam)))
+    (is (< (abs (- (3d-vectors:vlength right) 1.0)) 0.001))))
+
+;; --- Look Operation ---
+
+(test fly-camera-look-changes-yaw
+  "Test that fly-camera-look changes yaw angle."
+  (let ((cam (make-fly-camera :yaw 0.0 :sensitivity 0.01)))
+    (fly-camera-look cam 100.0 0.0)
+    ;; yaw should increase by 100 * 0.01 = 1.0
+    (is (< (abs (- (fly-camera-yaw cam) 1.0)) 0.001))))
+
+(test fly-camera-look-changes-pitch
+  "Test that fly-camera-look changes pitch angle."
+  (let ((cam (make-fly-camera :pitch 0.0 :sensitivity 0.01)))
+    (fly-camera-look cam 0.0 50.0)
+    ;; pitch should increase by 50 * 0.01 = 0.5
+    (is (< (abs (- (fly-camera-pitch cam) 0.5)) 0.001))))
+
+(test fly-camera-look-clamps-pitch
+  "Test that pitch is clamped to avoid flipping."
+  (let ((cam (make-fly-camera :pitch 0.0 :sensitivity 1.0)))
+    (fly-camera-look cam 0.0 100.0)
+    (is (<= (fly-camera-pitch cam) *pitch-max*))
+    (fly-camera-look cam 0.0 -200.0)
+    (is (>= (fly-camera-pitch cam) *pitch-min*))))
+
+;; --- Movement ---
+
+(test fly-camera-move-forward-adds-velocity
+  "Test that moving forward adds velocity in forward direction."
+  (let ((cam (make-fly-camera :speed 10.0)))
+    (fly-camera-move cam :forward)
+    (let ((vel (fly-camera-velocity cam)))
+      (is (> (3d-vectors:vlength vel) 0.0)))))
+
+(test fly-camera-move-backward-adds-negative-velocity
+  "Test that moving backward adds velocity opposite to forward."
+  (let ((cam (make-fly-camera :yaw 0.0 :pitch 0.0 :speed 10.0)))
+    (fly-camera-move cam :backward)
+    (let ((vel (fly-camera-velocity cam)))
+      ;; Forward is -Z at default yaw/pitch, so backward should be +Z
+      (is (> (3d-vectors:vz vel) 0.0)))))
+
+(test fly-camera-move-all-directions
+  "Test that all six directions produce non-zero velocity."
+  (dolist (dir '(:forward :backward :left :right :up :down))
+    (let ((cam (make-fly-camera :speed 10.0)))
+      (fly-camera-move cam dir)
+      (is (> (3d-vectors:vlength (fly-camera-velocity cam)) 0.0)
+          "Direction ~a should produce velocity" dir))))
+
+;; --- Update ---
+
+(test fly-camera-update-moves-position
+  "Test that update moves position by velocity * dt."
+  (let ((cam (make-fly-camera :position (3d-vectors:vec3 0.0 0.0 0.0)
+                              :speed 10.0 :damping 1.0)))
+    ;; Set velocity directly
+    (setf (fly-camera-velocity cam) (3d-vectors:vec3 10.0 0.0 0.0))
+    (fly-camera-update cam 1.0)
+    ;; Position should have moved by (10, 0, 0) * 1.0 = (10, 0, 0)
+    (let ((pos (fly-camera-position-vec cam)))
+      (is (< (abs (- (3d-vectors:vx pos) 10.0)) 0.01)))))
+
+(test fly-camera-update-applies-damping
+  "Test that update reduces velocity by damping factor."
+  (let ((cam (make-fly-camera :damping 0.5)))
+    (setf (fly-camera-velocity cam) (3d-vectors:vec3 10.0 0.0 0.0))
+    (fly-camera-update cam 0.01)
+    ;; Velocity should be halved after damping
+    (let ((vel (fly-camera-velocity cam)))
+      (is (< (abs (- (3d-vectors:vx vel) 5.0)) 0.01)))))
+
+(test fly-camera-update-zero-dt-no-movement
+  "Test that zero dt produces no position change."
+  (let ((cam (make-fly-camera :position (3d-vectors:vec3 5.0 5.0 5.0))))
+    (setf (fly-camera-velocity cam) (3d-vectors:vec3 100.0 0.0 0.0))
+    (fly-camera-update cam 0.0)
+    (let ((pos (fly-camera-position-vec cam)))
+      (is (< (abs (- (3d-vectors:vx pos) 5.0)) 0.001)))))
+
+;; --- Stop ---
+
+(test fly-camera-stop-zeroes-velocity
+  "Test that fly-camera-stop sets velocity to zero."
+  (let ((cam (make-fly-camera)))
+    (setf (fly-camera-velocity cam) (3d-vectors:vec3 10.0 5.0 3.0))
+    (fly-camera-stop cam)
+    (let ((vel (fly-camera-velocity cam)))
+      (is (< (3d-vectors:vlength vel) 0.001)))))
+
+;; --- View Matrix ---
+
+(test fly-camera-view-matrix-produces-mat4
+  "Test that camera-view-matrix-data returns a mat4."
+  (let* ((cam (make-fly-camera))
+         (mat (camera-view-matrix-data cam)))
+    (is (typep mat '3d-matrices:mat4))))
+
+(test fly-camera-view-matrix-bottom-right-element
+  "Test that fly camera view matrix has 1.0 at bottom-right."
+  (let* ((cam (make-fly-camera))
+         (mat (camera-view-matrix-data cam)))
+    (is (< (abs (- (3d-matrices:miref mat 15) 1.0)) 0.001))))
+
+;; --- Projection Matrix ---
+
+(test fly-camera-projection-matrix-produces-mat4
+  "Test that camera-projection-matrix-data returns a mat4."
+  (let* ((cam (make-fly-camera))
+         (mat (camera-projection-matrix-data cam (/ 16.0 9.0))))
+    (is (typep mat '3d-matrices:mat4))))
+
+;; --- Sync Camera State ---
+
+(test fly-camera-sync-state-updates-global
+  "Test that sync-camera-state updates *camera-position*."
+  (let* ((cam (make-fly-camera :position (3d-vectors:vec3 7.0 8.0 9.0))))
+    (sync-camera-state cam)
+    (is (< (abs (- (3d-vectors:vx *camera-position*) 7.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vy *camera-position*) 8.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vz *camera-position*) 9.0)) 0.001))))
+
+;; --- Integration ---
+
+(test fly-camera-move-then-update
+  "Test that move + update moves the camera in the right direction."
+  (let ((cam (make-fly-camera :position (3d-vectors:vec3 0.0 0.0 0.0)
+                              :yaw 0.0 :pitch 0.0
+                              :speed 10.0 :damping 1.0)))
+    (fly-camera-move cam :forward)
+    (fly-camera-update cam 1.0)
+    ;; At yaw=0, pitch=0, forward is -Z, so position Z should decrease
+    (let ((pos (fly-camera-position-vec cam)))
+      (is (< (3d-vectors:vz pos) 0.0)))))
+
+(test fly-camera-look-then-move-forward
+  "Test that looking right then moving forward changes direction."
+  (let ((cam (make-fly-camera :position (3d-vectors:vec3 0.0 0.0 0.0)
+                              :yaw 0.0 :pitch 0.0
+                              :speed 10.0 :sensitivity 1.0 :damping 1.0)))
+    ;; Look right (increase yaw by pi/2)
+    (fly-camera-look cam (coerce (/ pi 2) 'single-float) 0.0)
+    (fly-camera-move cam :forward)
+    (fly-camera-update cam 1.0)
+    ;; After yaw=pi/2, forward is -X direction, so X should decrease
+    (let ((pos (fly-camera-position-vec cam)))
+      (is (< (3d-vectors:vx pos) -1.0)))))
