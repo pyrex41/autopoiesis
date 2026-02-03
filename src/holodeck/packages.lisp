@@ -366,6 +366,11 @@
    #:panel-render-description
    #:collect-hud-render-descriptions
    #:truncate-id
+   #:update-hud
+   #:find-selected-snapshot-entity
+   #:find-focused-agent-entity
+   #:count-unique-branches
+   #:selected-entity-index
 
    ;; HUD panel class
    #:hud-panel

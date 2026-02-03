@@ -210,6 +210,81 @@
                           (or branch-count 1)))))))
 
 ;;; ===================================================================
+;;; Update HUD from Current State
+;;; ===================================================================
+
+(defun find-selected-snapshot-entity ()
+  "Find the first snapshot entity with interactive selected-p set.
+   Returns the entity ID or NIL."
+  (dolist (entity *snapshot-entities*)
+    (when (and (entity-valid-p entity)
+               (interactive-selected-p entity))
+      (return entity))))
+
+(defun find-focused-agent-entity ()
+  "Find the first entity with an agent-binding.
+   Returns the entity ID or NIL."
+  (dolist (entity *snapshot-entities*)
+    (when (and (entity-valid-p entity)
+               (ignore-errors (agent-binding-agent-id entity))
+               (not (string= "" (agent-binding-agent-id entity))))
+      (return entity))))
+
+(defun count-unique-branches ()
+  "Count distinct snapshot types among tracked snapshot entities.
+   Uses snapshot-binding-snapshot-type as a proxy for branch diversity
+   when no explicit branch data is available."
+  (let ((types (make-hash-table)))
+    (dolist (entity *snapshot-entities*)
+      (when (entity-valid-p entity)
+        (setf (gethash (snapshot-binding-snapshot-type entity) types) t)))
+    (hash-table-count types)))
+
+(defun selected-entity-index (entity)
+  "Return the 1-based index of ENTITY in *snapshot-entities*, or 0 if not found."
+  (let ((idx 0))
+    (dolist (e *snapshot-entities* 0)
+      (incf idx)
+      (when (eql e entity)
+        (return idx)))))
+
+(defun update-hud (hud)
+  "Update all HUD panels from the current holodeck state.
+   Reads ECS entity data to populate the position, agent, and timeline panels.
+   The hints panel has static content and is not modified.
+
+   This function should be called once per frame (or when state changes)
+   before collecting render descriptions."
+  (let ((selected (find-selected-snapshot-entity)))
+    ;; Update position panel from selected snapshot
+    (if selected
+        (update-position-panel hud
+                               :branch (format nil "~A"
+                                               (snapshot-binding-snapshot-type selected))
+                               :snapshot-id (snapshot-binding-snapshot-id selected)
+                               :snapshot-type (snapshot-binding-snapshot-type selected))
+        (update-position-panel hud
+                               :branch nil
+                               :snapshot-id nil
+                               :snapshot-type nil))
+    ;; Update agent panel from focused agent entity
+    (let ((agent-entity (find-focused-agent-entity)))
+      (if agent-entity
+          (update-agent-panel hud
+                              :agent-name (agent-binding-agent-name agent-entity)
+                              :agent-status "active"
+                              :agent-task nil)
+          (update-agent-panel hud :agent-name nil)))
+    ;; Update timeline panel with snapshot counts
+    (let ((total (length *snapshot-entities*))
+          (current-idx (if selected (selected-entity-index selected) 0))
+          (branches (count-unique-branches)))
+      (update-timeline-panel hud
+                             :total-snapshots total
+                             :current-index current-idx
+                             :branch-count branches))))
+
+;;; ===================================================================
 ;;; HUD Render Descriptions
 ;;; ===================================================================
 ;;;

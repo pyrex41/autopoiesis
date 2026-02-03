@@ -3353,3 +3353,141 @@ out vec4 color;")))
   (let ((result (truncate-id "abcdefghij" 5)))
     (is (= 5 (length result)))
     (is (char= #\~ (char result 4)))))
+
+;;; ===================================================================
+;;; update-hud Tests
+;;; ===================================================================
+
+(def-suite update-hud-tests
+  :in hud-tests
+  :description "Tests for update-hud and its helper functions")
+
+(in-suite update-hud-tests)
+
+;;; --- Helper function tests ---
+
+(test find-selected-snapshot-entity-none
+  "Test find-selected-snapshot-entity returns NIL when nothing selected."
+  (init-holodeck-storage)
+  (let ((*snapshot-entities* nil))
+    (is (null (find-selected-snapshot-entity)))))
+
+(test find-selected-snapshot-entity-with-selection
+  "Test find-selected-snapshot-entity finds selected entity."
+  (init-holodeck-storage)
+  (let* ((e1 (make-snapshot-entity "snap-1" :action :x 0.0 :y 0.0 :z 0.0))
+         (e2 (make-snapshot-entity "snap-2" :decision :x 1.0 :y 0.0 :z 0.0))
+         (*snapshot-entities* (list e1 e2)))
+    ;; Nothing selected yet
+    (is (null (find-selected-snapshot-entity)))
+    ;; Select e2
+    (setf (interactive-selected-p e2) t)
+    (is (eql e2 (find-selected-snapshot-entity)))))
+
+(test find-focused-agent-entity-none
+  "Test find-focused-agent-entity returns NIL when no agent bound."
+  (init-holodeck-storage)
+  (let ((*snapshot-entities* nil))
+    (is (null (find-focused-agent-entity)))))
+
+(test find-focused-agent-entity-with-agent
+  "Test find-focused-agent-entity finds entity with agent-binding."
+  (init-holodeck-storage)
+  (let* ((e1 (make-snapshot-entity "snap-1" :action))
+         (e2 (make-snapshot-entity "snap-2" :decision))
+         (*snapshot-entities* (list e1 e2)))
+    ;; No agents bound -> nil
+    (is (null (find-focused-agent-entity)))
+    ;; Add agent binding to e2
+    (make-agent-binding e2 :agent-id "agent-42" :agent-name "Watson")
+    (is (eql e2 (find-focused-agent-entity)))))
+
+(test count-unique-branches-empty
+  "Test count-unique-branches with no entities."
+  (init-holodeck-storage)
+  (let ((*snapshot-entities* nil))
+    (is (= 0 (count-unique-branches)))))
+
+(test count-unique-branches-counts-types
+  "Test count-unique-branches counts distinct snapshot types."
+  (init-holodeck-storage)
+  (let* ((e1 (make-snapshot-entity "s1" :action))
+         (e2 (make-snapshot-entity "s2" :decision))
+         (e3 (make-snapshot-entity "s3" :action))
+         (*snapshot-entities* (list e1 e2 e3)))
+    (is (= 2 (count-unique-branches)))))
+
+(test selected-entity-index-not-found
+  "Test selected-entity-index returns 0 for unknown entity."
+  (init-holodeck-storage)
+  (let ((*snapshot-entities* nil))
+    (is (= 0 (selected-entity-index 999)))))
+
+(test selected-entity-index-found
+  "Test selected-entity-index returns 1-based index."
+  (init-holodeck-storage)
+  (let* ((e1 (make-snapshot-entity "s1" :action))
+         (e2 (make-snapshot-entity "s2" :decision))
+         (*snapshot-entities* (list e1 e2)))
+    (is (= 1 (selected-entity-index e1)))
+    (is (= 2 (selected-entity-index e2)))))
+
+;;; --- Main update-hud tests ---
+
+(test update-hud-no-entities
+  "Test update-hud works with no snapshot entities."
+  (init-holodeck-storage)
+  (let* ((*snapshot-entities* nil)
+         (hud (make-hud)))
+    ;; Should not error
+    (update-hud hud)
+    ;; Position panel should show dashes
+    (let ((content (panel-content (hud-panel hud :position))))
+      (is (= 3 (length content)))
+      (is (search "—" (first content))))
+    ;; Agent panel should be hidden
+    (is (null (panel-visible-p (hud-panel hud :agent))))
+    ;; Timeline panel should show 0 snapshots
+    (let ((content (panel-content (hud-panel hud :timeline))))
+      (is (search "0/0" (first content))))))
+
+(test update-hud-with-selected-snapshot
+  "Test update-hud populates position panel from selected entity."
+  (init-holodeck-storage)
+  (let* ((e1 (make-snapshot-entity "snap-abc123" :decision))
+         (*snapshot-entities* (list e1))
+         (hud (make-hud)))
+    (setf (interactive-selected-p e1) t)
+    (update-hud hud)
+    ;; Position panel should have snapshot info
+    (let ((content (panel-content (hud-panel hud :position))))
+      (is (search "DECISION" (first content)))
+      (is (search "snap-abc123" (second content)))
+      (is (search "DECISION" (third content))))
+    ;; Timeline should show 1/1
+    (let ((content (panel-content (hud-panel hud :timeline))))
+      (is (search "1/1" (first content))))))
+
+(test update-hud-with-agent
+  "Test update-hud shows agent panel when agent is bound."
+  (init-holodeck-storage)
+  (let* ((e1 (make-snapshot-entity "s1" :action))
+         (*snapshot-entities* (list e1))
+         (hud (make-hud)))
+    (make-agent-binding e1 :agent-id "agent-1" :agent-name "Sherlock")
+    (update-hud hud)
+    ;; Agent panel should be visible
+    (is (eq t (panel-visible-p (hud-panel hud :agent))))
+    ;; Content should mention agent name
+    (let ((content (panel-content (hud-panel hud :agent))))
+      (is (search "Sherlock" (first content))))))
+
+(test update-hud-without-agent
+  "Test update-hud hides agent panel when no agent is bound."
+  (init-holodeck-storage)
+  (let* ((e1 (make-snapshot-entity "s1" :action))
+         (*snapshot-entities* (list e1))
+         (hud (make-hud)))
+    (update-hud hud)
+    ;; Agent panel should be hidden
+    (is (null (panel-visible-p (hud-panel hud :agent))))))
