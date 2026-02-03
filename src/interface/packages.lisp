@@ -74,4 +74,25 @@
    #:cli-display-state
    #:cli-display-help
    #:session-to-sexpr
-   #:session-summary))
+   #:session-summary
+
+   ;; Blocking input mechanism
+   #:blocking-input-request
+   #:blocking-request-id
+   #:blocking-request-prompt
+   #:blocking-request-context
+   #:blocking-request-options
+   #:blocking-request-default
+   #:blocking-request-response
+   #:blocking-request-status
+   #:make-blocking-request
+   #:wait-for-response
+   #:provide-response
+   #:cancel-blocking-request
+   #:blocking-human-input
+   #:find-blocking-request
+   #:list-pending-blocking-requests
+   #:respond-to-request
+   #:show-pending-requests
+   #:read-line-with-timeout
+   #:*blocking-requests*))

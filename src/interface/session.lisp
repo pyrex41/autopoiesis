@@ -157,6 +157,8 @@
     (format out "  inject <text>  - Inject observation into agent~%")
     (format out "  detail +/-     - Increase/decrease detail level~%")
     (format out "  back, b        - Navigate back in history~%")
+    (format out "  pending        - Show pending input requests~%")
+    (format out "  respond <id> <value> - Respond to pending request~%")
     (format out "  quit, q        - End session~%")
     (format out "~%")
     (force-output out)))
@@ -312,6 +314,29 @@
         ((:back :b)
          (navigate-back (session-navigator session))
          (format out "Navigated back.~%")
+         :continue)
+
+        ((:pending)
+         (show-pending-requests out)
+         :continue)
+
+        ((:respond)
+         (let ((args (command-args command)))
+           (if (>= (length args) 2)
+               (let* ((id-prefix (first args))
+                      (value-str (format nil "~{~a~^ ~}" (rest args)))
+                      ;; Find request by prefix match
+                      (requests (list-pending-blocking-requests))
+                      (matching (find-if (lambda (req)
+                                          (search id-prefix (blocking-request-id req)))
+                                        requests)))
+                 (if matching
+                     (progn
+                       (provide-response matching value-str)
+                       (format out "Response provided to request ~a~%"
+                               (subseq (blocking-request-id matching) 0 8)))
+                     (format out "No pending request matching '~a'~%" id-prefix)))
+               (format out "Usage: respond <request-id-prefix> <response>~%")))
          :continue)
 
         ((:quit :q)

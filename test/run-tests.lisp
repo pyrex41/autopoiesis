@@ -17,6 +17,7 @@
   (run! 'core-tests)
   (run! 'agent-tests)
   (run! 'snapshot-tests)
+  (run! 'interface-tests)
   (run! 'integration-tests))
 
 ;; Make tests easy to run from REPL
@@ -31,6 +32,10 @@
 (defun test-snapshot ()
   "Run only snapshot tests."
   (run! 'snapshot-tests))
+
+(defun test-interface ()
+  "Run only interface tests."
+  (run! 'interface-tests))
 
 (defun test-integration ()
   "Run only integration tests."

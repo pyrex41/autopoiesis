@@ -46,12 +46,25 @@
     request))
 
 (defun await-human-response (request &key timeout)
-  "Wait for human response to REQUEST."
-  (declare (ignore timeout))
-  ;; Placeholder - would block until response or timeout
-  (loop while (eq (request-status request) :pending)
-        do (sleep 0.1)
-        finally (return (request-response request))))
+  "Wait for human response to REQUEST.
+
+   Uses the blocking input mechanism with proper synchronization.
+   Returns two values: the response and the status."
+  (let ((blocking-req (make-blocking-request
+                       (request-prompt request)
+                       :context (request-context request)
+                       :options (request-options request))))
+    ;; Link the requests
+    (setf (gethash (request-id request) *pending-requests*)
+          blocking-req)
+
+    ;; Wait for response
+    (multiple-value-bind (response status)
+        (wait-for-response blocking-req :timeout timeout)
+      ;; Update original request
+      (setf (request-response request) response)
+      (setf (request-status request) status)
+      (values response status))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Human Override Actions

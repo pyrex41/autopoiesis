@@ -13,4 +13,5 @@
    #:core-tests
    #:agent-tests
    #:snapshot-tests
+   #:interface-tests
    #:integration-tests))

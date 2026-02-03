@@ -63,6 +63,7 @@
        (:file "viewport")
        (:file "annotator")
        (:file "entry-points")
+       (:file "blocking")
        (:file "session")
        (:file "protocol")))
      (:module "integration"
@@ -92,6 +93,7 @@
      (:file "core-tests")
      (:file "agent-tests")
      (:file "snapshot-tests")
+     (:file "interface-tests")
      (:file "integration-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)

@@ -61,8 +61,8 @@ Current Phase: 3 (Snapshot System)
 
 ### Phase 4: Human Interface
 - [x] Implement CLI-based session
-- [ ] Implement human input blocking mechanism
-- [ ] Write interface tests
+- [x] Implement human input blocking mechanism
+- [x] Write interface tests
 
 ## Blocked / Needs Human Input
 
