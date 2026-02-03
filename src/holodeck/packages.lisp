@@ -326,6 +326,27 @@
    #:compute-scene-bounds
    #:camera-overview
 
+   ;; Camera input handling
+   #:camera-input-handler
+   #:make-camera-input-handler
+   #:input-handler-camera
+   #:input-handler-mouse-x
+   #:input-handler-mouse-y
+   #:input-handler-prev-mouse-x
+   #:input-handler-prev-mouse-y
+   #:input-handler-buttons-pressed
+   #:input-handler-scroll-accumulator
+   #:handle-mouse-move
+   #:handle-mouse-button-press
+   #:handle-mouse-button-release
+   #:button-pressed-p
+   #:handle-scroll
+   #:process-camera-input
+   #:mouse-delta
+   #:*mouse-button-left*
+   #:*mouse-button-right*
+   #:*mouse-button-middle*
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck

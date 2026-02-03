@@ -173,7 +173,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement `fly-camera` class with velocity-based movement
 - [x] Implement smooth camera transitions with easing
 - [x] Implement `focus-on-snapshot`, `focus-on-agent`, `camera-overview`
-- [ ] Handle orbit (right-drag) and zoom (scroll) input
+- [x] Handle orbit (right-drag) and zoom (scroll) input
 
 #### 8.4: HUD System
 - [ ] Create HUD panel system with position, agent, timeline, hints panels

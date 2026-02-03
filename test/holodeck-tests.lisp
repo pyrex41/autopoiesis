@@ -2870,3 +2870,232 @@ out vec4 color;")))
   (let ((cam (make-orbit-camera)))
     (let ((trans (camera-overview cam)))
       (is (typep trans 'camera-transition)))))
+
+;;; ===================================================================
+;;; Camera Input Handler Tests
+;;; ===================================================================
+
+(def-suite input-handler-tests
+  :in holodeck-tests
+  :description "Tests for camera-input-handler class and input processing")
+
+(in-suite input-handler-tests)
+
+;; --- Construction ---
+
+(test input-handler-creation
+  "Test that camera-input-handler is created with correct defaults."
+  (let ((handler (make-camera-input-handler)))
+    (is (null (input-handler-camera handler)))
+    (is (= 0.0 (input-handler-mouse-x handler)))
+    (is (= 0.0 (input-handler-mouse-y handler)))
+    (is (= 0.0 (input-handler-prev-mouse-x handler)))
+    (is (= 0.0 (input-handler-prev-mouse-y handler)))
+    (is (null (input-handler-buttons-pressed handler)))
+    (is (= 0.0 (input-handler-scroll-accumulator handler)))))
+
+(test input-handler-creation-with-camera
+  "Test that camera-input-handler can be created with an attached camera."
+  (let* ((cam (make-orbit-camera))
+         (handler (make-camera-input-handler :camera cam)))
+    (is (eq cam (input-handler-camera handler)))))
+
+;; --- Mouse Position ---
+
+(test handle-mouse-move-updates-position
+  "Test that handle-mouse-move updates current mouse position."
+  (let ((handler (make-camera-input-handler)))
+    (handle-mouse-move handler 100.0 200.0)
+    (is (= 100.0 (input-handler-mouse-x handler)))
+    (is (= 200.0 (input-handler-mouse-y handler)))))
+
+(test handle-mouse-move-does-not-update-prev
+  "Test that handle-mouse-move does not immediately update prev position."
+  (let ((handler (make-camera-input-handler)))
+    (handle-mouse-move handler 100.0 200.0)
+    ;; prev should still be 0 (initial value)
+    (is (= 0.0 (input-handler-prev-mouse-x handler)))
+    (is (= 0.0 (input-handler-prev-mouse-y handler)))))
+
+;; --- Mouse Button State ---
+
+(test button-press-and-release
+  "Test that button press/release correctly updates state."
+  (let ((handler (make-camera-input-handler)))
+    (is (not (button-pressed-p handler :right)))
+    (handle-mouse-button-press handler :right)
+    (is (button-pressed-p handler :right))
+    (handle-mouse-button-release handler :right)
+    (is (not (button-pressed-p handler :right)))))
+
+(test multiple-buttons-pressed
+  "Test that multiple buttons can be pressed simultaneously."
+  (let ((handler (make-camera-input-handler)))
+    (handle-mouse-button-press handler :left)
+    (handle-mouse-button-press handler :right)
+    (is (button-pressed-p handler :left))
+    (is (button-pressed-p handler :right))
+    (is (not (button-pressed-p handler :middle)))
+    (handle-mouse-button-release handler :left)
+    (is (not (button-pressed-p handler :left)))
+    (is (button-pressed-p handler :right))))
+
+(test duplicate-press-does-not-double-add
+  "Test that pressing the same button twice doesn't add duplicate entries."
+  (let ((handler (make-camera-input-handler)))
+    (handle-mouse-button-press handler :right)
+    (handle-mouse-button-press handler :right)
+    (is (= 1 (length (input-handler-buttons-pressed handler))))))
+
+(test button-press-snaps-prev-mouse
+  "Test that pressing a button snaps prev-mouse to current position."
+  (let ((handler (make-camera-input-handler)))
+    (handle-mouse-move handler 150.0 250.0)
+    (handle-mouse-button-press handler :right)
+    ;; prev should now match current to avoid a delta spike
+    (is (= 150.0 (input-handler-prev-mouse-x handler)))
+    (is (= 250.0 (input-handler-prev-mouse-y handler)))))
+
+;; --- Scroll Input ---
+
+(test handle-scroll-accumulates
+  "Test that scroll events accumulate."
+  (let ((handler (make-camera-input-handler)))
+    (handle-scroll handler 1.0)
+    (is (< (abs (- (input-handler-scroll-accumulator handler) 1.0)) 0.001))
+    (handle-scroll handler 2.0)
+    (is (< (abs (- (input-handler-scroll-accumulator handler) 3.0)) 0.001))
+    (handle-scroll handler -1.5)
+    (is (< (abs (- (input-handler-scroll-accumulator handler) 1.5)) 0.001))))
+
+;; --- Mouse Delta ---
+
+(test mouse-delta-computation
+  "Test that mouse-delta returns correct dx, dy."
+  (let ((handler (make-camera-input-handler)))
+    ;; Set prev to (100, 200), current to (110, 195)
+    (setf (input-handler-prev-mouse-x handler) 100.0)
+    (setf (input-handler-prev-mouse-y handler) 200.0)
+    (handle-mouse-move handler 110.0 195.0)
+    (multiple-value-bind (dx dy) (mouse-delta handler)
+      (is (< (abs (- dx 10.0)) 0.001))
+      (is (< (abs (- dy -5.0)) 0.001)))))
+
+;; --- Right-Drag Orbits ---
+
+(test right-drag-orbits-camera
+  "Test that right-drag causes the camera to orbit."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :orbit-speed 0.01))
+         (handler (make-camera-input-handler :camera cam)))
+    ;; Start drag at (100, 100)
+    (handle-mouse-move handler 100.0 100.0)
+    (handle-mouse-button-press handler :right)
+    ;; Move to (200, 150) - delta is (100, 50)
+    (handle-mouse-move handler 200.0 150.0)
+    (process-camera-input handler)
+    ;; theta should have changed by 100 * 0.01 = 1.0
+    (is (< (abs (- (camera-theta cam) 1.0)) 0.01))
+    ;; phi should have changed by 50 * 0.01 = 0.5
+    (is (< (abs (- (camera-phi cam) 0.5)) 0.01))))
+
+(test right-drag-no-orbit-when-released
+  "Test that releasing right button stops orbiting."
+  (let* ((cam (make-orbit-camera :theta 0.0 :orbit-speed 0.01))
+         (handler (make-camera-input-handler :camera cam)))
+    (handle-mouse-move handler 100.0 100.0)
+    (handle-mouse-button-press handler :right)
+    (handle-mouse-move handler 200.0 100.0)
+    (process-camera-input handler)
+    (let ((theta-after-drag (camera-theta cam)))
+      ;; Release and move again
+      (handle-mouse-button-release handler :right)
+      (handle-mouse-move handler 300.0 100.0)
+      (process-camera-input handler)
+      ;; theta should not have changed further
+      (is (= theta-after-drag (camera-theta cam))))))
+
+;; --- Scroll Zooms ---
+
+(test scroll-zooms-camera-in
+  "Test that positive scroll zooms the camera in (decreases distance)."
+  (let* ((cam (make-orbit-camera :distance 30.0 :zoom-speed 1.0))
+         (handler (make-camera-input-handler :camera cam)))
+    (handle-scroll handler 5.0)
+    (process-camera-input handler)
+    (is (< (camera-distance cam) 30.0))))
+
+(test scroll-zooms-camera-out
+  "Test that negative scroll zooms the camera out (increases distance)."
+  (let* ((cam (make-orbit-camera :distance 30.0 :zoom-speed 1.0))
+         (handler (make-camera-input-handler :camera cam)))
+    (handle-scroll handler -5.0)
+    (process-camera-input handler)
+    (is (> (camera-distance cam) 30.0))))
+
+(test scroll-accumulator-resets-after-process
+  "Test that scroll accumulator is reset to zero after processing."
+  (let* ((cam (make-orbit-camera))
+         (handler (make-camera-input-handler :camera cam)))
+    (handle-scroll handler 3.0)
+    (process-camera-input handler)
+    (is (< (abs (input-handler-scroll-accumulator handler)) 0.001))))
+
+(test zero-scroll-does-not-affect-camera
+  "Test that zero scroll delta does not modify camera distance."
+  (let* ((cam (make-orbit-camera :distance 30.0))
+         (handler (make-camera-input-handler :camera cam)))
+    (process-camera-input handler)
+    (is (= 30.0 (camera-distance cam)))))
+
+;; --- Middle-Drag Pans ---
+
+(test middle-drag-pans-camera
+  "Test that middle-drag pans the camera target."
+  (let* ((cam (make-orbit-camera :pan-speed 0.1))
+         (handler (make-camera-input-handler :camera cam))
+         (old-target (3d-vectors:vcopy (camera-target cam))))
+    (handle-mouse-move handler 100.0 100.0)
+    (handle-mouse-button-press handler :middle)
+    (handle-mouse-move handler 120.0 110.0)
+    (process-camera-input handler)
+    ;; Target should have moved
+    (let ((diff (3d-vectors:v- (camera-target cam) old-target)))
+      (is (> (3d-vectors:vlength diff) 0.01)))))
+
+;; --- No Camera Attached ---
+
+(test process-input-no-camera-does-not-error
+  "Test that process-camera-input with nil camera does not signal an error."
+  (let ((handler (make-camera-input-handler)))
+    (handle-mouse-move handler 100.0 100.0)
+    (handle-mouse-button-press handler :right)
+    (handle-mouse-move handler 200.0 200.0)
+    (handle-scroll handler 5.0)
+    ;; Should not signal an error
+    (finishes (process-camera-input handler))))
+
+;; --- Combined Input ---
+
+(test combined-orbit-and-zoom
+  "Test that orbit and zoom can happen in the same frame."
+  (let* ((cam (make-orbit-camera :theta 0.0 :distance 30.0
+                                 :orbit-speed 0.01 :zoom-speed 1.0))
+         (handler (make-camera-input-handler :camera cam)))
+    (handle-mouse-move handler 100.0 100.0)
+    (handle-mouse-button-press handler :right)
+    (handle-mouse-move handler 200.0 100.0)
+    (handle-scroll handler 5.0)
+    (process-camera-input handler)
+    ;; Both should have been applied
+    (is (> (abs (camera-theta cam)) 0.01))
+    (is (< (camera-distance cam) 30.0))))
+
+(test prev-mouse-updates-after-process
+  "Test that prev-mouse position is updated after process-camera-input."
+  (let* ((cam (make-orbit-camera))
+         (handler (make-camera-input-handler :camera cam)))
+    (handle-mouse-move handler 100.0 200.0)
+    (process-camera-input handler)
+    ;; prev should now equal current
+    (is (= 100.0 (input-handler-prev-mouse-x handler)))
+    (is (= 200.0 (input-handler-prev-mouse-y handler)))))
