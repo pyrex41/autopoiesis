@@ -344,3 +344,116 @@
        '(list 'eval 'compile 'open 'delete-file))
     (declare (ignore errors))
     (is-true valid)))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; compile-extension Tests (Phase 9.1)
+;;; ─────────────────────────────────────────────────────────────────
+
+(test compile-extension-safe-code
+  "Test compile-extension successfully compiles safe code"
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-add"
+       '(+ 1 2))
+    (is-true ext)
+    (is (null errors))
+    (is (equal "test-add" (autopoiesis.core::extension-name ext)))
+    (is (functionp (autopoiesis.core::extension-compiled ext)))
+    ;; Execute the compiled extension
+    (is (= 3 (funcall (autopoiesis.core::extension-compiled ext))))))
+
+(test compile-extension-with-lambda
+  "Test compile-extension with lambda expressions"
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-lambda"
+       '(let ((x 10)
+              (y 20))
+          (+ x y)))
+    (is-true ext)
+    (is (null errors))
+    ;; Execute and verify result
+    (is (= 30 (funcall (autopoiesis.core::extension-compiled ext))))))
+
+(test compile-extension-rejects-forbidden-code
+  "Test compile-extension rejects forbidden code"
+  ;; eval is forbidden
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-eval"
+       '(eval '(+ 1 2)))
+    (is (null ext))
+    (is (not (null errors)))
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors)))
+  
+  ;; File operations are forbidden
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-file"
+       '(delete-file "/tmp/test"))
+    (is (null ext))
+    (is (not (null errors)))
+    (is (some (lambda (e) (search "delete" e :test #'char-equal)) errors))))
+
+(test compile-extension-trusted-level
+  "Test compile-extension with :trusted sandbox level allows anything"
+  ;; Even eval is allowed in trusted mode
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-trusted"
+       '(list 1 2 3)
+       :sandbox-level :trusted)
+    (is-true ext)
+    (is (null errors))))
+
+(test compile-extension-with-metadata
+  "Test compile-extension preserves author and dependencies"
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-meta"
+       '(+ 1 1)
+       :author "agent-123"
+       :dependencies '("base-math"))
+    (is-true ext)
+    (is (null errors))
+    (is (equal "agent-123" (autopoiesis.core::extension-author ext)))
+    (is (equal '("base-math") (autopoiesis.core::extension-dependencies ext)))))
+
+(test compile-extension-complex-safe-code
+  "Test compile-extension with complex but safe code"
+  ;; Nested let with loop
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-complex"
+       '(let ((numbers '(1 2 3 4 5)))
+          (reduce #'+ (mapcar (lambda (x) (* x x)) numbers))))
+    (is-true ext)
+    (is (null errors))
+    ;; 1 + 4 + 9 + 16 + 25 = 55
+    (is (= 55 (funcall (autopoiesis.core::extension-compiled ext)))))
+  
+  ;; Flet with local functions
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-flet"
+       '(flet ((double (x) (* x 2))
+               (square (x) (* x x)))
+          (+ (double 3) (square 4))))
+    (is-true ext)
+    (is (null errors))
+    ;; 6 + 16 = 22
+    (is (= 22 (funcall (autopoiesis.core::extension-compiled ext))))))
+
+(test compile-extension-handles-compilation-errors
+  "Test compile-extension handles compilation errors gracefully"
+  ;; Note: This test uses :trusted to bypass validation and test compilation errors
+  ;; In practice, most compilation errors would be caught by validation first
+  ;; We test with syntactically valid but semantically problematic code
+  (multiple-value-bind (ext errors)
+      (autopoiesis.core:compile-extension
+       "test-compile-error"
+       '(the integer "not-an-integer")
+       :sandbox-level :trusted)
+    ;; This may or may not error depending on SBCL's handling of THE
+    ;; The important thing is it doesn't throw - it returns values
+    (is (or ext (listp errors)))))

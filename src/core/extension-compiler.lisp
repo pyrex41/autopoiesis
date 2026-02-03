@@ -366,28 +366,48 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun compile-extension (name source &key author dependencies sandbox-level)
-  "Compile SOURCE into an extension.
-   Validates safety before compilation."
+  "Safely compile agent-written code into an extension.
+   
+   Arguments:
+     name          - Unique name for the extension
+     source        - S-expression source code to compile
+     author        - Optional agent ID that created this extension
+     dependencies  - Optional list of extension names this depends on
+     sandbox-level - :strict (default), :moderate, or :trusted
+   
+   Returns: (values extension errors)
+     extension - Compiled extension object, or NIL if validation/compilation failed
+     errors    - List of error strings (empty if successful)
+   
+   The function validates the source code against sandbox rules before
+   attempting compilation. If validation fails, returns NIL with the
+   validation errors. If compilation fails, returns NIL with the
+   compilation error. Only returns an extension if both validation
+   and compilation succeed."
   (let ((level (or sandbox-level :strict)))
     ;; Validate if sandboxed
     (when (member level '(:strict :moderate))
-      (multiple-value-bind (valid errors)
-          (validate-extension-source source)
+      (multiple-value-bind (valid validation-errors)
+          (validate-extension-source source :sandbox-level level)
         (unless valid
-          (error 'validation-error
-                 :errors errors))))
+          (return-from compile-extension
+            (values nil validation-errors)))))
 
-    ;; Create extension
-    (let ((extension (make-instance 'extension
-                                    :name name
-                                    :source source
-                                    :author author
-                                    :dependencies dependencies
-                                    :sandbox-level level)))
-      ;; Compile the source
-      (setf (extension-compiled extension)
-            (compile nil `(lambda () ,source)))
-      extension)))
+    ;; Attempt compilation with error handling
+    (handler-case
+        (let* ((fn-code `(lambda () ,source))
+               (compiled-fn (compile nil fn-code))
+               (extension (make-instance 'extension
+                                         :name name
+                                         :source source
+                                         :compiled compiled-fn
+                                         :author author
+                                         :dependencies dependencies
+                                         :sandbox-level level)))
+          (values extension nil))
+      ;; Handle compilation errors
+      (error (e)
+        (values nil (list (format nil "Compilation error: ~a" e)))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Extension Registry

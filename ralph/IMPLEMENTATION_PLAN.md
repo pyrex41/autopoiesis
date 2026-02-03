@@ -200,7 +200,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 #### 9.1: Extension Compiler
 - [x] Define sandbox rules (*allowed-packages*, *forbidden-symbols*, *allowed-special-forms*)
 - [x] Implement `validate-extension-code` walker
-- [ ] Implement `compile-extension` with error handling
+- [x] Implement `compile-extension` with error handling
 - [ ] Create extension registry and `extension` class
 - [ ] Implement `register-extension` and `invoke-extension`
 
