@@ -171,7 +171,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 #### 8.3: Camera System
 - [x] Implement `orbit-camera` class with spherical coordinates
 - [x] Implement `fly-camera` class with velocity-based movement
-- [ ] Implement smooth camera transitions with easing
+- [x] Implement smooth camera transitions with easing
 - [ ] Implement `focus-on-snapshot`, `focus-on-agent`, `camera-overview`
 - [ ] Handle orbit (right-drag) and zoom (scroll) input
 

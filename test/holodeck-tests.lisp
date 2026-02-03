@@ -2308,3 +2308,342 @@ out vec4 color;")))
     ;; After yaw=pi/2, forward is -X direction, so X should decrease
     (let ((pos (fly-camera-position-vec cam)))
       (is (< (3d-vectors:vx pos) -1.0)))))
+
+;;; ===================================================================
+;;; Easing Function Tests
+;;; ===================================================================
+
+(def-suite easing-tests
+  :in holodeck-tests
+  :description "Tests for easing functions used in camera transitions")
+
+(in-suite easing-tests)
+
+(test ease-linear-endpoints
+  "Test linear easing returns 0 at t=0 and 1 at t=1."
+  (is (< (abs (ease-linear 0.0)) 0.001))
+  (is (< (abs (- (ease-linear 1.0) 1.0)) 0.001)))
+
+(test ease-linear-midpoint
+  "Test linear easing returns 0.5 at t=0.5."
+  (is (< (abs (- (ease-linear 0.5) 0.5)) 0.001)))
+
+(test ease-linear-clamping
+  "Test linear easing clamps out-of-range values."
+  (is (< (abs (ease-linear -0.5)) 0.001))
+  (is (< (abs (- (ease-linear 1.5) 1.0)) 0.001)))
+
+(test ease-in-quad-endpoints
+  "Test quadratic ease-in at endpoints."
+  (is (< (abs (ease-in-quad 0.0)) 0.001))
+  (is (< (abs (- (ease-in-quad 1.0) 1.0)) 0.001)))
+
+(test ease-in-quad-slow-start
+  "Test quadratic ease-in is slow at the beginning."
+  ;; At t=0.25, output should be 0.0625 (much less than 0.25)
+  (is (< (ease-in-quad 0.25) 0.1)))
+
+(test ease-out-quad-endpoints
+  "Test quadratic ease-out at endpoints."
+  (is (< (abs (ease-out-quad 0.0)) 0.001))
+  (is (< (abs (- (ease-out-quad 1.0) 1.0)) 0.001)))
+
+(test ease-out-quad-fast-start
+  "Test quadratic ease-out is fast at the beginning."
+  ;; At t=0.25, output should be 0.4375 (more than 0.25)
+  (is (> (ease-out-quad 0.25) 0.3)))
+
+(test ease-in-out-quad-endpoints
+  "Test quadratic ease-in-out at endpoints."
+  (is (< (abs (ease-in-out-quad 0.0)) 0.001))
+  (is (< (abs (- (ease-in-out-quad 1.0) 1.0)) 0.001)))
+
+(test ease-in-out-quad-symmetry
+  "Test quadratic ease-in-out passes through 0.5 at t=0.5."
+  (is (< (abs (- (ease-in-out-quad 0.5) 0.5)) 0.001)))
+
+(test ease-in-cubic-endpoints
+  "Test cubic ease-in at endpoints."
+  (is (< (abs (ease-in-cubic 0.0)) 0.001))
+  (is (< (abs (- (ease-in-cubic 1.0) 1.0)) 0.001)))
+
+(test ease-out-cubic-endpoints
+  "Test cubic ease-out at endpoints."
+  (is (< (abs (ease-out-cubic 0.0)) 0.001))
+  (is (< (abs (- (ease-out-cubic 1.0) 1.0)) 0.001)))
+
+(test ease-out-cubic-fast-start
+  "Test cubic ease-out is faster at the beginning than linear."
+  (is (> (ease-out-cubic 0.25) 0.4)))
+
+(test ease-in-out-cubic-endpoints
+  "Test cubic ease-in-out at endpoints."
+  (is (< (abs (ease-in-out-cubic 0.0)) 0.001))
+  (is (< (abs (- (ease-in-out-cubic 1.0) 1.0)) 0.001)))
+
+(test ease-in-out-cubic-symmetry
+  "Test cubic ease-in-out passes through 0.5 at t=0.5."
+  (is (< (abs (- (ease-in-out-cubic 0.5) 0.5)) 0.001)))
+
+(test apply-easing-dispatches
+  "Test that apply-easing dispatches to the correct function."
+  (is (< (abs (- (apply-easing :linear 0.5) 0.5)) 0.001))
+  (is (< (abs (- (apply-easing :ease-out-cubic 0.0) 0.0)) 0.001))
+  (is (< (abs (- (apply-easing :ease-in-quad 1.0) 1.0)) 0.001)))
+
+(test apply-easing-monotonic
+  "Test that all easing functions are monotonically increasing."
+  (dolist (easing '(:linear :ease-in-quad :ease-out-quad :ease-in-out-quad
+                    :ease-in-cubic :ease-out-cubic :ease-in-out-cubic))
+    (let ((prev 0.0))
+      (dotimes (i 100)
+        (let* ((tt (/ (float (1+ i)) 100.0))
+               (val (apply-easing easing tt)))
+          (is (>= val prev)
+              (format nil "~a not monotonic at t=~f: ~f < ~f" easing tt val prev))
+          (setf prev val))))))
+
+;;; ===================================================================
+;;; Vec3-Lerp Tests
+;;; ===================================================================
+
+(def-suite vec3-lerp-tests
+  :in holodeck-tests
+  :description "Tests for vec3 linear interpolation")
+
+(in-suite vec3-lerp-tests)
+
+(test vec3-lerp-at-zero
+  "Test vec3-lerp returns A when t=0."
+  (let* ((a (3d-vectors:vec3 1.0 2.0 3.0))
+         (b (3d-vectors:vec3 4.0 5.0 6.0))
+         (result (vec3-lerp a b 0.0)))
+    (is (< (abs (- (3d-vectors:vx result) 1.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vy result) 2.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vz result) 3.0)) 0.001))))
+
+(test vec3-lerp-at-one
+  "Test vec3-lerp returns B when t=1."
+  (let* ((a (3d-vectors:vec3 1.0 2.0 3.0))
+         (b (3d-vectors:vec3 4.0 5.0 6.0))
+         (result (vec3-lerp a b 1.0)))
+    (is (< (abs (- (3d-vectors:vx result) 4.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vy result) 5.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vz result) 6.0)) 0.001))))
+
+(test vec3-lerp-at-half
+  "Test vec3-lerp returns midpoint at t=0.5."
+  (let* ((a (3d-vectors:vec3 0.0 0.0 0.0))
+         (b (3d-vectors:vec3 10.0 20.0 30.0))
+         (result (vec3-lerp a b 0.5)))
+    (is (< (abs (- (3d-vectors:vx result) 5.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vy result) 10.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vz result) 15.0)) 0.001))))
+
+;;; ===================================================================
+;;; Camera Transition Tests
+;;; ===================================================================
+
+(def-suite camera-transition-tests
+  :in holodeck-tests
+  :description "Tests for smooth camera transitions with easing")
+
+(in-suite camera-transition-tests)
+
+;; --- Camera Transition Class ---
+
+(test camera-transition-creation
+  "Test that camera-transition is created with correct values."
+  (let* ((start-pos (3d-vectors:vec3 0.0 5.0 30.0))
+         (end-pos (3d-vectors:vec3 10.0 3.0 10.0))
+         (start-tgt (3d-vectors:vec3 0.0 0.0 0.0))
+         (end-tgt (3d-vectors:vec3 10.0 0.0 0.0))
+         (trans (make-camera-transition
+                 :start-position start-pos
+                 :end-position end-pos
+                 :start-target start-tgt
+                 :end-target end-tgt
+                 :duration 2.0
+                 :easing :ease-in-quad)))
+    (is (= 2.0 (transition-duration trans)))
+    (is (= 0.0 (transition-elapsed trans)))
+    (is (eq :ease-in-quad (transition-easing trans)))))
+
+(test camera-transition-not-complete-initially
+  "Test that a new transition is not complete."
+  (let ((trans (make-camera-transition :duration 1.0)))
+    (is (not (camera-transition-complete-p trans)))))
+
+(test camera-transition-progress-zero-initially
+  "Test that progress is 0 for a new transition."
+  (let ((trans (make-camera-transition :duration 1.0)))
+    (is (< (abs (camera-transition-progress trans)) 0.001))))
+
+(test camera-transition-completes-after-duration
+  "Test that transition completes after enough time."
+  (let ((trans (make-camera-transition :duration 1.0)))
+    (advance-camera-transition trans 1.0)
+    (is (camera-transition-complete-p trans))))
+
+(test camera-transition-progress-at-half
+  "Test progress is ~0.5 at half the duration."
+  (let ((trans (make-camera-transition :duration 2.0)))
+    (advance-camera-transition trans 1.0)
+    (is (< (abs (- (camera-transition-progress trans) 0.5)) 0.001))))
+
+(test camera-transition-minimum-duration
+  "Test that duration is clamped to a minimum positive value."
+  (let ((trans (make-camera-transition :duration 0.0)))
+    ;; Should not be zero to avoid division by zero
+    (is (> (transition-duration trans) 0.0))))
+
+;; --- Advance Transition ---
+
+(test advance-transition-interpolates-position
+  "Test that advancing a transition interpolates position."
+  (let* ((start (3d-vectors:vec3 0.0 0.0 0.0))
+         (end (3d-vectors:vec3 10.0 0.0 0.0))
+         (trans (make-camera-transition
+                 :start-position start
+                 :end-position end
+                 :duration 1.0
+                 :easing :linear)))
+    (multiple-value-bind (pos tgt)
+        (advance-camera-transition trans 0.5)
+      (declare (ignore tgt))
+      ;; With linear easing at 50%, should be at 5.0
+      (is (< (abs (- (3d-vectors:vx pos) 5.0)) 0.001)))))
+
+(test advance-transition-interpolates-target
+  "Test that advancing a transition interpolates target."
+  (let* ((start-tgt (3d-vectors:vec3 0.0 0.0 0.0))
+         (end-tgt (3d-vectors:vec3 0.0 10.0 0.0))
+         (trans (make-camera-transition
+                 :start-target start-tgt
+                 :end-target end-tgt
+                 :duration 1.0
+                 :easing :linear)))
+    (multiple-value-bind (pos tgt)
+        (advance-camera-transition trans 0.5)
+      (declare (ignore pos))
+      (is (< (abs (- (3d-vectors:vy tgt) 5.0)) 0.001)))))
+
+(test advance-transition-reaches-end
+  "Test that a completed transition returns the end values."
+  (let* ((end-pos (3d-vectors:vec3 10.0 20.0 30.0))
+         (end-tgt (3d-vectors:vec3 5.0 5.0 5.0))
+         (trans (make-camera-transition
+                 :end-position end-pos
+                 :end-target end-tgt
+                 :duration 1.0
+                 :easing :linear)))
+    (multiple-value-bind (pos tgt)
+        (advance-camera-transition trans 2.0)
+      (is (< (abs (- (3d-vectors:vx pos) 10.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy pos) 20.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz pos) 30.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vx tgt) 5.0)) 0.001)))))
+
+(test advance-transition-uses-easing
+  "Test that non-linear easing produces different results than linear."
+  (let* ((start (3d-vectors:vec3 0.0 0.0 0.0))
+         (end (3d-vectors:vec3 100.0 0.0 0.0))
+         (trans-linear (make-camera-transition
+                        :start-position start :end-position end
+                        :duration 1.0 :easing :linear))
+         (trans-eased (make-camera-transition
+                       :start-position start :end-position end
+                       :duration 1.0 :easing :ease-in-cubic)))
+    (multiple-value-bind (pos-l tgt-l)
+        (advance-camera-transition trans-linear 0.5)
+      (declare (ignore tgt-l))
+      (multiple-value-bind (pos-e tgt-e)
+          (advance-camera-transition trans-eased 0.5)
+        (declare (ignore tgt-e))
+        ;; Ease-in-cubic at t=0.5 should be 0.125 * 100 = 12.5, not 50.0
+        (is (not (< (abs (- (3d-vectors:vx pos-l) (3d-vectors:vx pos-e))) 0.1)))))))
+
+;; --- Animate Camera To ---
+
+(test animate-orbit-camera-to-creates-transition
+  "Test that animate-camera-to creates a valid transition for orbit camera."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 30.0))
+         (end-pos (3d-vectors:vec3 5.0 3.0 10.0))
+         (end-tgt (3d-vectors:vec3 5.0 0.0 0.0))
+         (trans (animate-camera-to cam end-pos end-tgt :duration 1.5)))
+    (is (typep trans 'camera-transition))
+    (is (= 1.5 (transition-duration trans)))
+    ;; Start position should match camera's current position
+    (let ((cam-pos (camera-position cam))
+          (start-pos (transition-start-position trans)))
+      (is (< (abs (- (3d-vectors:vx cam-pos) (3d-vectors:vx start-pos))) 0.001)))
+    ;; Start target should match camera's current target
+    (let ((cam-tgt (camera-target cam))
+          (start-tgt (transition-start-target trans)))
+      (is (< (abs (- (3d-vectors:vx cam-tgt) (3d-vectors:vx start-tgt))) 0.001)))))
+
+(test animate-fly-camera-to-creates-transition
+  "Test that animate-camera-to creates a valid transition for fly camera."
+  (let* ((cam (make-fly-camera :position (3d-vectors:vec3 0.0 5.0 30.0)))
+         (end-pos (3d-vectors:vec3 10.0 3.0 10.0))
+         (end-tgt (3d-vectors:vec3 10.0 0.0 0.0))
+         (trans (animate-camera-to cam end-pos end-tgt :duration 2.0)))
+    (is (typep trans 'camera-transition))
+    (is (= 2.0 (transition-duration trans)))
+    ;; Start position should match fly camera's current position
+    (let ((start-pos (transition-start-position trans)))
+      (is (< (abs (- (3d-vectors:vx start-pos) 0.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vy start-pos) 5.0)) 0.001))
+      (is (< (abs (- (3d-vectors:vz start-pos) 30.0)) 0.001)))))
+
+;; --- Apply Camera Transition ---
+
+(test apply-transition-to-orbit-camera
+  "Test applying a transition updates orbit camera state."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 30.0))
+         (end-pos (3d-vectors:vec3 5.0 3.0 10.0))
+         (end-tgt (3d-vectors:vec3 5.0 0.0 0.0))
+         (trans (animate-camera-to cam end-pos end-tgt
+                                   :duration 1.0 :easing :linear)))
+    ;; Apply half the transition
+    (let ((active (apply-camera-transition cam trans 0.5)))
+      (is (eq t active))  ; Should still be active
+      ;; Camera target should have moved toward end-tgt
+      (let ((tgt (camera-target cam)))
+        (is (> (3d-vectors:vx tgt) 0.1))))))
+
+(test apply-transition-to-orbit-camera-completes
+  "Test that orbit camera transition completes and returns NIL."
+  (let* ((cam (make-orbit-camera))
+         (end-pos (3d-vectors:vec3 5.0 3.0 10.0))
+         (end-tgt (3d-vectors:vec3 5.0 0.0 0.0))
+         (trans (animate-camera-to cam end-pos end-tgt :duration 0.5)))
+    (let ((active (apply-camera-transition cam trans 1.0)))
+      (is (null active)))))
+
+(test apply-transition-to-fly-camera
+  "Test applying a transition updates fly camera state."
+  (let* ((cam (make-fly-camera :position (3d-vectors:vec3 0.0 0.0 0.0)))
+         (end-pos (3d-vectors:vec3 10.0 0.0 0.0))
+         (end-tgt (3d-vectors:vec3 20.0 0.0 0.0))
+         (trans (animate-camera-to cam end-pos end-tgt
+                                   :duration 1.0 :easing :linear)))
+    (apply-camera-transition cam trans 1.0)
+    ;; Position should now be at end-pos
+    (let ((pos (fly-camera-position-vec cam)))
+      (is (< (abs (- (3d-vectors:vx pos) 10.0)) 0.01)))))
+
+(test apply-transition-stops-fly-camera-velocity
+  "Test that fly camera velocity is zeroed during transition."
+  (let* ((cam (make-fly-camera :position (3d-vectors:vec3 0.0 0.0 0.0)
+                                :speed 10.0 :damping 1.0))
+         (trans (animate-camera-to cam
+                                   (3d-vectors:vec3 10.0 0.0 0.0)
+                                   (3d-vectors:vec3 10.0 0.0 -10.0)
+                                   :duration 1.0)))
+    ;; Give camera some velocity first
+    (fly-camera-move cam :forward)
+    (apply-camera-transition cam trans 0.5)
+    ;; Velocity should be zero
+    (let ((vel (fly-camera-velocity cam)))
+      (is (< (3d-vectors:vlength vel) 0.001)))))

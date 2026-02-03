@@ -287,6 +287,35 @@
    #:*phi-min*
    #:*phi-max*
 
+   ;; Easing functions
+   #:ease-linear
+   #:ease-in-quad
+   #:ease-out-quad
+   #:ease-in-out-quad
+   #:ease-in-cubic
+   #:ease-out-cubic
+   #:ease-in-out-cubic
+   #:apply-easing
+
+   ;; Vector interpolation
+   #:vec3-lerp
+
+   ;; Camera transitions
+   #:camera-transition
+   #:make-camera-transition
+   #:transition-start-position
+   #:transition-end-position
+   #:transition-start-target
+   #:transition-end-target
+   #:transition-duration
+   #:transition-elapsed
+   #:transition-easing
+   #:camera-transition-progress
+   #:camera-transition-complete-p
+   #:advance-camera-transition
+   #:animate-camera-to
+   #:apply-camera-transition
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck

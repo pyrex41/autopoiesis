@@ -612,3 +612,247 @@
                  :fov (coerce fov 'single-float)
                  :near-plane (coerce near 'single-float)
                  :far-plane (coerce far 'single-float)))
+
+;;; ===================================================================
+;;; Easing Functions
+;;; ===================================================================
+;;;
+;;; Standard easing curves for smooth camera transitions.
+;;; All functions take a normalized progress value T in [0,1]
+;;; and return an eased value in [0,1].
+
+(defun ease-linear (tt)
+  "Linear interpolation (no easing).  TT is progress in [0,1]."
+  (coerce (max 0.0 (min 1.0 tt)) 'single-float))
+
+(defun ease-in-quad (tt)
+  "Quadratic ease-in: starts slow, accelerates."
+  (let ((t-clamped (coerce (max 0.0 (min 1.0 tt)) 'single-float)))
+    (* t-clamped t-clamped)))
+
+(defun ease-out-quad (tt)
+  "Quadratic ease-out: starts fast, decelerates."
+  (let ((t-clamped (coerce (max 0.0 (min 1.0 tt)) 'single-float)))
+    (- 1.0 (* (- 1.0 t-clamped) (- 1.0 t-clamped)))))
+
+(defun ease-in-out-quad (tt)
+  "Quadratic ease-in-out: slow start and end, fast middle."
+  (let ((t-clamped (coerce (max 0.0 (min 1.0 tt)) 'single-float)))
+    (if (< t-clamped 0.5)
+        (* 2.0 t-clamped t-clamped)
+        (- 1.0 (* 2.0 (- 1.0 t-clamped) (- 1.0 t-clamped))))))
+
+(defun ease-in-cubic (tt)
+  "Cubic ease-in: starts very slow, accelerates sharply."
+  (let ((t-clamped (coerce (max 0.0 (min 1.0 tt)) 'single-float)))
+    (* t-clamped t-clamped t-clamped)))
+
+(defun ease-out-cubic (tt)
+  "Cubic ease-out: starts fast, decelerates smoothly."
+  (let* ((t-clamped (coerce (max 0.0 (min 1.0 tt)) 'single-float))
+         (inv (- 1.0 t-clamped)))
+    (- 1.0 (* inv inv inv))))
+
+(defun ease-in-out-cubic (tt)
+  "Cubic ease-in-out: very smooth start and end."
+  (let ((t-clamped (coerce (max 0.0 (min 1.0 tt)) 'single-float)))
+    (if (< t-clamped 0.5)
+        (* 4.0 t-clamped t-clamped t-clamped)
+        (let ((inv (- 1.0 t-clamped)))
+          (- 1.0 (* 4.0 inv inv inv))))))
+
+(defun apply-easing (easing-type tt)
+  "Apply the named easing function EASING-TYPE to progress TT.
+   EASING-TYPE is a keyword: :linear, :ease-in-quad, :ease-out-quad,
+   :ease-in-out-quad, :ease-in-cubic, :ease-out-cubic, :ease-in-out-cubic."
+  (ecase easing-type
+    (:linear (ease-linear tt))
+    (:ease-in-quad (ease-in-quad tt))
+    (:ease-out-quad (ease-out-quad tt))
+    (:ease-in-out-quad (ease-in-out-quad tt))
+    (:ease-in-cubic (ease-in-cubic tt))
+    (:ease-out-cubic (ease-out-cubic tt))
+    (:ease-in-out-cubic (ease-in-out-cubic tt))))
+
+;;; ===================================================================
+;;; Vector Interpolation Helper
+;;; ===================================================================
+
+(defun vec3-lerp (a b tt)
+  "Linearly interpolate between vec3 A and vec3 B by factor TT.
+   TT=0 returns A, TT=1 returns B."
+  (let ((t-f (coerce tt 'single-float)))
+    (v+ (v* a (- 1.0 t-f))
+        (v* b t-f))))
+
+;;; ===================================================================
+;;; Camera Transition Class
+;;; ===================================================================
+
+(defclass camera-transition ()
+  ((start-position :initarg :start-position
+                   :accessor transition-start-position
+                   :initform (vec3 0.0 0.0 0.0)
+                   :documentation "Camera position at start of transition.")
+   (end-position :initarg :end-position
+                 :accessor transition-end-position
+                 :initform (vec3 0.0 0.0 0.0)
+                 :documentation "Camera position at end of transition.")
+   (start-target :initarg :start-target
+                 :accessor transition-start-target
+                 :initform (vec3 0.0 0.0 0.0)
+                 :documentation "Camera look-at target at start of transition.")
+   (end-target :initarg :end-target
+               :accessor transition-end-target
+               :initform (vec3 0.0 0.0 0.0)
+               :documentation "Camera look-at target at end of transition.")
+   (duration :initarg :duration
+             :accessor transition-duration
+             :initform 1.0
+             :type single-float
+             :documentation "Total transition duration in seconds.")
+   (elapsed :initarg :elapsed
+            :accessor transition-elapsed
+            :initform 0.0
+            :type single-float
+            :documentation "Time elapsed since transition started.")
+   (easing :initarg :easing
+           :accessor transition-easing
+           :initform :ease-out-cubic
+           :type keyword
+           :documentation "Easing function to use for interpolation."))
+  (:documentation
+   "Represents an in-progress smooth camera transition.
+    Interpolates both position and look-at target from start to end
+    over the given duration using the specified easing function."))
+
+(defun make-camera-transition (&key (start-position (vec3 0.0 0.0 0.0))
+                                     (end-position (vec3 0.0 0.0 0.0))
+                                     (start-target (vec3 0.0 0.0 0.0))
+                                     (end-target (vec3 0.0 0.0 0.0))
+                                     (duration 1.0)
+                                     (easing :ease-out-cubic))
+  "Create a new camera-transition with the given parameters."
+  (make-instance 'camera-transition
+                 :start-position start-position
+                 :end-position end-position
+                 :start-target start-target
+                 :end-target end-target
+                 :duration (coerce (max 0.001 duration) 'single-float)
+                 :elapsed 0.0
+                 :easing easing))
+
+(defgeneric camera-transition-progress (transition)
+  (:documentation "Return the raw (un-eased) progress of the transition in [0,1]."))
+
+(defmethod camera-transition-progress ((trans camera-transition))
+  "Compute normalized progress as elapsed/duration, clamped to [0,1]."
+  (min 1.0 (/ (transition-elapsed trans) (transition-duration trans))))
+
+(defgeneric camera-transition-complete-p (transition)
+  (:documentation "Return T if the transition has completed."))
+
+(defmethod camera-transition-complete-p ((trans camera-transition))
+  "A transition is complete when elapsed >= duration."
+  (>= (transition-elapsed trans) (transition-duration trans)))
+
+(defgeneric advance-camera-transition (transition dt)
+  (:documentation "Advance the transition by DT seconds and return interpolated
+    position and target as two vec3 values."))
+
+(defmethod advance-camera-transition ((trans camera-transition) dt)
+  "Advance transition by DT seconds.  Returns two values:
+   1. Interpolated position (vec3)
+   2. Interpolated target (vec3)
+   The transition's elapsed time is updated."
+  (incf (transition-elapsed trans) (coerce dt 'single-float))
+  (let* ((raw-progress (camera-transition-progress trans))
+         (eased (apply-easing (transition-easing trans) raw-progress)))
+    (values (vec3-lerp (transition-start-position trans)
+                       (transition-end-position trans)
+                       eased)
+            (vec3-lerp (transition-start-target trans)
+                       (transition-end-target trans)
+                       eased))))
+
+;;; ===================================================================
+;;; Initiating Camera Transitions
+;;; ===================================================================
+
+(defgeneric animate-camera-to (camera end-position end-target &key duration easing)
+  (:documentation "Begin a smooth transition of CAMERA to END-POSITION looking at END-TARGET.
+    Returns the created camera-transition object."))
+
+(defmethod animate-camera-to ((cam orbit-camera) end-position end-target
+                              &key (duration 1.0) (easing :ease-out-cubic))
+  "Begin a smooth transition for the orbit camera.
+   Captures current position and target as the start state."
+  (make-camera-transition
+   :start-position (camera-position cam)
+   :end-position end-position
+   :start-target (camera-target cam)
+   :end-target end-target
+   :duration duration
+   :easing easing))
+
+(defmethod animate-camera-to ((cam fly-camera) end-position end-target
+                              &key (duration 1.0) (easing :ease-out-cubic))
+  "Begin a smooth transition for the fly camera.
+   Captures current position and forward-derived target as the start state."
+  (let ((current-pos (fly-camera-position-vec cam))
+        (current-target (v+ (fly-camera-position-vec cam) (camera-forward cam))))
+    (make-camera-transition
+     :start-position current-pos
+     :end-position end-position
+     :start-target current-target
+     :end-target end-target
+     :duration duration
+     :easing easing)))
+
+;;; ===================================================================
+;;; Applying Transitions to Cameras
+;;; ===================================================================
+
+(defgeneric apply-camera-transition (camera transition dt)
+  (:documentation "Advance TRANSITION by DT and apply the interpolated state to CAMERA.
+    Returns T if the transition is still active, NIL if complete."))
+
+(defmethod apply-camera-transition ((cam orbit-camera) (trans camera-transition) dt)
+  "Apply transition to orbit camera by updating target and recomputing
+   spherical coordinates from the interpolated position."
+  (multiple-value-bind (new-pos new-target)
+      (advance-camera-transition trans dt)
+    ;; Update target
+    (setf (camera-target cam) new-target)
+    ;; Derive spherical coordinates from new position relative to new target
+    (let* ((offset (v- new-pos new-target))
+           (dist (vlength offset)))
+      (when (> dist 1.0e-6)
+        (setf (camera-distance cam) (coerce dist 'single-float))
+        (let* ((ox (vx offset))
+               (oy (vy offset))
+               (oz (vz offset)))
+          (setf (camera-phi cam) (coerce (asin (/ oy dist)) 'single-float))
+          (setf (camera-theta cam) (coerce (atan ox oz) 'single-float))))))
+  (not (camera-transition-complete-p trans)))
+
+(defmethod apply-camera-transition ((cam fly-camera) (trans camera-transition) dt)
+  "Apply transition to fly camera by updating position and deriving
+   yaw/pitch from the interpolated target direction."
+  (multiple-value-bind (new-pos new-target)
+      (advance-camera-transition trans dt)
+    ;; Update position
+    (setf (fly-camera-position-vec cam) new-pos)
+    ;; Derive yaw and pitch from direction to target
+    (let* ((dir (v- new-target new-pos))
+           (len (vlength dir)))
+      (when (> len 1.0e-6)
+        (let* ((dx (/ (vx dir) len))
+               (dy (/ (vy dir) len))
+               (dz (/ (vz dir) len)))
+          (setf (fly-camera-pitch cam) (coerce (asin dy) 'single-float))
+          (setf (fly-camera-yaw cam)
+                (coerce (atan (- dx) (- dz)) 'single-float)))))
+    ;; Stop any velocity during transition
+    (setf (fly-camera-velocity cam) (vec3 0.0 0.0 0.0)))
+  (not (camera-transition-complete-p trans)))
