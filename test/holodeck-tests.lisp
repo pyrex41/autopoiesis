@@ -459,3 +459,295 @@
     (is (not (null beam)))
     (is (stringp (getf beam :vertex)))
     (is (stringp (getf beam :fragment)))))
+
+;;; ===================================================================
+;;; Shader Program Tests
+;;; ===================================================================
+
+(def-suite shader-tests
+  :in holodeck-tests
+  :description "Tests for shader programs, materials, and CPU-side computation")
+
+(in-suite shader-tests)
+
+;; --- Shader Program Class ---
+
+(test shader-program-creation
+  "Test that shader-program can be created with all slots."
+  (let ((prog (make-hologram-node-shader)))
+    (is (eq :hologram-node (shader-program-name prog)))
+    (is (stringp (shader-program-vertex-source prog)))
+    (is (stringp (shader-program-fragment-source prog)))
+    (is (listp (shader-program-uniforms prog)))
+    (is (> (length (shader-program-uniforms prog)) 0))))
+
+(test shader-program-uniform-names-extraction
+  "Test that uniform names are correctly extracted."
+  (let* ((prog (make-hologram-node-shader))
+         (names (shader-program-uniform-names prog)))
+    (is (member "model" names :test #'string=))
+    (is (member "view" names :test #'string=))
+    (is (member "projection" names :test #'string=))
+    (is (member "viewPos" names :test #'string=))
+    (is (member "baseColor" names :test #'string=))
+    (is (member "glowIntensity" names :test #'string=))
+    (is (member "time" names :test #'string=))))
+
+(test energy-beam-shader-creation
+  "Test energy-beam shader program."
+  (let ((prog (make-energy-beam-shader)))
+    (is (eq :energy-beam (shader-program-name prog)))
+    (is (stringp (shader-program-vertex-source prog)))
+    (is (stringp (shader-program-fragment-source prog)))
+    (let ((names (shader-program-uniform-names prog)))
+      (is (member "energyFlow" names :test #'string=))
+      (is (member "color" names :test #'string=)))))
+
+(test glow-shader-creation
+  "Test glow shader program."
+  (let ((prog (make-glow-shader)))
+    (is (eq :glow (shader-program-name prog)))
+    (let ((names (shader-program-uniform-names prog)))
+      (is (member "glowColor" names :test #'string=))
+      (is (member "intensity" names :test #'string=))
+      (is (member "falloff" names :test #'string=)))))
+
+(test glow-shader-sources-defined
+  "Test that glow shader sources are non-empty strings."
+  (is (stringp *glow-vertex-shader*))
+  (is (> (length *glow-vertex-shader*) 0))
+  (is (stringp *glow-fragment-shader*))
+  (is (> (length *glow-fragment-shader*) 0)))
+
+;; --- Shader Registry ---
+
+(test shader-registry-operations
+  "Test register, find, list, and clear operations."
+  (clear-shader-registry)
+  ;; Initially empty
+  (is (null (list-shader-programs)))
+  (is (null (find-shader-program :hologram-node)))
+  ;; Register
+  (let ((prog (make-hologram-node-shader)))
+    (register-shader-program prog)
+    (is (eq prog (find-shader-program :hologram-node)))
+    (is (member :hologram-node (list-shader-programs))))
+  ;; Clear
+  (clear-shader-registry)
+  (is (null (find-shader-program :hologram-node))))
+
+(test register-holodeck-shaders-registers-all
+  "Test that register-holodeck-shaders registers all standard shaders."
+  (clear-shader-registry)
+  (let ((names (register-holodeck-shaders)))
+    (is (member :hologram-node names))
+    (is (member :energy-beam names))
+    (is (member :glow names))
+    ;; All are findable
+    (is (not (null (find-shader-program :hologram-node))))
+    (is (not (null (find-shader-program :energy-beam))))
+    (is (not (null (find-shader-program :glow)))))
+  (clear-shader-registry))
+
+;; --- Shader Validation ---
+
+(test validate-shader-source-valid
+  "Test validation passes for well-formed shader source."
+  (is (eq t (validate-shader-source *hologram-node-vertex-shader*)))
+  (is (eq t (validate-shader-source *hologram-node-fragment-shader*)))
+  (is (eq t (validate-shader-source *energy-beam-vertex-shader*)))
+  (is (eq t (validate-shader-source *energy-beam-fragment-shader*)))
+  (is (eq t (validate-shader-source *glow-vertex-shader*)))
+  (is (eq t (validate-shader-source *glow-fragment-shader*))))
+
+(test validate-shader-source-missing-version
+  "Test validation fails when #version is missing."
+  (signals error
+    (validate-shader-source "void main() { }")))
+
+(test validate-shader-source-missing-main
+  "Test validation fails when main() is missing."
+  (signals error
+    (validate-shader-source "#version 330 core
+out vec4 color;")))
+
+(test validate-shader-source-not-string
+  "Test validation fails for non-string input."
+  (signals error
+    (validate-shader-source 42)))
+
+(test validate-shader-program-hologram
+  "Test full program validation for hologram-node shader."
+  (is (eq t (validate-shader-program (make-hologram-node-shader)))))
+
+(test validate-shader-program-energy-beam
+  "Test full program validation for energy-beam shader."
+  (is (eq t (validate-shader-program (make-energy-beam-shader)))))
+
+(test validate-shader-program-glow
+  "Test full program validation for glow shader."
+  (is (eq t (validate-shader-program (make-glow-shader)))))
+
+;; --- Hologram Material ---
+
+(test hologram-material-defaults
+  "Test hologram-material default values."
+  (let ((mat (make-instance 'hologram-material)))
+    (is (listp (material-base-color mat)))
+    (is (= 4 (length (material-base-color mat))))
+    (is (= 1.0 (material-glow-intensity mat)))
+    (is (= 3.0 (material-fresnel-power mat)))
+    (is (= 50.0 (material-scanline-frequency mat)))
+    (is (= 2.0 (material-scanline-speed mat)))
+    (is (= 0.2 (material-scanline-intensity mat)))
+    (is (eq :hologram-node (material-shader mat)))))
+
+(test hologram-material-for-decision-type
+  "Test material factory for :decision snapshot type."
+  (let ((mat (make-hologram-material-for-type :decision)))
+    ;; Decision should have gold-ish base color
+    (is (> (first (material-base-color mat)) 0.8))
+    ;; Should have higher glow intensity than default
+    (is (> (material-glow-intensity mat) 1.0))
+    ;; Should have higher scanline frequency
+    (is (> (material-scanline-frequency mat) 50.0))))
+
+(test hologram-material-for-genesis-type
+  "Test material factory for :genesis snapshot type."
+  (let ((mat (make-hologram-material-for-type :genesis)))
+    ;; Genesis is green
+    (is (> (second (material-base-color mat)) 0.8))
+    ;; Lower fresnel power for wider glow
+    (is (< (material-fresnel-power mat) 3.0))))
+
+(test hologram-material-for-error-type
+  "Test material factory for :error snapshot type."
+  (let ((mat (make-hologram-material-for-type :error)))
+    ;; Error is red
+    (is (> (first (material-base-color mat)) 0.8))
+    ;; Red glow color
+    (is (> (first (material-glow-color mat)) 0.8))
+    ;; High glow intensity
+    (is (> (material-glow-intensity mat) 2.0))))
+
+(test hologram-material-for-unknown-type
+  "Test material factory for unknown snapshot types uses defaults."
+  (let ((mat (make-hologram-material-for-type :something-unknown)))
+    (is (= 1.0 (material-glow-intensity mat)))
+    (is (= 3.0 (material-fresnel-power mat)))
+    (is (= 50.0 (material-scanline-frequency mat)))))
+
+(test hologram-material-types-differ
+  "Test that different snapshot types produce different materials."
+  (let ((decision (make-hologram-material-for-type :decision))
+        (genesis (make-hologram-material-for-type :genesis))
+        (fork (make-hologram-material-for-type :fork)))
+    ;; All should have different base colors
+    (is (not (equal (material-base-color decision)
+                    (material-base-color genesis))))
+    (is (not (equal (material-base-color decision)
+                    (material-base-color fork))))))
+
+;; --- CPU-Side Fresnel ---
+
+(test compute-fresnel-face-on
+  "Test Fresnel is minimal when surface faces viewer directly."
+  ;; normal-dot-view = 1.0 means facing camera directly
+  (is (< (compute-fresnel 1.0 3.0) 0.01)))
+
+(test compute-fresnel-edge-on
+  "Test Fresnel is maximal when surface is edge-on."
+  ;; normal-dot-view = 0.0 means perpendicular to camera
+  (is (> (compute-fresnel 0.0 3.0) 0.99)))
+
+(test compute-fresnel-intermediate
+  "Test Fresnel is between 0 and 1 at intermediate angles."
+  (let ((f (compute-fresnel 0.5 3.0)))
+    (is (> f 0.0))
+    (is (< f 1.0))))
+
+(test compute-fresnel-power-effect
+  "Test that higher Fresnel power concentrates glow more at edges."
+  (let ((low-power (compute-fresnel 0.5 1.0))
+        (high-power (compute-fresnel 0.5 5.0)))
+    ;; Higher power should produce smaller (more concentrated) values
+    (is (> low-power high-power))))
+
+(test compute-fresnel-clamps-input
+  "Test Fresnel handles out-of-range inputs gracefully."
+  ;; Values outside [0,1] should be clamped
+  (is (< (compute-fresnel 1.5 3.0) 0.01))   ; clamped to 1.0
+  (is (> (compute-fresnel -0.5 3.0) 0.99)))  ; clamped to 0.0
+
+;; --- CPU-Side Scanline ---
+
+(test compute-scanline-range
+  "Test scanline output is in [0,1] range."
+  (dotimes (i 10)
+    (let ((val (compute-scanline (float i) 0.0 50.0 2.0)))
+      (is (>= val 0.0))
+      (is (<= val 1.0)))))
+
+(test compute-scanline-varies-with-position
+  "Test that scanline varies with Y position."
+  (let ((v1 (compute-scanline 0.0 0.0 50.0 2.0))
+        (v2 (compute-scanline 0.05 0.0 50.0 2.0)))
+    ;; Different Y positions should give different scanline values
+    ;; (unless we happen to hit the same phase, which is unlikely)
+    (is (not (= v1 v2)))))
+
+(test compute-scanline-varies-with-time
+  "Test that scanline varies with time (animation)."
+  (let ((v1 (compute-scanline 1.0 0.0 50.0 2.0))
+        (v2 (compute-scanline 1.0 0.5 50.0 2.0)))
+    (is (not (= v1 v2)))))
+
+;; --- CPU-Side Hologram Color ---
+
+(test compute-hologram-color-returns-four-values
+  "Test that compute-hologram-color returns R G B A."
+  (let ((mat (make-instance 'hologram-material)))
+    (multiple-value-bind (r g b a)
+        (compute-hologram-color mat 0.8 5.0 0.0)
+      (is (numberp r))
+      (is (numberp g))
+      (is (numberp b))
+      (is (numberp a)))))
+
+(test compute-hologram-color-range
+  "Test output colors are in [0,1] range."
+  (let ((mat (make-instance 'hologram-material)))
+    (dotimes (i 10)
+      (multiple-value-bind (r g b a)
+          (compute-hologram-color mat
+                                  (/ (float i) 10.0)
+                                  (float i)
+                                  (* i 0.1))
+        (is (>= r 0.0)) (is (<= r 1.0))
+        (is (>= g 0.0)) (is (<= g 1.0))
+        (is (>= b 0.0)) (is (<= b 1.0))
+        (is (>= a 0.0)) (is (<= a 1.0))))))
+
+(test compute-hologram-color-edge-glow
+  "Test that edges (low normal-dot-view) are brighter than faces."
+  (let ((mat (make-instance 'hologram-material
+                            :glow-intensity 2.0)))
+    (multiple-value-bind (er eg eb ea)
+        (compute-hologram-color mat 0.0 5.0 0.0)  ; edge-on
+      (multiple-value-bind (fr fg fb fa)
+          (compute-hologram-color mat 1.0 5.0 0.0)  ; face-on
+        (declare (ignore ea fa))
+        ;; Edge should be brighter due to Fresnel glow
+        (is (> (+ er eg eb) (+ fr fg fb)))))))
+
+(test compute-hologram-color-with-decision-material
+  "Test hologram color with a decision-type material."
+  (let ((mat (make-hologram-material-for-type :decision)))
+    (multiple-value-bind (r g b a)
+        (compute-hologram-color mat 0.5 3.0 1.0)
+      (is (numberp r))
+      (is (numberp g))
+      (is (numberp b))
+      (is (numberp a))
+      ;; Decision material has gold base, so red should dominate
+      (is (> r g)))))

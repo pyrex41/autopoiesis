@@ -125,7 +125,45 @@
    #:*hologram-node-fragment-shader*
    #:*energy-beam-vertex-shader*
    #:*energy-beam-fragment-shader*
+   #:*glow-vertex-shader*
+   #:*glow-fragment-shader*
    #:*shader-sources*
+
+   ;; Shader program class and registry
+   #:shader-program
+   #:shader-program-name
+   #:shader-program-vertex-source
+   #:shader-program-fragment-source
+   #:shader-program-uniforms
+   #:shader-program-uniform-names
+   #:register-shader-program
+   #:find-shader-program
+   #:list-shader-programs
+   #:clear-shader-registry
+   #:*shader-registry*
+   #:make-hologram-node-shader
+   #:make-energy-beam-shader
+   #:make-glow-shader
+   #:register-holodeck-shaders
+   #:validate-shader-source
+   #:validate-shader-program
+
+   ;; Hologram material
+   #:hologram-material
+   #:material-base-color
+   #:material-glow-intensity
+   #:material-glow-color
+   #:material-fresnel-power
+   #:material-scanline-frequency
+   #:material-scanline-speed
+   #:material-scanline-intensity
+   #:material-shader
+   #:make-hologram-material-for-type
+
+   ;; CPU-side shader computation
+   #:compute-fresnel
+   #:compute-scanline
+   #:compute-hologram-color
 
    ;; Lifecycle
    #:*holodeck*
