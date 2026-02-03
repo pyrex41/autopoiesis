@@ -68,7 +68,7 @@ Current Phase: 5 (Claude Integration)
 - [x] Implement Claude API HTTP communication (dexador)
 - [x] Implement tool mapping (capability → Claude tool)
 - [x] Implement session management
-- [ ] Write Claude integration tests (mocked)
+- [x] Write Claude integration tests (mocked)
 
 ## Blocked / Needs Human Input
 

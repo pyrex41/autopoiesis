@@ -476,3 +476,297 @@
       (is (= 2 (length sessions)))
       (is (member s1 sessions))
       (is (member s2 sessions)))))
+
+;;; ===================================================================
+;;; Name Conversion Tests
+;;; ===================================================================
+
+(test lisp-name-to-tool-name-conversion
+  "Test converting Lisp names to Claude tool names (kebab-case to snake_case)"
+  ;; Keyword symbols
+  (is (equal "read_file" (autopoiesis.integration:lisp-name-to-tool-name :read-file)))
+  (is (equal "get_user_info" (autopoiesis.integration:lisp-name-to-tool-name :get-user-info)))
+  (is (equal "simple" (autopoiesis.integration:lisp-name-to-tool-name :simple)))
+  ;; Strings
+  (is (equal "read_file" (autopoiesis.integration:lisp-name-to-tool-name "read-file")))
+  (is (equal "read_file" (autopoiesis.integration:lisp-name-to-tool-name "READ-FILE")))
+  ;; Regular symbols
+  (is (equal "some_function" (autopoiesis.integration:lisp-name-to-tool-name 'some-function))))
+
+(test tool-name-to-lisp-name-conversion
+  "Test converting Claude tool names to Lisp names (snake_case to kebab-case)"
+  (is (eq :read-file (autopoiesis.integration:tool-name-to-lisp-name "read_file")))
+  (is (eq :get-user-info (autopoiesis.integration:tool-name-to-lisp-name "get_user_info")))
+  (is (eq :simple (autopoiesis.integration:tool-name-to-lisp-name "simple")))
+  ;; Uppercase input should still work
+  (is (eq :read-file (autopoiesis.integration:tool-name-to-lisp-name "READ_FILE"))))
+
+(test name-conversion-roundtrip
+  "Test that name conversion roundtrips correctly"
+  (let ((lisp-names '(:read-file :get-user-info :simple :complex-multi-word-name)))
+    (dolist (name lisp-names)
+      (let* ((tool-name (autopoiesis.integration:lisp-name-to-tool-name name))
+             (back (autopoiesis.integration:tool-name-to-lisp-name tool-name)))
+        (is (eq name back)
+            "Name ~a should roundtrip through ~a" name tool-name)))))
+
+;;; ===================================================================
+;;; Mocked Claude API Tests
+;;; ===================================================================
+
+(defvar *mock-http-response* nil
+  "Mock response for HTTP requests in tests.")
+
+(defvar *mock-http-status* 200
+  "Mock status code for HTTP requests in tests.")
+
+(defvar *captured-http-requests* nil
+  "List of captured HTTP requests during mocked tests.")
+
+(defmacro with-mocked-http ((&key response status) &body body)
+  "Execute BODY with HTTP calls mocked.
+
+   RESPONSE - The response body to return (alist that will be JSON-encoded)
+   STATUS - The HTTP status code to return (default 200)"
+  `(let ((*mock-http-response* ,response)
+         (*mock-http-status* (or ,status 200))
+         (*captured-http-requests* nil))
+     (flet ((mock-dex-post (url &key headers content)
+              (push (list :url url :headers headers :content content)
+                    *captured-http-requests*)
+              (values (cl-json:encode-json-to-string *mock-http-response*)
+                      *mock-http-status*
+                      nil)))
+       ;; Temporarily replace the send-api-request internals
+       ;; We use a closure to capture the mock behavior
+       (let ((original-fn (symbol-function 'autopoiesis.integration::send-api-request)))
+         (unwind-protect
+              (progn
+                (setf (symbol-function 'autopoiesis.integration::send-api-request)
+                      (lambda (client endpoint body)
+                        (unless (autopoiesis.integration:client-api-key client)
+                          (error 'autopoiesis.core:autopoiesis-error
+                                 :message "No API key configured"))
+                        (let* ((url (format nil "~a~a"
+                                            (autopoiesis.integration:client-base-url client)
+                                            endpoint))
+                               (headers (autopoiesis.integration::make-api-headers client))
+                               (json-body (cl-json:encode-json-to-string body)))
+                          (push (list :url url :headers headers :content json-body)
+                                *captured-http-requests*)
+                          (if (and (>= *mock-http-status* 200)
+                                   (< *mock-http-status* 300))
+                              *mock-http-response*
+                              (error 'autopoiesis.core:autopoiesis-error
+                                     :message (format nil "API error (~a)" *mock-http-status*))))))
+                ,@body)
+           (setf (symbol-function 'autopoiesis.integration::send-api-request)
+                 original-fn))))))
+
+(test mocked-claude-complete-simple
+  "Test claude-complete with mocked HTTP response"
+  (let ((mock-response '((:id . "msg_123")
+                         (:type . "message")
+                         (:role . "assistant")
+                         (:content . (((:type . "text")
+                                        (:text . "Hello! How can I help you?"))))
+                         (:model . "claude-sonnet-4-20250514")
+                         (:stop--reason . "end_turn"))))
+    (with-mocked-http (:response mock-response)
+      (let* ((client (autopoiesis.integration:make-claude-client :api-key "test-key"))
+             (messages '((("role" . "user") ("content" . "Hello"))))
+             (response (autopoiesis.integration:claude-complete client messages)))
+        ;; Check response structure
+        (is (equal "msg_123" (cdr (assoc :id response))))
+        (is (equal "assistant" (cdr (assoc :role response))))
+        ;; Check that we captured the request
+        (is (= 1 (length *captured-http-requests*)))
+        (let ((req (first *captured-http-requests*)))
+          (is (search "/messages" (getf req :url))))))))
+
+(test mocked-claude-complete-with-system-prompt
+  "Test claude-complete includes system prompt in request"
+  (with-mocked-http (:response '((:content . (((:type . "text") (:text . "OK"))))))
+    (let* ((client (autopoiesis.integration:make-claude-client :api-key "test-key"))
+           (messages '((("role" . "user") ("content" . "Test")))))
+      (autopoiesis.integration:claude-complete client messages
+                                               :system "You are a test assistant.")
+      ;; Verify the request included system prompt
+      (let* ((req (first *captured-http-requests*))
+             (body (cl-json:decode-json-from-string (getf req :content))))
+        (is (equal "You are a test assistant."
+                   (cdr (assoc :system body))))))))
+
+(test mocked-claude-complete-with-tools
+  "Test claude-complete includes tools in request"
+  (with-mocked-http (:response '((:content . (((:type . "text") (:text . "OK"))))))
+    (let* ((client (autopoiesis.integration:make-claude-client :api-key "test-key"))
+           (messages '((("role" . "user") ("content" . "Read /tmp/test.txt"))))
+           (tools '((("name" . "read_file")
+                     ("description" . "Read a file")
+                     ("input_schema" . (("type" . "object")))))))
+      (autopoiesis.integration:claude-complete client messages :tools tools)
+      ;; Verify the request included tools
+      (let* ((req (first *captured-http-requests*))
+             (body (cl-json:decode-json-from-string (getf req :content))))
+        (is (not (null (cdr (assoc :tools body)))))))))
+
+(test mocked-claude-complete-tool-use-response
+  "Test handling a tool use response from Claude"
+  (let ((mock-response '((:id . "msg_456")
+                         (:content . (((:type . "text")
+                                        (:text . "I'll read that file."))
+                                       ((:type . "tool_use")
+                                        (:id . "toolu_abc123")
+                                        (:name . "read_file")
+                                        (:input . (("path" . "/tmp/test.txt"))))))
+                         (:stop--reason . "tool_use"))))
+    (with-mocked-http (:response mock-response)
+      (let* ((client (autopoiesis.integration:make-claude-client :api-key "test-key"))
+             (response (autopoiesis.integration:claude-complete
+                        client
+                        '((("role" . "user") ("content" . "Read /tmp/test.txt"))))))
+        ;; Check stop reason
+        (is (equal "tool_use" (autopoiesis.integration:response-stop-reason response)))
+        ;; Check text extraction
+        (is (equal "I'll read that file."
+                   (autopoiesis.integration:response-text response)))
+        ;; Check tool calls extraction
+        (let ((tool-calls (autopoiesis.integration:response-tool-calls response)))
+          (is (= 1 (length tool-calls)))
+          (let ((call (first tool-calls)))
+            (is (equal "toolu_abc123" (getf call :id)))
+            (is (equal "read_file" (getf call :name)))
+            (is (equal "/tmp/test.txt"
+                       (cdr (assoc "path" (getf call :input) :test #'string=))))))))))
+
+(test claude-stream-not-implemented
+  "Test that claude-stream signals an error (not yet implemented)"
+  (let ((client (autopoiesis.integration:make-claude-client :api-key "test-key")))
+    (signals autopoiesis.core:autopoiesis-error
+      (autopoiesis.integration:claude-stream
+       client
+       '((("role" . "user") ("content" . "Hello")))
+       (lambda (chunk) (declare (ignore chunk)))))))
+
+;;; ===================================================================
+;;; Full Conversation Flow Tests (Mocked)
+;;; ===================================================================
+
+(test mocked-conversation-with-tool-use
+  "Test a complete conversation flow with tool use (mocked)"
+  (let* ((read-file-called nil)
+         (cap (autopoiesis.agent:make-capability
+               :read-file
+               (lambda (&key path)
+                 (setf read-file-called t)
+                 (format nil "Contents of ~a" path))
+               :description "Read a file"
+               :parameters '((path string :required t))))
+         (capabilities (list cap))
+         ;; First response: tool use
+         (tool-response '((:content . (((:type . "tool_use")
+                                         (:id . "toolu_test")
+                                         (:name . "read_file")
+                                         (:input . (("path" . "/test.txt"))))))
+                          (:stop--reason . "tool_use")))
+         ;; Second response: final answer
+         (final-response '((:content . (((:type . "text")
+                                          (:text . "The file contains: Contents of /test.txt"))))
+                           (:stop--reason . "end_turn"))))
+    ;; Simulate the conversation flow
+    (with-mocked-http (:response tool-response)
+      (let* ((client (autopoiesis.integration:make-claude-client :api-key "test-key"))
+             (response1 (autopoiesis.integration:claude-complete
+                         client
+                         '((("role" . "user") ("content" . "Read /test.txt"))))))
+        ;; Handle tool use
+        (let ((result-message (autopoiesis.integration:handle-tool-use-response
+                               response1 capabilities)))
+          ;; Tool should have been called
+          (is (eq t read-file-called))
+          ;; Result message should be formatted correctly
+          (is (equal "user" (cdr (assoc "role" result-message :test #'string=))))
+          (let* ((content (cdr (assoc "content" result-message :test #'string=)))
+                 (tool-result (first content)))
+            (is (equal "tool_result" (cdr (assoc "type" tool-result :test #'string=))))
+            (is (equal "toolu_test" (cdr (assoc "tool_use_id" tool-result :test #'string=))))
+            (is (equal "Contents of /test.txt"
+                       (cdr (assoc "content" tool-result :test #'string=))))))))))
+
+(test mocked-session-conversation-flow
+  "Test a conversation using Claude session management (mocked)"
+  (let ((mock-response '((:content . (((:type . "text")
+                                        (:text . "Hello! I'm here to help."))))
+                         (:stop--reason . "end_turn"))))
+    ;; Clear registries
+    (clrhash autopoiesis.integration:*claude-session-registry*)
+    (clrhash autopoiesis.integration::*agent-claude-session-map*)
+    (with-mocked-http (:response mock-response)
+      (let* ((client (autopoiesis.integration:make-claude-client :api-key "test-key"))
+             (session (autopoiesis.integration:make-claude-session
+                       :system-prompt "You are a helpful assistant.")))
+        ;; Add user message
+        (autopoiesis.integration:claude-session-add-message session "user" "Hello!")
+        (is (= 1 (length (autopoiesis.integration:claude-session-messages session))))
+        ;; Send to Claude
+        (let ((response (autopoiesis.integration:claude-complete
+                         client
+                         (autopoiesis.integration:claude-session-messages session)
+                         :system (autopoiesis.integration:claude-session-system-prompt session))))
+          ;; Add response to session
+          (autopoiesis.integration:claude-session-add-assistant-response session response)
+          (is (= 2 (length (autopoiesis.integration:claude-session-messages session))))
+          ;; Verify the assistant message was added
+          (let ((last-msg (car (last (autopoiesis.integration:claude-session-messages session)))))
+            (is (equal "assistant" (cdr (assoc "role" last-msg :test #'string=))))))))))
+
+(test mocked-multi-turn-tool-conversation
+  "Test multi-turn conversation with multiple tool calls (mocked)"
+  (let* ((call-count 0)
+         (cap (autopoiesis.agent:make-capability
+               :calculate
+               (lambda (&key a b op)
+                 (incf call-count)
+                 (cond
+                   ((string= op "add") (+ a b))
+                   ((string= op "multiply") (* a b))
+                   (t (error "Unknown operation"))))
+               :description "Perform calculation"))
+         (capabilities (list cap)))
+    ;; Mock response with two tool calls
+    (let ((response '((:content . (((:type . "tool_use")
+                                     (:id . "calc1")
+                                     (:name . "calculate")
+                                     (:input . (("a" . 5) ("b" . 3) ("op" . "add"))))
+                                    ((:type . "tool_use")
+                                     (:id . "calc2")
+                                     (:name . "calculate")
+                                     (:input . (("a" . 4) ("b" . 7) ("op" . "multiply"))))))
+                       (:stop--reason . "tool_use"))))
+      ;; Execute all tool calls
+      (let ((results (autopoiesis.integration:execute-all-tool-calls response capabilities)))
+        ;; Should have called capability twice
+        (is (= 2 call-count))
+        (is (= 2 (length results)))
+        ;; Check results
+        (let ((r1 (find "calc1" results :key (lambda (r) (getf r :tool-use-id)) :test #'string=))
+              (r2 (find "calc2" results :key (lambda (r) (getf r :tool-use-id)) :test #'string=)))
+          (is (equal "8" (getf r1 :result)))  ; 5 + 3
+          (is (equal "28" (getf r2 :result))) ; 4 * 7
+          (is (null (getf r1 :is-error)))
+          (is (null (getf r2 :is-error))))))))
+
+;;; ===================================================================
+;;; API Error Handling Tests (Mocked)
+;;; ===================================================================
+
+(test mocked-api-error-handling
+  "Test handling of API errors"
+  (with-mocked-http (:response '((:error . ((:message . "Rate limit exceeded"))))
+                     :status 429)
+    (let ((client (autopoiesis.integration:make-claude-client :api-key "test-key")))
+      (signals autopoiesis.core:autopoiesis-error
+        (autopoiesis.integration:claude-complete
+         client
+         '((("role" . "user") ("content" . "Hello"))))))))
