@@ -1215,3 +1215,319 @@
                         :success))))
       (is (eq :success result))
       (is (= 2 call-count)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Component Health Tracking Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test component-health-registration
+  "Test registering and retrieving component health"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :test-component
+           :failure-threshold 5
+           :degradation-level :offline)
+         (let ((health (autopoiesis.core:get-component-health :test-component)))
+           (is-true health)
+           (is (eq :test-component (autopoiesis.core:health-component-name health)))
+           (is (eq :healthy (autopoiesis.core:health-status health)))
+           (is (= 5 (autopoiesis.core:health-failure-threshold health)))
+           (is (eq :offline (autopoiesis.core:health-degradation-level health)))))
+    ;; Cleanup
+    (remhash :test-component autopoiesis.core:*component-health-registry*)))
+
+(test component-health-success-recording
+  "Test recording successful operations"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :test-component-success
+           :failure-threshold 3)
+         ;; Record some failures first
+         (autopoiesis.core:record-component-failure :test-component-success "error 1")
+         (autopoiesis.core:record-component-failure :test-component-success "error 2")
+         (let ((health (autopoiesis.core:get-component-health :test-component-success)))
+           (is (= 2 (autopoiesis.core:health-failure-count health))))
+         ;; Record success - should reset failure count
+         (autopoiesis.core:record-component-success :test-component-success)
+         (let ((health (autopoiesis.core:get-component-health :test-component-success)))
+           (is (= 0 (autopoiesis.core:health-failure-count health)))
+           (is (eq :healthy (autopoiesis.core:health-status health)))))
+    ;; Cleanup
+    (remhash :test-component-success autopoiesis.core:*component-health-registry*)))
+
+(test component-health-failure-threshold
+  "Test that failures trigger degradation after threshold"
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :test-component-threshold
+           :failure-threshold 3
+           :degradation-level :read-only)
+         ;; Record failures up to threshold
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:record-component-failure :test-component-threshold "error 1")
+           (autopoiesis.core:record-component-failure :test-component-threshold "error 2"))
+         ;; Not degraded yet
+         (is (not (autopoiesis.core:degraded-p)))
+         ;; Third failure should trigger degradation
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:record-component-failure :test-component-threshold "error 3"))
+         (is-true (autopoiesis.core:degraded-p))
+         (is (eq :read-only (autopoiesis.core:degradation-name autopoiesis.core:*current-degradation-level*)))
+         ;; Component should be marked as failed
+         (let ((health (autopoiesis.core:get-component-health :test-component-threshold)))
+           (is (eq :failed (autopoiesis.core:health-status health)))))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)
+    (remhash :test-component-threshold autopoiesis.core:*component-health-registry*)))
+
+(test component-health-check-function
+  "Test health check function execution"
+  (let ((check-result t))
+    (unwind-protect
+         (progn
+           (autopoiesis.core:register-component-health :test-component-check
+             :failure-threshold 2
+             :health-check-fn (lambda () check-result))
+           ;; Health check passes
+           (multiple-value-bind (healthy-p status)
+               (autopoiesis.core:check-component-health :test-component-check)
+             (is-true healthy-p)
+             (is (eq :healthy status)))
+           ;; Health check fails
+           (setf check-result nil)
+           (multiple-value-bind (healthy-p status)
+               (autopoiesis.core:check-component-health :test-component-check)
+             (declare (ignore status))
+             (is (not healthy-p))))
+      ;; Cleanup
+      (remhash :test-component-check autopoiesis.core:*component-health-registry*))))
+
+(test component-healthy-p
+  "Test component-healthy-p predicate"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :test-healthy-check
+           :failure-threshold 2)
+         ;; Initially healthy
+         (is-true (autopoiesis.core:component-healthy-p :test-healthy-check))
+         ;; After failures, not healthy
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:record-component-failure :test-healthy-check "error 1")
+           (autopoiesis.core:record-component-failure :test-healthy-check "error 2"))
+         (is (not (autopoiesis.core:component-healthy-p :test-healthy-check)))
+         ;; Unknown component is considered healthy
+         (is-true (autopoiesis.core:component-healthy-p :nonexistent-component)))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)
+    (remhash :test-healthy-check autopoiesis.core:*component-health-registry*)))
+
+(test check-all-component-health
+  "Test checking all component health"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :comp-a :failure-threshold 5)
+         (autopoiesis.core:register-component-health :comp-b :failure-threshold 5)
+         (let ((results (autopoiesis.core:check-all-component-health)))
+           (is (= 2 (length results)))
+           (is (assoc :comp-a results))
+           (is (assoc :comp-b results))))
+    ;; Cleanup
+    (remhash :comp-a autopoiesis.core:*component-health-registry*)
+    (remhash :comp-b autopoiesis.core:*component-health-registry*)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Degraded Operation Execution Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test with-component-fallback-success
+  "Test with-component-fallback on successful operation"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :fallback-test
+           :failure-threshold 3
+           :fallback-fn (lambda () :fallback-value))
+         (let ((result (autopoiesis.core:with-component-fallback (:fallback-test :default :default-val)
+                         :success-value)))
+           (is (eq :success-value result))))
+    ;; Cleanup
+    (remhash :fallback-test autopoiesis.core:*component-health-registry*)))
+
+(test with-component-fallback-on-error
+  "Test with-component-fallback uses fallback on error"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :fallback-error-test
+           :failure-threshold 3
+           :fallback-fn (lambda () :fallback-value))
+         (let ((result (autopoiesis.core:with-component-fallback (:fallback-error-test :default :default-val)
+                         (error "test error"))))
+           (is (eq :fallback-value result))))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)
+    (remhash :fallback-error-test autopoiesis.core:*component-health-registry*)))
+
+(test with-component-fallback-degraded-component
+  "Test with-component-fallback with pre-degraded component"
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :degraded-comp-test
+           :failure-threshold 1
+           :fallback-fn (lambda () :fallback-value))
+         ;; Trigger degradation
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:record-component-failure :degraded-comp-test "error"))
+         ;; Now the component is failed, should use fallback immediately
+         (let ((result (autopoiesis.core:with-component-fallback (:degraded-comp-test :default :default-val)
+                         :should-not-reach)))
+           (is (eq :fallback-value result))))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)
+    (remhash :degraded-comp-test autopoiesis.core:*component-health-registry*)))
+
+(test with-degradation-check
+  "Test with-degradation-check macro"
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  ;; In normal mode, capability is available
+  (let ((result (autopoiesis.core:with-degradation-check (:write-snapshot :fallback-value :not-available)
+                  :available)))
+    (is (eq :available result)))
+  ;; In degraded mode, capability may not be available
+  (unwind-protect
+       (progn
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:enter-degraded-mode :minimal))
+         (let ((result (autopoiesis.core:with-degradation-check (:write-snapshot :fallback-value :not-available)
+                         :should-not-reach)))
+           (is (eq :not-available result)))
+         ;; But available capabilities work
+         (let ((result (autopoiesis.core:with-degradation-check (:read-snapshot :fallback-value :not-available)
+                         :available)))
+           (is (eq :available result))))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Degradation Trigger Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test degradation-trigger-registration
+  "Test registering degradation triggers"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-degradation-trigger :test-trigger
+           'autopoiesis.core:autopoiesis-error
+           :minimal)
+         (let ((trigger (gethash :test-trigger autopoiesis.core:*degradation-triggers*)))
+           (is-true trigger)
+           (is (eq :test-trigger (autopoiesis.core:trigger-name trigger)))
+           (is (eq :minimal (autopoiesis.core:trigger-target-level trigger)))))
+    ;; Cleanup
+    (remhash :test-trigger autopoiesis.core:*degradation-triggers*)))
+
+(test find-applicable-trigger
+  "Test finding applicable degradation trigger"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-degradation-trigger :custom-trigger
+           'autopoiesis.core:resource-error
+           :offline
+           :predicate (lambda (e) (eq (autopoiesis.core:error-resource-type e) :custom)))
+         ;; Should find trigger for matching condition
+         (let ((err (make-condition 'autopoiesis.core:resource-error
+                                    :message "test"
+                                    :resource-type :custom)))
+           (let ((trigger (autopoiesis.core:find-applicable-trigger err)))
+             (is-true trigger)
+             (is (eq :custom-trigger (autopoiesis.core:trigger-name trigger)))))
+         ;; Should not find trigger for non-matching condition
+         (let ((err (make-condition 'autopoiesis.core:resource-error
+                                    :message "test"
+                                    :resource-type :other)))
+           (let ((trigger (autopoiesis.core:find-applicable-trigger err)))
+             (is (not (eq :custom-trigger (when trigger (autopoiesis.core:trigger-name trigger))))))))
+    ;; Cleanup
+    (remhash :custom-trigger autopoiesis.core:*degradation-triggers*)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Health Recovery Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test attempt-recovery-success
+  "Test successful component recovery"
+  (let ((health-ok nil))
+    (unwind-protect
+         (progn
+           (autopoiesis.core:register-component-health :recovery-test
+             :failure-threshold 1
+             :health-check-fn (lambda () health-ok))
+           ;; Fail the component
+           (handler-bind ((warning #'muffle-warning))
+             (autopoiesis.core:record-component-failure :recovery-test "error"))
+           (is (eq :failed (autopoiesis.core:health-status 
+                            (autopoiesis.core:get-component-health :recovery-test))))
+           ;; Now make health check pass
+           (setf health-ok t)
+           ;; Attempt recovery
+           (is-true (autopoiesis.core:attempt-recovery :recovery-test))
+           (is (eq :healthy (autopoiesis.core:health-status 
+                             (autopoiesis.core:get-component-health :recovery-test)))))
+      ;; Cleanup
+      (setf autopoiesis.core:*current-degradation-level* nil)
+      (remhash :recovery-test autopoiesis.core:*component-health-registry*))))
+
+(test attempt-recovery-failure
+  "Test failed component recovery"
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :recovery-fail-test
+           :failure-threshold 1
+           :health-check-fn (lambda () nil))  ; Always fails
+         ;; Fail the component
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:record-component-failure :recovery-fail-test "error"))
+         ;; Attempt recovery - should fail
+         (is (not (autopoiesis.core:attempt-recovery :recovery-fail-test)))
+         (is (eq :failed (autopoiesis.core:health-status 
+                          (autopoiesis.core:get-component-health :recovery-fail-test)))))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)
+    (remhash :recovery-fail-test autopoiesis.core:*component-health-registry*)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; System Health Summary Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test system-health-summary
+  "Test system health summary generation"
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :summary-comp-a :failure-threshold 5)
+         (autopoiesis.core:register-component-health :summary-comp-b :failure-threshold 5)
+         (let ((summary (autopoiesis.core:system-health-summary)))
+           (is (not (getf summary :degraded-p)))
+           (is (null (getf summary :degradation-level)))
+           (is (eq :healthy (getf summary :overall-status)))
+           (is (= 2 (length (getf summary :components))))))
+    ;; Cleanup
+    (remhash :summary-comp-a autopoiesis.core:*component-health-registry*)
+    (remhash :summary-comp-b autopoiesis.core:*component-health-registry*)))
+
+(test system-health-summary-degraded
+  "Test system health summary in degraded state"
+  (setf autopoiesis.core:*current-degradation-level* nil)
+  (unwind-protect
+       (progn
+         (autopoiesis.core:register-component-health :summary-degraded-comp
+           :failure-threshold 1)
+         ;; Fail the component
+         (handler-bind ((warning #'muffle-warning))
+           (autopoiesis.core:record-component-failure :summary-degraded-comp "error"))
+         (let ((summary (autopoiesis.core:system-health-summary)))
+           (is-true (getf summary :degraded-p))
+           (is (eq :critical (getf summary :overall-status)))))
+    ;; Cleanup
+    (setf autopoiesis.core:*current-degradation-level* nil)
+    (remhash :summary-degraded-comp autopoiesis.core:*component-health-registry*)))

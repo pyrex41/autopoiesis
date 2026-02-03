@@ -136,6 +136,46 @@
    #:*current-degradation-level*
    #:*degradation-levels*
    
+   ;; Component health tracking
+   #:component-health
+   #:health-component-name
+   #:health-status
+   #:health-failure-count
+   #:health-failure-threshold
+   #:health-last-error
+   #:health-degradation-level
+   #:register-component-health
+   #:get-component-health
+   #:record-component-success
+   #:record-component-failure
+   #:check-component-health
+   #:check-all-component-health
+   #:component-healthy-p
+   #:*component-health-registry*
+   
+   ;; Degraded operation execution
+   #:with-component-fallback
+   #:with-degradation-check
+   
+   ;; Automatic degradation triggers
+   #:degradation-trigger
+   #:trigger-name
+   #:trigger-condition-type
+   #:trigger-target-level
+   #:register-degradation-trigger
+   #:find-applicable-trigger
+   #:with-auto-degradation
+   #:*degradation-triggers*
+   
+   ;; Health recovery
+   #:attempt-recovery
+   #:attempt-all-recovery
+   #:maybe-exit-degraded-mode
+   
+   ;; System health summary
+   #:system-health-summary
+   #:print-health-summary
+   
    ;; Recovery logging
    #:recovery-event
    #:recovery-event-timestamp
