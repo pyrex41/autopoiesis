@@ -823,3 +823,209 @@
   (loop for pattern in patterns
         when (>= (or (getf pattern :frequency) 0) min-frequency)
         collect (generate-heuristic pattern)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Heuristic Application to Decisions
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun apply-heuristics (agent decision &key (store *heuristic-store*) (min-confidence 0.3))
+  "Apply learned heuristics to a decision, adjusting alternative weights.
+   
+   This function finds heuristics applicable to the decision's context
+   and adjusts the scores of decision alternatives based on heuristic
+   recommendations. Heuristics with :prefer-actions recommendations
+   increase scores for matching alternatives, while :avoid-actions
+   recommendations decrease scores.
+   
+   Arguments:
+     agent          - The agent making the decision (used for context)
+     decision       - A decision object with alternatives to adjust
+     store          - Heuristic store to search (default *heuristic-store*)
+     min-confidence - Minimum confidence threshold for applying heuristics
+   
+   Returns: The modified decision with adjusted alternative scores
+   
+   Side effects:
+     - Increments heuristic-applications for each applied heuristic
+     - Updates heuristic-last-applied timestamp
+   
+   Example:
+     (apply-heuristics agent decision)
+     ;; Decision alternatives are adjusted based on matching heuristics"
+  (declare (ignore agent))  ; Agent could be used for agent-specific heuristics in future
+  (let* ((context (decision-context decision))
+         (applicable (find-applicable-heuristics context 
+                                                  :store store 
+                                                  :min-confidence min-confidence)))
+    (dolist (heur applicable)
+      ;; Track that we're applying this heuristic
+      (incf (heuristic-applications heur))
+      (setf (heuristic-last-applied heur) (get-precise-time))
+      ;; Adjust decision weights based on heuristic recommendation
+      (adjust-decision-weights decision 
+                               (heuristic-recommendation heur)
+                               (heuristic-confidence heur)))
+    decision))
+
+(defun decision-context (decision)
+  "Extract the context from a decision for heuristic matching.
+   
+   The context is derived from the decision's content and provenance.
+   This provides the information needed to match against heuristic conditions.
+   
+   Arguments:
+     decision - A decision object
+   
+   Returns: An s-expression context suitable for condition matching"
+  (let ((content (autopoiesis.core:thought-content decision))
+        (provenance (autopoiesis.core:thought-provenance decision)))
+    ;; Build a context from available decision information
+    (list :decision-content content
+          :provenance provenance
+          :alternatives (when (typep decision 'autopoiesis.core:decision)
+                          (mapcar #'car (autopoiesis.core:decision-alternatives decision))))))
+
+(defun adjust-decision-weights (decision recommendation confidence)
+  "Adjust decision alternative weights based on a heuristic recommendation.
+   
+   Arguments:
+     decision       - The decision to modify
+     recommendation - A recommendation s-expression from a heuristic
+     confidence     - The heuristic's confidence (0.0 to 1.0)
+   
+   Recommendation formats:
+     (:prefer-actions <action-sequence>) - Boost alternatives matching sequence
+     (:avoid-actions <action-sequence>)  - Penalize alternatives matching sequence
+     (:prefer-context <context-key>)     - Boost if context matches
+     (:avoid-context <context-key>)      - Penalize if context matches
+   
+   The adjustment magnitude is scaled by confidence:
+     - Prefer: multiply score by (1 + confidence * 0.5)
+     - Avoid: multiply score by (1 - confidence * 0.5)"
+  (when (and (typep decision 'autopoiesis.core:decision)
+             (listp recommendation)
+             (>= (length recommendation) 2))
+    (let* ((rec-type (first recommendation))
+           (rec-pattern (second recommendation))
+           (alternatives (autopoiesis.core:decision-alternatives decision))
+           (boost-factor (+ 1.0 (* confidence 0.5)))
+           (penalty-factor (- 1.0 (* confidence 0.5))))
+      (case rec-type
+        (:prefer-actions
+         ;; Boost alternatives that match the preferred action pattern
+         (setf (autopoiesis.core:decision-alternatives decision)
+               (mapcar (lambda (alt)
+                         (if (alternative-matches-pattern-p (car alt) rec-pattern)
+                             (cons (car alt) (* (cdr alt) boost-factor))
+                             alt))
+                       alternatives)))
+        (:avoid-actions
+         ;; Penalize alternatives that match the avoided action pattern
+         (setf (autopoiesis.core:decision-alternatives decision)
+               (mapcar (lambda (alt)
+                         (if (alternative-matches-pattern-p (car alt) rec-pattern)
+                             (cons (car alt) (* (cdr alt) penalty-factor))
+                             alt))
+                       alternatives)))
+        (:prefer-context
+         ;; Boost all alternatives if context matches (general preference)
+         (when (context-key-matches-p (decision-context decision) rec-pattern)
+           (setf (autopoiesis.core:decision-alternatives decision)
+                 (mapcar (lambda (alt)
+                           (cons (car alt) (* (cdr alt) boost-factor)))
+                         alternatives))))
+        (:avoid-context
+         ;; Penalize all alternatives if context matches (general avoidance)
+         (when (context-key-matches-p (decision-context decision) rec-pattern)
+           (setf (autopoiesis.core:decision-alternatives decision)
+                 (mapcar (lambda (alt)
+                           (cons (car alt) (* (cdr alt) penalty-factor)))
+                         alternatives)))))))
+  decision)
+
+(defun alternative-matches-pattern-p (alternative pattern)
+  "Check if a decision alternative matches an action pattern.
+   
+   Arguments:
+     alternative - An alternative from decision-alternatives (the car of the pair)
+     pattern     - An action pattern (list of actions)
+   
+   Returns: T if the alternative matches the pattern, NIL otherwise"
+  (cond
+    ;; Pattern is a list of actions - check if alternative is in the pattern
+    ((and (listp pattern) (listp alternative))
+     (or (member alternative pattern :test #'equal)
+         (equal alternative pattern)))
+    ;; Pattern is a single action - direct comparison
+    ((listp pattern)
+     (member alternative pattern :test #'equal))
+    ;; Direct equality
+    (t (equal alternative pattern))))
+
+(defun context-key-matches-p (context key)
+  "Check if a context contains a specific key.
+   
+   Arguments:
+     context - An s-expression context
+     key     - A key to search for (keyword or symbol)
+   
+   Returns: T if the key is found in the context"
+  (cond
+    ((null context) nil)
+    ((atom context) (equal context key))
+    ((listp context)
+     (or (member key context :test #'equal)
+         (some (lambda (item) (context-key-matches-p item key)) context)))
+    (t nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Heuristic Confidence Feedback
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun update-heuristic-confidence (heuristic outcome)
+  "Update a heuristic's confidence based on the outcome of its application.
+   
+   This function provides feedback to the learning system about whether
+   a heuristic's recommendation led to a successful outcome. It updates
+   the heuristic's confidence score accordingly.
+   
+   Arguments:
+     heuristic - The heuristic to update
+     outcome   - The outcome of applying the heuristic:
+                 :success - The recommendation led to a good outcome
+                 :failure - The recommendation led to a bad outcome
+                 :partial - Mixed results
+   
+   Confidence update rules:
+     - :success - Increment successes, recalculate confidence as success rate
+     - :failure - Apply decay factor (0.9) to reduce confidence
+     - :partial - Apply smaller decay factor (0.95)
+   
+   Returns: The updated heuristic
+   
+   Example:
+     (update-heuristic-confidence heur :success)
+     ;; Heuristic confidence increases based on success rate"
+  (case outcome
+    (:success
+     ;; Record success and update confidence based on success rate
+     (incf (heuristic-successes heuristic))
+     (when (plusp (heuristic-applications heuristic))
+       (setf (heuristic-confidence heuristic)
+             (/ (heuristic-successes heuristic)
+                (heuristic-applications heuristic)))))
+    (:failure
+     ;; Decay confidence on failure
+     (setf (heuristic-confidence heuristic)
+           (* (heuristic-confidence heuristic) 0.9)))
+    (:partial
+     ;; Smaller decay for partial success
+     (setf (heuristic-confidence heuristic)
+           (* (heuristic-confidence heuristic) 0.95)))
+    (t
+     ;; Unknown outcome - no change
+     nil))
+  ;; Ensure confidence stays in bounds
+  (setf (heuristic-confidence heuristic)
+        (max 0.0 (min 1.0 (heuristic-confidence heuristic))))
+  heuristic)

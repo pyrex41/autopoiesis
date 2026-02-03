@@ -215,8 +215,8 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement `extract-patterns` from experiences
 - [x] Implement `extract-action-sequences` (n-gram analysis)
 - [x] Implement `generate-heuristic` from patterns
-- [ ] Implement `apply-heuristics` to decisions
-- [ ] Implement `update-heuristic-confidence` feedback loop
+- [x] Implement `apply-heuristics` to decisions
+- [x] Implement `update-heuristic-confidence` feedback loop
 
 ### Phase 10: Production
 - Depends on: Phase 9 complete

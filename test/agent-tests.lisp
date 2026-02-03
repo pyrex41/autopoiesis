@@ -1319,3 +1319,224 @@
       ;; Should have both task types
       (is (member :coding (getf read-edit :task-types)))
       (is (member :review (getf read-edit :task-types))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Heuristic Application Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test decision-context-extraction
+  "Test extracting context from a decision"
+  (let* ((decision (autopoiesis.core:make-decision
+                    '((option-a . 0.8) (option-b . 0.6))
+                    'option-a
+                    :rationale "Test decision"))
+         (context (autopoiesis.agent:decision-context decision)))
+    ;; Context should be a list with decision information
+    (is (listp context))
+    (is (getf context :decision-content))
+    (is (getf context :alternatives))))
+
+(test alternative-matches-pattern-basic
+  "Test basic alternative pattern matching"
+  ;; Direct equality
+  (is (autopoiesis.agent:alternative-matches-pattern-p 'read '(read edit)))
+  (is (autopoiesis.agent:alternative-matches-pattern-p '(read) '((read) (edit))))
+  ;; Not in pattern
+  (is (not (autopoiesis.agent:alternative-matches-pattern-p 'delete '(read edit))))
+  ;; Exact match
+  (is (autopoiesis.agent:alternative-matches-pattern-p '(read file) '(read file))))
+
+(test context-key-matches-basic
+  "Test context key matching"
+  ;; Simple key in list
+  (is (autopoiesis.agent:context-key-matches-p '(:file :test) :file))
+  ;; Nested key
+  (is (autopoiesis.agent:context-key-matches-p '(:outer (:inner :target)) :target))
+  ;; Key not present
+  (is (not (autopoiesis.agent:context-key-matches-p '(:file :test) :missing)))
+  ;; Nil context
+  (is (not (autopoiesis.agent:context-key-matches-p nil :any))))
+
+(test adjust-decision-weights-prefer
+  "Test adjusting decision weights with prefer recommendation"
+  (let* ((decision (autopoiesis.core:make-decision
+                    '((read . 1.0) (edit . 1.0) (delete . 1.0))
+                    'read))
+         (recommendation '(:prefer-actions (read edit)))
+         (confidence 0.8))
+    (autopoiesis.agent:adjust-decision-weights decision recommendation confidence)
+    (let ((alts (autopoiesis.core:decision-alternatives decision)))
+      ;; read and edit should be boosted (1.0 * 1.4 = 1.4)
+      (is (> (cdr (assoc 'read alts)) 1.0))
+      (is (> (cdr (assoc 'edit alts)) 1.0))
+      ;; delete should be unchanged
+      (is (= (cdr (assoc 'delete alts)) 1.0)))))
+
+(test adjust-decision-weights-avoid
+  "Test adjusting decision weights with avoid recommendation"
+  (let* ((decision (autopoiesis.core:make-decision
+                    '((read . 1.0) (edit . 1.0) (delete . 1.0))
+                    'read))
+         (recommendation '(:avoid-actions (delete)))
+         (confidence 0.8))
+    (autopoiesis.agent:adjust-decision-weights decision recommendation confidence)
+    (let ((alts (autopoiesis.core:decision-alternatives decision)))
+      ;; read and edit should be unchanged
+      (is (= (cdr (assoc 'read alts)) 1.0))
+      (is (= (cdr (assoc 'edit alts)) 1.0))
+      ;; delete should be penalized (1.0 * 0.6 = 0.6)
+      (is (< (cdr (assoc 'delete alts)) 1.0)))))
+
+(test apply-heuristics-basic
+  "Test applying heuristics to a decision"
+  (let ((store (make-hash-table :test 'equal)))
+    ;; Create a heuristic that prefers 'test' action
+    (let ((heur (autopoiesis.agent:make-heuristic
+                 :name "prefer-test"
+                 :condition :any  ; Matches any context
+                 :recommendation '(:prefer-actions (test))
+                 :confidence 0.8)))
+      (autopoiesis.agent:store-heuristic heur :store store)
+      
+      ;; Create a decision
+      (let* ((decision (autopoiesis.core:make-decision
+                        '((test . 1.0) (skip . 1.0))
+                        'test))
+             (agent (autopoiesis.agent:make-agent :name "test-agent")))
+        ;; Apply heuristics
+        (autopoiesis.agent:apply-heuristics agent decision :store store)
+        
+        ;; Check that 'test' was boosted
+        (let ((alts (autopoiesis.core:decision-alternatives decision)))
+          (is (> (cdr (assoc 'test alts)) 1.0))
+          (is (= (cdr (assoc 'skip alts)) 1.0)))
+        
+        ;; Check that heuristic application was tracked
+        (is (= 1 (autopoiesis.agent:heuristic-applications heur)))
+        (is (not (null (autopoiesis.agent:heuristic-last-applied heur))))))))
+
+(test apply-heuristics-no-match
+  "Test that non-matching heuristics don't affect decisions"
+  (let ((store (make-hash-table :test 'equal)))
+    ;; Create a heuristic with specific condition
+    (let ((heur (autopoiesis.agent:make-heuristic
+                 :name "specific-heuristic"
+                 :condition '(task-type :deployment)  ; Won't match
+                 :recommendation '(:prefer-actions (deploy))
+                 :confidence 0.9)))
+      (autopoiesis.agent:store-heuristic heur :store store)
+      
+      ;; Create a decision
+      (let* ((decision (autopoiesis.core:make-decision
+                        '((deploy . 1.0) (test . 1.0))
+                        'deploy))
+             (agent (autopoiesis.agent:make-agent :name "test-agent")))
+        ;; Apply heuristics (none should match)
+        (autopoiesis.agent:apply-heuristics agent decision :store store)
+        
+        ;; Weights should be unchanged
+        (let ((alts (autopoiesis.core:decision-alternatives decision)))
+          (is (= (cdr (assoc 'deploy alts)) 1.0))
+          (is (= (cdr (assoc 'test alts)) 1.0)))
+        
+        ;; Heuristic should not have been applied
+        (is (= 0 (autopoiesis.agent:heuristic-applications heur)))))))
+
+(test apply-heuristics-multiple
+  "Test applying multiple heuristics to a decision"
+  (let ((store (make-hash-table :test 'equal)))
+    ;; Create two heuristics
+    (let ((heur1 (autopoiesis.agent:make-heuristic
+                  :name "prefer-test"
+                  :condition :any
+                  :recommendation '(:prefer-actions (test))
+                  :confidence 0.6))
+          (heur2 (autopoiesis.agent:make-heuristic
+                  :name "avoid-skip"
+                  :condition :any
+                  :recommendation '(:avoid-actions (skip))
+                  :confidence 0.8)))
+      (autopoiesis.agent:store-heuristic heur1 :store store)
+      (autopoiesis.agent:store-heuristic heur2 :store store)
+      
+      ;; Create a decision
+      (let* ((decision (autopoiesis.core:make-decision
+                        '((test . 1.0) (skip . 1.0) (other . 1.0))
+                        'test))
+             (agent (autopoiesis.agent:make-agent :name "test-agent")))
+        ;; Apply heuristics
+        (autopoiesis.agent:apply-heuristics agent decision :store store)
+        
+        ;; Check adjustments
+        (let ((alts (autopoiesis.core:decision-alternatives decision)))
+          ;; test should be boosted
+          (is (> (cdr (assoc 'test alts)) 1.0))
+          ;; skip should be penalized
+          (is (< (cdr (assoc 'skip alts)) 1.0))
+          ;; other should be unchanged
+          (is (= (cdr (assoc 'other alts)) 1.0)))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Heuristic Confidence Update Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test update-heuristic-confidence-success
+  "Test updating heuristic confidence on success"
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 0.5)))
+    ;; Simulate some applications
+    (setf (autopoiesis.agent:heuristic-applications heur) 4)
+    (setf (autopoiesis.agent:heuristic-successes heur) 2)
+    
+    ;; Update with success
+    (autopoiesis.agent:update-heuristic-confidence heur :success)
+    
+    ;; Successes should increase
+    (is (= 3 (autopoiesis.agent:heuristic-successes heur)))
+    ;; Confidence should be success rate: 3/4 = 0.75
+    (is (= 0.75 (autopoiesis.agent:heuristic-confidence heur)))))
+
+(test update-heuristic-confidence-failure
+  "Test updating heuristic confidence on failure"
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 1.0)))
+    ;; Update with failure
+    (autopoiesis.agent:update-heuristic-confidence heur :failure)
+    
+    ;; Confidence should decay by 0.9
+    (is (= 0.9 (autopoiesis.agent:heuristic-confidence heur)))
+    
+    ;; Another failure
+    (autopoiesis.agent:update-heuristic-confidence heur :failure)
+    ;; Use approximate comparison for floating-point (0.9 * 0.9 = 0.81)
+    (is (< (abs (- 0.81 (autopoiesis.agent:heuristic-confidence heur))) 0.001))))
+
+(test update-heuristic-confidence-partial
+  "Test updating heuristic confidence on partial success"
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 1.0)))
+    ;; Update with partial
+    (autopoiesis.agent:update-heuristic-confidence heur :partial)
+    
+    ;; Confidence should decay by 0.95
+    (is (= 0.95 (autopoiesis.agent:heuristic-confidence heur)))))
+
+(test update-heuristic-confidence-bounds
+  "Test that confidence stays within bounds after updates"
+  ;; Test lower bound
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 0.05)))
+    (dotimes (i 10)
+      (autopoiesis.agent:update-heuristic-confidence heur :failure))
+    (is (>= (autopoiesis.agent:heuristic-confidence heur) 0.0)))
+  
+  ;; Test upper bound
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 0.9)))
+    (setf (autopoiesis.agent:heuristic-applications heur) 1)
+    (setf (autopoiesis.agent:heuristic-successes heur) 0)
+    (autopoiesis.agent:update-heuristic-confidence heur :success)
+    (is (<= (autopoiesis.agent:heuristic-confidence heur) 1.0))))
+
+(test update-heuristic-confidence-unknown-outcome
+  "Test that unknown outcomes don't change confidence"
+  (let ((heur (autopoiesis.agent:make-heuristic :confidence 0.7)))
+    ;; Update with unknown outcome
+    (autopoiesis.agent:update-heuristic-confidence heur :unknown)
+    ;; Confidence should be unchanged
+    (is (= 0.7 (autopoiesis.agent:heuristic-confidence heur)))))

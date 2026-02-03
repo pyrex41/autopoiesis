@@ -193,4 +193,12 @@
    #:generate-recommendation
    #:calculate-pattern-confidence
    #:generate-heuristic-name
-   #:generate-heuristics-from-patterns))
+   #:generate-heuristics-from-patterns
+
+   ;; Learning system - Heuristic Application
+   #:apply-heuristics
+   #:decision-context
+   #:adjust-decision-weights
+   #:alternative-matches-pattern-p
+   #:context-key-matches-p
+   #:update-heuristic-confidence))
