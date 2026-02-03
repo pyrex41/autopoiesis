@@ -4764,3 +4764,243 @@ out vec4 color;")))
     (is (null (handle-holodeck-event window 42)))
     (is (null (handle-holodeck-event window nil)))))
 
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Live Agent Synchronization Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite live-agent-sync-tests
+  :in holodeck-tests
+  :description "Tests for live agent synchronization")
+
+(in-suite live-agent-sync-tests)
+
+(test agent-entity-map-operations
+  "Test basic agent-entity map operations."
+  (init-holodeck-storage)
+  (clear-agent-entity-map)
+  ;; Initially empty
+  (is (= 0 (sync-live-agents-count)))
+  ;; Register an agent entity
+  (let ((entity (cl-fast-ecs:make-entity)))
+    (register-agent-entity "agent-1" entity)
+    (is (= 1 (sync-live-agents-count)))
+    (is (= entity (find-agent-entity "agent-1")))
+    (is (null (find-agent-entity "agent-2"))))
+  ;; Unregister
+  (unregister-agent-entity "agent-1")
+  (is (= 0 (sync-live-agents-count)))
+  (is (null (find-agent-entity "agent-1")))
+  ;; Clear all
+  (register-agent-entity "a1" 1)
+  (register-agent-entity "a2" 2)
+  (is (= 2 (sync-live-agents-count)))
+  (clear-agent-entity-map)
+  (is (= 0 (sync-live-agents-count))))
+
+(test should-sync-p-respects-interval
+  "Test that should-sync-p respects the sync interval."
+  (init-holodeck-storage)
+  (let ((autopoiesis.holodeck::*last-sync-time* 0.0)
+        (autopoiesis.holodeck::*elapsed-time* 0.0)
+        (autopoiesis.holodeck::*sync-interval* 0.1))
+    ;; At time 0, should not sync (just synced)
+    (is (not (should-sync-p)))
+    ;; After interval passes, should sync
+    (setf autopoiesis.holodeck::*elapsed-time* 0.15)
+    (is (should-sync-p))
+    ;; After sync, should not sync again immediately
+    (setf autopoiesis.holodeck::*last-sync-time* 0.15)
+    (is (not (should-sync-p)))))
+
+(test compute-agent-position-returns-valid-coords
+  "Test that compute-agent-position returns valid 3D coordinates."
+  (init-holodeck-storage)
+  ;; Create a test agent
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    (autopoiesis.agent:start-agent agent)
+    (multiple-value-bind (x y z) (compute-agent-position agent)
+      ;; X should be positive (time axis)
+      (is (> x 0.0))
+      ;; Y should be positive (abstraction level)
+      (is (>= y 0.0))
+      ;; Z should be non-negative (branch spread)
+      (is (>= z 0.0))
+      ;; All should be single-floats
+      (is (typep x 'single-float))
+      (is (typep y 'single-float))
+      (is (typep z 'single-float)))))
+
+(test compute-agent-position-varies-by-state
+  "Test that compute-agent-position Y varies by agent state."
+  (init-holodeck-storage)
+  (let ((agent (autopoiesis.agent:make-agent :name "test-agent")))
+    ;; Running state
+    (autopoiesis.agent:start-agent agent)
+    (multiple-value-bind (x1 y1 z1) (compute-agent-position agent)
+      (declare (ignore x1 z1))
+      ;; Pause agent
+      (autopoiesis.agent:pause-agent agent)
+      (multiple-value-bind (x2 y2 z2) (compute-agent-position agent)
+        (declare (ignore x2 z2))
+        ;; Y should be different for different states
+        (is (not (= y1 y2)))))))
+
+(test create-agent-marker-entity-has-all-components
+  "Test that create-agent-marker-entity creates a complete entity."
+  (init-holodeck-storage)
+  (clear-agent-entity-map)
+  (reset-snapshot-entities)
+  (let* ((agent (autopoiesis.agent:make-agent :name "marker-test"))
+         (entity (create-agent-marker-entity agent)))
+    ;; Entity should be valid
+    (is (integerp entity))
+    ;; Should have position
+    (is (typep (position3d-x entity) 'single-float))
+    ;; Should have scale (larger than default)
+    (is (= 1.5 (scale3d-sx entity)))
+    ;; Should have agent binding
+    (is (string= "marker-test" (agent-binding-agent-name entity)))
+    ;; Should have visual style for agent type
+    (is (eq :agent (visual-style-node-type entity)))
+    ;; Should have pulse rate for animation
+    (is (> (visual-style-pulse-rate entity) 0.0))
+    ;; Should be tracked
+    (is (member entity *snapshot-entities*))
+    ;; Should be in agent-entity map
+    (is (= entity (find-agent-entity (autopoiesis.agent:agent-id agent))))))
+
+(test sync-live-agents-creates-entities-for-running-agents
+  "Test that sync-live-agents creates entities for running agents."
+  (init-holodeck-storage)
+  (clear-agent-entity-map)
+  (reset-snapshot-entities)
+  ;; Clear agent registry for clean test
+  (clrhash autopoiesis.agent::*agent-registry*)
+  ;; Create and register a running agent
+  (let ((agent (autopoiesis.agent:make-agent :name "sync-test")))
+    (autopoiesis.agent:register-agent agent)
+    (autopoiesis.agent:start-agent agent)
+    ;; Initially no agent entities
+    (is (= 0 (sync-live-agents-count)))
+    ;; Sync
+    (sync-live-agents)
+    ;; Should have created entity
+    (is (= 1 (sync-live-agents-count)))
+    (let ((entity (find-agent-entity (autopoiesis.agent:agent-id agent))))
+      (is (not (null entity)))
+      ;; Entity should have correct agent binding
+      (is (string= "sync-test" (agent-binding-agent-name entity))))
+    ;; Clean up
+    (autopoiesis.agent:unregister-agent agent)))
+
+(test sync-live-agents-removes-entities-for-stopped-agents
+  "Test that sync-live-agents removes entities for stopped agents."
+  (init-holodeck-storage)
+  (clear-agent-entity-map)
+  (reset-snapshot-entities)
+  (clrhash autopoiesis.agent::*agent-registry*)
+  ;; Create and register a running agent
+  (let ((agent (autopoiesis.agent:make-agent :name "stop-test")))
+    (autopoiesis.agent:register-agent agent)
+    (autopoiesis.agent:start-agent agent)
+    ;; Sync to create entity
+    (sync-live-agents)
+    (is (= 1 (sync-live-agents-count)))
+    ;; Stop the agent
+    (autopoiesis.agent:stop-agent agent)
+    ;; Sync again
+    (sync-live-agents)
+    ;; Entity should be removed
+    (is (= 0 (sync-live-agents-count)))
+    ;; Clean up
+    (autopoiesis.agent:unregister-agent agent)))
+
+(test sync-live-agents-updates-existing-entity-positions
+  "Test that sync-live-agents updates positions of existing entities."
+  (init-holodeck-storage)
+  (clear-agent-entity-map)
+  (reset-snapshot-entities)
+  (clrhash autopoiesis.agent::*agent-registry*)
+  ;; Set up delta time for position updates
+  (let ((autopoiesis.holodeck::*delta-time* 0.5))
+    (let ((agent (autopoiesis.agent:make-agent :name "update-test")))
+      (autopoiesis.agent:register-agent agent)
+      (autopoiesis.agent:start-agent agent)
+      ;; Initial sync
+      (sync-live-agents)
+      (let* ((entity (find-agent-entity (autopoiesis.agent:agent-id agent)))
+             (initial-x (position3d-x entity)))
+        ;; Add a thought to change the position
+        (autopoiesis.core:stream-append
+         (autopoiesis.agent:agent-thought-stream agent)
+         (autopoiesis.core:make-thought "test thought"))
+        ;; Sync again with time for lerp
+        (sync-live-agents)
+        ;; Position should have moved toward new target
+        ;; (may not be exactly at target due to lerp)
+        (let ((new-x (position3d-x entity)))
+          ;; X should have increased (more thoughts = further in time)
+          (is (>= new-x initial-x))))
+      ;; Clean up
+      (autopoiesis.agent:unregister-agent agent))))
+
+(test sync-live-agents-handles-multiple-agents
+  "Test that sync-live-agents handles multiple agents correctly."
+  (init-holodeck-storage)
+  (clear-agent-entity-map)
+  (reset-snapshot-entities)
+  (clrhash autopoiesis.agent::*agent-registry*)
+  (let ((agent1 (autopoiesis.agent:make-agent :name "multi-1"))
+        (agent2 (autopoiesis.agent:make-agent :name "multi-2"))
+        (agent3 (autopoiesis.agent:make-agent :name "multi-3")))
+    ;; Register all
+    (autopoiesis.agent:register-agent agent1)
+    (autopoiesis.agent:register-agent agent2)
+    (autopoiesis.agent:register-agent agent3)
+    ;; Start only two
+    (autopoiesis.agent:start-agent agent1)
+    (autopoiesis.agent:start-agent agent2)
+    ;; Sync
+    (sync-live-agents)
+    ;; Should have 2 entities (only running agents)
+    (is (= 2 (sync-live-agents-count)))
+    (is (not (null (find-agent-entity (autopoiesis.agent:agent-id agent1)))))
+    (is (not (null (find-agent-entity (autopoiesis.agent:agent-id agent2)))))
+    (is (null (find-agent-entity (autopoiesis.agent:agent-id agent3))))
+    ;; Start third agent
+    (autopoiesis.agent:start-agent agent3)
+    (sync-live-agents)
+    (is (= 3 (sync-live-agents-count)))
+    ;; Stop first agent
+    (autopoiesis.agent:stop-agent agent1)
+    (sync-live-agents)
+    (is (= 2 (sync-live-agents-count)))
+    (is (null (find-agent-entity (autopoiesis.agent:agent-id agent1))))
+    ;; Clean up
+    (autopoiesis.agent:unregister-agent agent1)
+    (autopoiesis.agent:unregister-agent agent2)
+    (autopoiesis.agent:unregister-agent agent3)))
+
+(test sync-live-agents-idempotent
+  "Test that calling sync-live-agents multiple times is idempotent."
+  (init-holodeck-storage)
+  (clear-agent-entity-map)
+  (reset-snapshot-entities)
+  (clrhash autopoiesis.agent::*agent-registry*)
+  (let ((agent (autopoiesis.agent:make-agent :name "idempotent-test")))
+    (autopoiesis.agent:register-agent agent)
+    (autopoiesis.agent:start-agent agent)
+    ;; Sync multiple times
+    (sync-live-agents)
+    (is (= 1 (sync-live-agents-count)))
+    (let ((entity1 (find-agent-entity (autopoiesis.agent:agent-id agent))))
+      (sync-live-agents)
+      (is (= 1 (sync-live-agents-count)))
+      ;; Should be the same entity
+      (is (= entity1 (find-agent-entity (autopoiesis.agent:agent-id agent))))
+      (sync-live-agents)
+      (is (= 1 (sync-live-agents-count)))
+      (is (= entity1 (find-agent-entity (autopoiesis.agent:agent-id agent)))))
+    ;; Clean up
+    (autopoiesis.agent:unregister-agent agent)))
+

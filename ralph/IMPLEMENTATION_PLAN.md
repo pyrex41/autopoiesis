@@ -190,7 +190,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 #### 8.6: Main Loop
 - [x] Implement `launch-holodeck` entry point
 - [x] Implement render loop (systems → camera → entities → connections → HUD)
-- [ ] Implement `sync-live-agents` for real-time updates
+- [x] Implement `sync-live-agents` for real-time updates
 - [x] Add grid rendering for spatial reference
 
 ### Phase 9: Self-Extension

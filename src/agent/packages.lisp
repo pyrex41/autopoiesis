@@ -106,4 +106,12 @@
    #:message-timestamp
    #:send-message
    #:receive-messages
-   #:*agent-mailboxes*))
+   #:*agent-mailboxes*
+
+   ;; Agent registry
+   #:*agent-registry*
+   #:register-agent
+   #:unregister-agent
+   #:find-agent
+   #:list-agents
+   #:running-agents))

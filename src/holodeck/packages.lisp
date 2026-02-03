@@ -565,4 +565,20 @@
 
    ;; Window input handlers
    #:holodeck-keyboard-handler
-   #:holodeck-camera-input-handler))
+   #:holodeck-camera-input-handler
+
+   ;; Live agent synchronization
+   #:*agent-entity-map*
+   #:*sync-interval*
+   #:*last-sync-time*
+   #:*transition-duration*
+   #:should-sync-p
+   #:find-agent-entity
+   #:register-agent-entity
+   #:unregister-agent-entity
+   #:clear-agent-entity-map
+   #:create-agent-marker-entity
+   #:compute-agent-position
+   #:update-agent-entity-position
+   #:sync-live-agents
+   #:sync-live-agents-count))

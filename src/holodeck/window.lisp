@@ -670,6 +670,183 @@ void main() {
     (nreverse commands)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Live Agent Synchronization
+;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; Synchronizes holodeck visualization with live running agents.
+;;; Updates entity positions to match current agent state and adds
+;;; smooth transitions for visual continuity.
+
+(defvar *agent-entity-map* (make-hash-table :test 'equal)
+  "Maps agent IDs to their corresponding holodeck entity IDs.")
+
+(defvar *sync-interval* 0.1
+  "Minimum interval between sync operations in seconds.")
+
+(defvar *last-sync-time* 0.0
+  "Timestamp of the last sync operation.")
+
+(defvar *transition-duration* 0.3
+  "Duration of smooth position transitions in seconds.")
+
+(defun should-sync-p ()
+  "Return T if enough time has passed since the last sync."
+  (> (- *elapsed-time* *last-sync-time*) *sync-interval*))
+
+(defun find-agent-entity (agent-id)
+  "Find the holodeck entity for an agent by AGENT-ID.
+   Returns the entity ID or NIL if not found."
+  (gethash agent-id *agent-entity-map*))
+
+(defun register-agent-entity (agent-id entity)
+  "Register ENTITY as the holodeck representation of agent AGENT-ID."
+  (setf (gethash agent-id *agent-entity-map*) entity)
+  entity)
+
+(defun unregister-agent-entity (agent-id)
+  "Remove the agent-entity mapping for AGENT-ID."
+  (remhash agent-id *agent-entity-map*))
+
+(defun clear-agent-entity-map ()
+  "Clear all agent-entity mappings."
+  (clrhash *agent-entity-map*))
+
+(defun create-agent-marker-entity (agent)
+  "Create a holodeck entity to represent a live AGENT.
+   The entity is styled distinctively to indicate it's a live agent marker."
+  (let* ((agent-id (autopoiesis.agent:agent-id agent))
+         (agent-name (autopoiesis.agent:agent-name agent))
+         (entity (cl-fast-ecs:make-entity)))
+    ;; Position (will be updated by sync)
+    (make-position3d entity :x 0.0 :y 0.0 :z 0.0)
+    (make-scale3d entity :sx 1.5 :sy 1.5 :sz 1.5)
+    (make-rotation3d entity)
+    ;; Agent binding
+    (make-agent-binding entity
+                        :agent-id agent-id
+                        :agent-name agent-name)
+    ;; Visual style - cyan color with strong glow and pulse for live agents
+    (make-visual-style entity
+                       :node-type :agent
+                       :color-r 0.2 :color-g 1.0 :color-b 0.8 :color-a 0.95
+                       :glow-intensity 1.5
+                       :pulse-rate 2.0)
+    ;; Label showing agent name
+    (make-node-label entity
+                     :text agent-name
+                     :visible-p t
+                     :offset-y 2.0)
+    ;; Interactive
+    (make-interactive entity)
+    (make-detail-level entity :current :high)
+    ;; Register in tracking structures
+    (track-snapshot-entity entity)
+    (register-agent-entity agent-id entity)
+    entity))
+
+(defun compute-agent-position (agent)
+  "Compute the 3D position for an AGENT based on its current state.
+   Returns (VALUES x y z) for the agent's position in cognitive space.
+   
+   Position mapping:
+   - X-axis: Time (based on thought stream length or elapsed time)
+   - Y-axis: Abstraction level (based on agent state)
+   - Z-axis: Branch/parallel dimension (based on agent ID hash for spread)"
+  (let* ((thought-stream (autopoiesis.agent:agent-thought-stream agent))
+         (stream-length (if thought-stream
+                           (autopoiesis.core:stream-length thought-stream)
+                           0))
+         ;; X = time progression (10 units per thought, offset by 5 for visibility)
+         (x (coerce (+ 5.0 (* stream-length 10.0)) 'single-float))
+         ;; Y = abstraction level based on state
+         (y (case (autopoiesis.agent:agent-state agent)
+              (:running 2.0)
+              (:paused 1.5)
+              (:initialized 1.0)
+              (otherwise 0.5)))
+         ;; Z = spread agents across Z axis using hash of ID
+         (agent-id (autopoiesis.agent:agent-id agent))
+         (z (coerce (* 20.0 (mod (sxhash agent-id) 10) 0.1) 'single-float)))
+    (values x y z)))
+
+(defun update-agent-entity-position (entity agent)
+  "Update ENTITY's position to match AGENT's current state.
+   Uses smooth transitions for visual continuity."
+  (multiple-value-bind (target-x target-y target-z)
+      (compute-agent-position agent)
+    (let* ((current-x (position3d-x entity))
+           (current-y (position3d-y entity))
+           (current-z (position3d-z entity))
+           ;; Check if position has changed significantly
+           (dx (abs (- target-x current-x)))
+           (dy (abs (- target-y current-y)))
+           (dz (abs (- target-z current-z)))
+           (threshold 0.01))
+      ;; Only update if position changed
+      (when (or (> dx threshold) (> dy threshold) (> dz threshold))
+        ;; For smooth transitions, we interpolate toward target
+        ;; Using simple lerp with factor based on delta time
+        (let ((lerp-factor (min 1.0 (* 5.0 *delta-time*))))
+          (setf (position3d-x entity)
+                (coerce (+ current-x (* lerp-factor (- target-x current-x)))
+                        'single-float))
+          (setf (position3d-y entity)
+                (coerce (+ current-y (* lerp-factor (- target-y current-y)))
+                        'single-float))
+          (setf (position3d-z entity)
+                (coerce (+ current-z (* lerp-factor (- target-z current-z)))
+                        'single-float)))))))
+
+(defun sync-live-agents ()
+  "Synchronize holodeck visualization with live running agents.
+   
+   This function:
+   1. Gets all currently running agents from the agent registry
+   2. Creates entities for new agents not yet in the visualization
+   3. Updates positions of existing agent entities
+   4. Removes entities for agents that are no longer running
+   
+   Called periodically from the main render loop when should-sync-p returns T."
+  (setf *last-sync-time* *elapsed-time*)
+  (let ((running (autopoiesis.agent:running-agents))
+        (seen-agents (make-hash-table :test 'equal)))
+    ;; Process running agents
+    (dolist (agent running)
+      (let* ((agent-id (autopoiesis.agent:agent-id agent))
+             (entity (find-agent-entity agent-id)))
+        (setf (gethash agent-id seen-agents) t)
+        (if entity
+            ;; Update existing entity
+            (update-agent-entity-position entity agent)
+            ;; Create new entity for this agent
+            (let ((new-entity (create-agent-marker-entity agent)))
+              (multiple-value-bind (x y z) (compute-agent-position agent)
+                (setf (position3d-x new-entity) (coerce x 'single-float))
+                (setf (position3d-y new-entity) (coerce y 'single-float))
+                (setf (position3d-z new-entity) (coerce z 'single-float)))))))
+    ;; Remove entities for agents that are no longer running
+    (let ((to-remove nil))
+      (maphash (lambda (agent-id entity)
+                 (declare (ignore entity))
+                 (unless (gethash agent-id seen-agents)
+                   (push agent-id to-remove)))
+               *agent-entity-map*)
+      (dolist (agent-id to-remove)
+        (let ((entity (gethash agent-id *agent-entity-map*)))
+          (when entity
+            ;; Remove from snapshot entities tracking
+            (setf *snapshot-entities* (remove entity *snapshot-entities*))
+            ;; Delete the entity from ECS
+            (handler-case
+                (cl-fast-ecs:delete-entity entity)
+              (error () nil)))
+          (unregister-agent-entity agent-id))))))
+
+(defun sync-live-agents-count ()
+  "Return the number of agent entities currently being tracked."
+  (hash-table-count *agent-entity-map*))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Aspect Ratio and Projection Helpers
 ;;; ═══════════════════════════════════════════════════════════════════
 
