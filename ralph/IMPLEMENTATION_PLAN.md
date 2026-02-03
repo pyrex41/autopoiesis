@@ -85,7 +85,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 ### Phase 7.7: Branch Visualization
 - [x] Implement \`compute-branch-layout\` (assign y-positions to branches)
 - [x] Implement `render-branch-labels` (show branch names at fork points)
-- [ ] Implement branch switching in UI (Tab or number keys)
+- [x] Implement branch switching in UI (Tab or number keys)
 
 ### Phase 7.8: Tests
 - [x] Create `test/viz-tests.lisp` with test package

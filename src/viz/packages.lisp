@@ -13,6 +13,7 @@
   (:use #:cl #:autopoiesis.core #:autopoiesis.snapshot)
   (:import-from #:uiop #:getenv #:run-program)
   (:import-from #:alexandria #:when-let #:if-let #:ensure-list)
+
   (:export
    ;; Configuration
    #:*viz-config*

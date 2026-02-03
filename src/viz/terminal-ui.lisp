@@ -26,6 +26,25 @@
     (update ui)
     ui))
 
+(defun available-branches (ui)
+  "Return sorted list of available branch names."
+  (let ((branches nil))
+    (maphash (lambda (name _) (push name branches)) (timeline-branches (ui-timeline ui)))
+    (sort branches #'string<)))
+
+(defun branch-head-snapshot (ui branch-name)
+  "Get head snapshot for BRANCH-NAME."
+  (let ((snap-ids (gethash branch-name (timeline-branches (ui-timeline ui)))))
+    (when snap-ids
+      (find-snapshot (ui-timeline ui) (car (last snap-ids))))))
+
+(defun switch-to-branch (ui branch-name)
+  "Switch to head of BRANCH-NAME."
+  (let ((head-snap (branch-head-snapshot ui branch-name)))
+    (when head-snap
+      (jump-to-snapshot (ui-navigator ui) (snapshot-id head-snap))
+      (setf (status-bar-message ui) (format nil "Switched to branch ~A" branch-name)))))
+
 (defmethod update ((ui terminal-ui))
   "Update UI state: terminal size, sync navigator with timeline, etc."
   (multiple-value-bind (w h)
@@ -55,13 +74,56 @@
     (force-output)))
 
 (defmethod handle-input ((ui terminal-ui) key)
-  (declare (ignore ui key))
-  nil)
+  (cond
+    ((char= key #\h)
+     (when (cursor-left (ui-navigator ui))
+       (setf (status-bar-message ui) "Moved left")))
+    ((char= key #\l)
+     (when (cursor-right (ui-navigator ui))
+       (setf (status-bar-message ui) "Moved right")))
+    ((char= key #\k)
+     (when (cursor-up-branch (ui-navigator ui))
+       (setf (status-bar-message ui) "Moved up branch")))
+    ((char= key #\j)
+     (when (cursor-down-branch (ui-navigator ui))
+       (setf (status-bar-message ui) "Moved down branch")))
+    ((char= key #\q)
+     (setf (status-bar-message ui) "Quitting...")
+     (stop-terminal-ui ui)
+     t)
+    ((char= key #\/)
+     (setf (status-bar-message ui) "Search mode (not implemented)"))
+    ((char= key #\Tab)
+     (let* ((branches (available-branches ui))
+            (curr-snap (current-snapshot-at-cursor (ui-navigator ui)))
+            (curr-branch (if curr-snap (snapshot-branch curr-snap) "main"))
+            (curr-idx (position curr-branch branches :test #'string-equal))
+            (next-idx (mod (1+ (or curr-idx 0)) (length branches)))
+            (next-branch (elt branches next-idx)))
+       (switch-to-branch ui next-branch)))
+    ((and (char<= #\1 key) (char<= key #\9))
+     (let* ((branches (available-branches ui))
+            (idx (- (char-code key) (char-code #\1)))
+            (branch (when (< idx (length branches)) (elt branches idx))))
+       (when branch
+         (switch-to-branch ui branch))))
+    ((char= key #\Return)
+     (setf (status-bar-message ui) "Snapshot selected"))
+    (t nil)))
 
 (defmethod refresh-display ((ui terminal-ui))
   (clear-screen)
   (when (ui-timeline ui)
     (render-timeline (ui-timeline ui)))
+
+  ;; Render detail panel if current snapshot
+  (let ((snap (current-snapshot-at-cursor (ui-navigator ui))))
+    (when snap
+      (setf (panel-content (ui-detail-panel ui)) (render-snapshot-summary snap))
+      (render-detail-panel (ui-detail-panel ui)
+                           (+ (getf (config-dimensions) :timeline-width 80) 2)
+                           2)))
+
   (render-status-bar ui)
   (force-output))
 
@@ -69,10 +131,12 @@
   (setf (ui-running-p ui) t)
   (with-terminal
     (setf (status-bar-message ui) "Autopoiesis 2D Timeline Visualization")
-    (loop while (ui-running-p ui)
-          do (sleep 0.1)
-             (update ui)
-             (refresh-display ui))))
+    (loop while (ui-running-p ui) do
+       (let ((key (read-char)))
+         (handle-input ui key))
+       (update ui)
+        (refresh-display ui)
+        )))
 
 (defun stop-terminal-ui (ui)
   (setf (ui-running-p ui) nil))

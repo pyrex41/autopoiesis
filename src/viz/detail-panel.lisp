@@ -88,3 +88,15 @@
     (if space-pos
         (1+ space-pos)  ; Include the space
         max-width)))
+
+(defun render-detail-panel (panel col row)
+  "Render detail panel at COL, ROW."
+  (draw-box row col (panel-width panel) (panel-height panel))
+  (let ((content-row (+ row 1)))
+    (move-cursor content-row (+ col 2))
+    (princ "Detail:")
+    (loop for line in (panel-content panel)
+          for i from 0
+          do (move-cursor (+ content-row 1 i) (+ col 2))
+             (princ (pad-string line (- (panel-width panel) 3)))))
+  (force-output *standard-output*))
