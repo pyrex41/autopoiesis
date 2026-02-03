@@ -89,6 +89,7 @@
    #:install-extension
    #:uninstall-extension
    #:find-extension
+   #:validate-extension-code
    #:validate-extension-source
    ;; Sandbox configuration
    #:*allowed-packages*

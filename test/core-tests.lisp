@@ -270,3 +270,77 @@
           (+ eval compile)))
     (declare (ignore errors))
     (is-true valid)))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; validate-extension-code Tests (Phase 9.1)
+;;; ─────────────────────────────────────────────────────────────────
+
+(test validate-extension-code-safe
+  "Test validate-extension-code accepts safe code"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(lambda (x y) (+ x y)))
+    (declare (ignore errors))
+    (is-true valid))
+  
+  ;; Complex safe code
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(let ((sum 0))
+          (loop for i from 1 to 10
+                do (setq sum (+ sum i)))
+          sum))
+    ;; setq is forbidden even in this context
+    (is (not valid))
+    (is (some (lambda (e) (search "setq" e :test #'char-equal)) errors))))
+
+(test validate-extension-code-rejects-dangerous
+  "Test validate-extension-code rejects dangerous code"
+  ;; eval
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(eval (read)))
+    (is (not valid))
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors)))
+  
+  ;; File operations
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(with-open-file (f "/etc/passwd") (read f)))
+    (is (not valid))
+    (is (some (lambda (e) (search "with-open-file" e :test #'char-equal)) errors))))
+
+(test validate-extension-code-walker-handles-special-forms
+  "Test that the code walker correctly handles special forms"
+  ;; Lambda parameters should not be checked as operators
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(lambda (eval compile) (list eval compile)))
+    (declare (ignore errors))
+    (is-true valid))
+  
+  ;; Flet local functions should be allowed
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(flet ((helper (x) (* x 2)))
+          (helper 10)))
+    (declare (ignore errors))
+    (is-true valid))
+  
+  ;; Labels with recursive functions
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(labels ((factorial (n)
+                   (if (<= n 1)
+                       1
+                       (* n (factorial (1- n))))))
+          (factorial 5)))
+    (declare (ignore errors))
+    (is-true valid))
+  
+  ;; Quoted forms should not be recursively checked
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-extension-code
+       '(list 'eval 'compile 'open 'delete-file))
+    (declare (ignore errors))
+    (is-true valid)))

@@ -191,6 +191,26 @@
   "Check if SYM is in the forbidden symbols list."
   (member sym *forbidden-symbols* :test #'eq))
 
+(defun validate-extension-code (code)
+  "Validate agent-written code for safety.
+   
+   This is the core code walker that checks CODE for dangerous operations.
+   
+   Arguments:
+     code - S-expression code to validate
+   
+   Returns: (values valid-p errors)
+     valid-p - T if code passes validation
+     errors  - List of validation error strings
+   
+   The walker checks:
+   - Symbols in operator position against *sandbox-allowed-symbols* and *allowed-special-forms*
+   - Operators against *forbidden-symbols*
+   - Package restrictions from *allowed-packages*
+   - Handles special forms correctly (lambda params, let bindings, flet/labels)
+   - Quoted forms are treated as data and not recursively checked"
+  (validate-extension-source code :sandbox-level :strict))
+
 (defun validate-extension-source (source &key (sandbox-level :strict))
   "Validate that SOURCE is safe to compile.
    
