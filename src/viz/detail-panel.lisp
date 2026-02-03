@@ -44,3 +44,47 @@
                 (string-downcase (symbol-name (or (getf (snapshot-metadata snapshot) :type) :snapshot))))
         (format nil "Parent:    ~A"
                 (or (snapshot-parent snapshot) "none"))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Thought Preview Rendering
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun render-thought-preview (thought &key (expanded nil) (max-lines 5) (width 38))
+  "Render a preview of THOUGHT's content with truncation and expand/collapse.
+   Returns a list of strings suitable for detail panel display.
+   EXPANDED: if true, show full content; if false, truncate to MAX-LINES.
+   WIDTH: maximum width of each line."
+  (let* ((content (thought-content thought))
+         (serialized (autopoiesis.core:sexpr-serialize content))
+         (lines (split-string-by-lines serialized width)))
+    (if expanded
+        ;; Show all lines
+        lines
+        ;; Show truncated preview
+        (let ((preview-lines (subseq lines 0 (min max-lines (length lines)))))
+          (if (> (length lines) max-lines)
+              ;; Add truncation indicator
+              (append preview-lines (list (format nil "... (~d more lines)" (- (length lines) max-lines))))
+              ;; No truncation needed
+              preview-lines)))))
+
+(defun split-string-by-lines (string max-width)
+  "Split STRING into lines, each no longer than MAX-WIDTH.
+   Attempts to break at word boundaries when possible."
+  (let ((result '())
+        (remaining string))
+    (loop while (> (length remaining) max-width)
+          do (let ((break-pos (find-line-break remaining max-width)))
+               (push (subseq remaining 0 break-pos) result)
+               (setf remaining (subseq remaining break-pos))))
+    (when (> (length remaining) 0)
+      (push remaining result))
+    (nreverse result)))
+
+(defun find-line-break (string max-width)
+  "Find the best position to break STRING within MAX-WIDTH.
+   Prefers word boundaries (spaces)."
+  (let ((space-pos (position #\Space string :from-end t :end max-width)))
+    (if space-pos
+        (1+ space-pos)  ; Include the space
+        max-width)))

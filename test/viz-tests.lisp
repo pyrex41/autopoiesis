@@ -96,3 +96,16 @@
       (is (search "ID:       test-id-1234567890" (first summary)))
       (is (search "Type:      decision" (third summary)))
       (is (search "Parent:    parent-test-id" (fourth summary))))))
+
+(test render-thought-preview-collapsed
+  (let ((thought (autopoiesis.core:make-thought
+                  '(:action :reasoning :about :something :very :long :that :will :be :truncated :because :it :is :too :long :for :the :panel :width))))
+    (let ((preview (autopoiesis.viz:render-thought-preview thought :expanded nil :max-lines 2 :width 20)))
+      (is (<= (length preview) 3))  ; max-lines + possible truncation indicator
+      (is (some #'(lambda (line) (search "..." line)) preview)))))
+
+(test render-thought-preview-expanded
+  (let ((thought (autopoiesis.core:make-thought '(:short :content))))
+    (let ((preview (autopoiesis.viz:render-thought-preview thought :expanded t :width 20)))
+      (is (> (length preview) 0))
+      (is (every #'(lambda (line) (<= (length line) 20)) preview)))))

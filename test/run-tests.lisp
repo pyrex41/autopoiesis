@@ -19,6 +19,7 @@
   (run! 'snapshot-tests)
   (run! 'interface-tests)
   (run! 'integration-tests)
+  (run! 'viz-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -45,3 +46,7 @@
 (defun test-e2e ()
   "Run only E2E user story tests."
   (run! 'e2e-tests))
+
+(defun test-viz ()
+  "Run only visualization tests."
+  (run! 'viz-tests))

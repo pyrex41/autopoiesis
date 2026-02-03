@@ -68,7 +68,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 ### Phase 7.4: Snapshot Detail Panel
 - [x] Create `detail-panel` class with panel dimensions and content buffer
 - [x] Implement `render-snapshot-summary` (ID, timestamp, type, parent)
-- [ ] Implement `render-thought-preview` with truncation and expand/collapse state
+- [x] Implement `render-thought-preview` with truncation and expand/collapse state
 
 ### Phase 7.5: Navigation Integration
 - [ ] Implement `timeline-navigator` class wrapping snapshot navigator
@@ -135,19 +135,112 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 
 (none yet)
 
-## Future (Ready for Planning)
+## Future (Fully Specified)
+
+See `docs/specs/08-remaining-phases.md` for complete specifications.
 
 ### Phase 8: 3D Holodeck
 - Depends on: Phase 7 complete
-- ECS setup, 3D rendering (Trial/Raylib), scene management, camera, input, HUD, visual effects
+- **Estimated effort: 6-8 weeks**
+
+#### 8.1: ECS Setup
+- [ ] Add `trial`, `3d-matrices`, `3d-vectors`, `cl-fast-ecs` dependencies
+- [ ] Define spatial components (position, velocity, scale, rotation)
+- [ ] Define visual components (visual-style, mesh-ref, trail)
+- [ ] Define data binding components (snapshot-binding, agent-binding, connection)
+- [ ] Define interaction components (interactive, selection-state, tooltip)
+- [ ] Implement layout-system, movement-system, pulse-system
+- [ ] Implement lod-system, interaction-system
+
+#### 8.2: Rendering
+- [ ] Create `holodeck-window` class extending Trial main
+- [ ] Implement hologram-node shader (fresnel, scanlines, glow)
+- [ ] Implement energy-beam shader (animated flow)
+- [ ] Create mesh primitives (sphere, octahedron, branching-node)
+- [ ] Implement `render-snapshot-entity` with LOD
+- [ ] Implement `render-connection-entity` with energy beams
+
+#### 8.3: Camera System
+- [ ] Implement `orbit-camera` class with spherical coordinates
+- [ ] Implement `fly-camera` class with velocity-based movement
+- [ ] Implement smooth camera transitions with easing
+- [ ] Implement `focus-on-snapshot`, `focus-on-agent`, `camera-overview`
+- [ ] Handle orbit (right-drag) and zoom (scroll) input
+
+#### 8.4: HUD System
+- [ ] Create HUD panel system with position, agent, timeline, hints panels
+- [ ] Implement `update-hud` from current state
+- [ ] Implement `render-hud` with transparency and borders
+- [ ] Add timeline scrubber at bottom
+
+#### 8.5: Input Handling
+- [ ] Define holodeck key bindings (WASD fly, []/step, F/fork, etc.)
+- [ ] Implement ray picking for entity selection
+- [ ] Implement `screen-to-world-ray` for mouse interaction
+- [ ] Handle keyboard and mouse events
+
+#### 8.6: Main Loop
+- [ ] Implement `launch-holodeck` entry point
+- [ ] Implement render loop (systems → camera → entities → connections → HUD)
+- [ ] Implement `sync-live-agents` for real-time updates
+- [ ] Add grid rendering for spatial reference
 
 ### Phase 9: Self-Extension
-- Depends on: Phase 8 complete
-- Agent macros, self-modification, learning system, capability generation
+- Depends on: Phase 8 complete (can start 8.3+ in parallel)
+- **Estimated effort: 4-5 weeks**
+
+#### 9.1: Extension Compiler
+- [ ] Define sandbox rules (*allowed-packages*, *forbidden-symbols*)
+- [ ] Implement `validate-extension-code` walker
+- [ ] Implement `compile-extension` with error handling
+- [ ] Create extension registry and `extension` class
+- [ ] Implement `register-extension` and `invoke-extension`
+
+#### 9.2: Agent-Written Capabilities
+- [ ] Create `agent-capability` class extending `capability`
+- [ ] Implement `agent-define-capability` with validation
+- [ ] Implement `test-agent-capability` with test cases
+- [ ] Implement `promote-capability` workflow
+
+#### 9.3: Learning System
+- [ ] Define `experience` and `heuristic` classes
+- [ ] Implement `extract-patterns` from experiences
+- [ ] Implement `extract-action-sequences` (n-gram analysis)
+- [ ] Implement `generate-heuristic` from patterns
+- [ ] Implement `apply-heuristics` to decisions
+- [ ] Implement `update-heuristic-confidence` feedback loop
 
 ### Phase 10: Production
 - Depends on: Phase 9 complete
-- Performance optimization, security hardening, deployment, documentation
+- **Estimated effort: 4-6 weeks**
+
+#### 10.1: Performance Optimization
+- [ ] Implement LRU cache for hot snapshots
+- [ ] Implement `parallel-ecs-update` for independent systems
+- [ ] Implement `compact-thought-stream` for memory reduction
+- [ ] Profile and optimize critical paths
+- [ ] Implement lazy loading for large DAGs
+
+#### 10.2: Security Hardening
+- [ ] Define permission system (resource × action matrix)
+- [ ] Implement `check-permission` and `with-permission-check`
+- [ ] Implement audit logging with rotation
+- [ ] Implement input validation framework
+- [ ] Security test sandbox escape attempts
+
+#### 10.3: Reliability
+- [ ] Implement error recovery with restarts
+- [ ] Add state consistency checks
+- [ ] Implement backup/restore functionality
+- [ ] Add graceful degradation on failures
+
+#### 10.4: Deployment
+- [ ] Create Dockerfile with SBCL and dependencies
+- [ ] Implement configuration management (load/merge)
+- [ ] Implement health check endpoints
+- [ ] Implement metrics collection
+- [ ] Create docker-compose for full stack
+- [ ] Write deployment documentation
 
 ---
 
