@@ -169,7 +169,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement `render-connection-entity` with energy beams
 
 #### 8.3: Camera System
-- [ ] Implement `orbit-camera` class with spherical coordinates
+- [x] Implement `orbit-camera` class with spherical coordinates
 - [ ] Implement `fly-camera` class with velocity-based movement
 - [ ] Implement smooth camera transitions with easing
 - [ ] Implement `focus-on-snapshot`, `focus-on-agent`, `camera-overview`

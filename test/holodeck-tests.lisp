@@ -1792,3 +1792,269 @@ out vec4 color;")))
           (is (not (and (< (abs (- tr fr)) 0.01)
                         (< (abs (- tg fg)) 0.01)
                         (< (abs (- tb fb)) 0.01)))))))))
+
+;;; ===================================================================
+;;; Orbit Camera Tests
+;;; ===================================================================
+
+(def-suite camera-tests
+  :in holodeck-tests
+  :description "Tests for orbit-camera class and operations")
+
+(in-suite camera-tests)
+
+;; --- Construction ---
+
+(test orbit-camera-creation-defaults
+  "Test that orbit-camera is created with correct defaults."
+  (let ((cam (make-orbit-camera)))
+    (is (= 0.0 (camera-theta cam)))
+    (is (< (abs (- (camera-phi cam) 0.3)) 0.001))
+    (is (= 30.0 (camera-distance cam)))
+    (is (= 60.0 (camera-fov cam)))
+    (is (< (abs (- (camera-near-plane cam) 0.1)) 0.001))
+    (is (= 1000.0 (camera-far-plane cam)))
+    (is (= 5.0 (camera-min-distance cam)))
+    (is (= 200.0 (camera-max-distance cam)))))
+
+(test orbit-camera-creation-custom
+  "Test that orbit-camera accepts custom parameters."
+  (let ((cam (make-orbit-camera :theta 1.0 :phi 0.5 :distance 50.0
+                                :fov 45.0 :near 1.0 :far 500.0
+                                :min-distance 10.0 :max-distance 100.0)))
+    (is (= 1.0 (camera-theta cam)))
+    (is (= 0.5 (camera-phi cam)))
+    (is (= 50.0 (camera-distance cam)))
+    (is (= 45.0 (camera-fov cam)))
+    (is (= 1.0 (camera-near-plane cam)))
+    (is (= 500.0 (camera-far-plane cam)))
+    (is (= 10.0 (camera-min-distance cam)))
+    (is (= 100.0 (camera-max-distance cam)))))
+
+;; --- Position Computation ---
+
+(test camera-position-at-origin-target
+  "Test camera position with theta=0, phi=0 orbits along +Z axis."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 10.0))
+         (pos (camera-position cam)))
+    ;; At theta=0, phi=0: offset is (0, 0, distance), so position is (0, 0, 10)
+    (is (< (abs (3d-vectors:vx pos)) 0.001))
+    (is (< (abs (3d-vectors:vy pos)) 0.001))
+    (is (< (abs (- (3d-vectors:vz pos) 10.0)) 0.001))))
+
+(test camera-position-theta-pi-half
+  "Test camera position at theta=pi/2 orbits along +X axis."
+  (let* ((cam (make-orbit-camera :theta (coerce (/ pi 2) 'single-float)
+                                 :phi 0.0 :distance 10.0))
+         (pos (camera-position cam)))
+    ;; At theta=pi/2, phi=0: offset is (distance, 0, 0)
+    (is (< (abs (- (3d-vectors:vx pos) 10.0)) 0.01))
+    (is (< (abs (3d-vectors:vy pos)) 0.01))
+    (is (< (abs (3d-vectors:vz pos)) 0.01))))
+
+(test camera-position-phi-positive
+  "Test that positive phi elevates camera above XZ plane."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.5 :distance 10.0))
+         (pos (camera-position cam)))
+    ;; Positive phi should put camera above XZ plane
+    (is (> (3d-vectors:vy pos) 0.0))))
+
+(test camera-position-with-target-offset
+  "Test camera position is offset from non-origin target."
+  (let* ((target (3d-vectors:vec3 10.0 5.0 3.0))
+         (cam (make-orbit-camera :target target :theta 0.0 :phi 0.0 :distance 20.0))
+         (pos (camera-position cam)))
+    ;; Position should be target + offset
+    (is (< (abs (- (3d-vectors:vx pos) 10.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vy pos) 5.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vz pos) 23.0)) 0.001))))
+
+(test camera-position-distance-matches
+  "Test that distance from position to target equals camera-distance."
+  (let* ((cam (make-orbit-camera :theta 0.7 :phi 0.4 :distance 25.0))
+         (pos (camera-position cam))
+         (diff (3d-vectors:v- pos (camera-target cam)))
+         (dist (3d-vectors:vlength diff)))
+    (is (< (abs (- dist 25.0)) 0.01))))
+
+;; --- Direction Vectors ---
+
+(test camera-forward-points-at-target
+  "Test that forward vector points from camera toward target."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 10.0))
+         (fwd (camera-forward cam)))
+    ;; Forward should point toward target (origin), so in -Z direction
+    (is (< (3d-vectors:vz fwd) 0.0))
+    ;; Should be unit length
+    (is (< (abs (- (3d-vectors:vlength fwd) 1.0)) 0.001))))
+
+(test camera-right-perpendicular-to-forward
+  "Test that right vector is perpendicular to forward."
+  (let* ((cam (make-orbit-camera :theta 0.5 :phi 0.3 :distance 20.0))
+         (fwd (camera-forward cam))
+         (right (camera-right cam))
+         (dot (+ (* (3d-vectors:vx fwd) (3d-vectors:vx right))
+                 (* (3d-vectors:vy fwd) (3d-vectors:vy right))
+                 (* (3d-vectors:vz fwd) (3d-vectors:vz right)))))
+    ;; Dot product should be ~0 (perpendicular)
+    (is (< (abs dot) 0.01))))
+
+;; --- Orbit Operation ---
+
+(test orbit-changes-theta
+  "Test that orbit-camera-by changes theta angle."
+  (let ((cam (make-orbit-camera :theta 0.0 :orbit-speed 0.01)))
+    (orbit-camera-by cam 100.0 0.0)
+    ;; theta should have increased by 100 * 0.01 = 1.0
+    (is (< (abs (- (camera-theta cam) 1.0)) 0.001))))
+
+(test orbit-changes-phi
+  "Test that orbit-camera-by changes phi angle."
+  (let ((cam (make-orbit-camera :phi 0.0 :orbit-speed 0.01)))
+    (orbit-camera-by cam 0.0 50.0)
+    ;; phi should have increased by 50 * 0.01 = 0.5
+    (is (< (abs (- (camera-phi cam) 0.5)) 0.001))))
+
+(test orbit-clamps-phi
+  "Test that phi is clamped to avoid gimbal lock."
+  (let ((cam (make-orbit-camera :phi 0.0 :orbit-speed 1.0)))
+    ;; Large positive delta should clamp to *phi-max*
+    (orbit-camera-by cam 0.0 100.0)
+    (is (<= (camera-phi cam) *phi-max*))
+    ;; Large negative delta should clamp to *phi-min*
+    (orbit-camera-by cam 0.0 -200.0)
+    (is (>= (camera-phi cam) *phi-min*))))
+
+(test orbit-preserves-distance
+  "Test that orbiting does not change distance from target."
+  (let ((cam (make-orbit-camera :distance 25.0)))
+    (orbit-camera-by cam 50.0 30.0)
+    (is (= 25.0 (camera-distance cam)))))
+
+;; --- Zoom Operation ---
+
+(test zoom-in-decreases-distance
+  "Test that positive zoom delta decreases distance."
+  (let ((cam (make-orbit-camera :distance 30.0 :zoom-speed 1.0)))
+    (zoom-camera-by cam 5.0)
+    (is (< (camera-distance cam) 30.0))))
+
+(test zoom-out-increases-distance
+  "Test that negative zoom delta increases distance."
+  (let ((cam (make-orbit-camera :distance 30.0 :zoom-speed 1.0)))
+    (zoom-camera-by cam -5.0)
+    (is (> (camera-distance cam) 30.0))))
+
+(test zoom-clamps-min-distance
+  "Test that zoom cannot go below min-distance."
+  (let ((cam (make-orbit-camera :distance 10.0 :min-distance 5.0 :zoom-speed 1.0)))
+    (zoom-camera-by cam 100.0)  ; Try to zoom way in
+    (is (>= (camera-distance cam) 5.0))))
+
+(test zoom-clamps-max-distance
+  "Test that zoom cannot exceed max-distance."
+  (let ((cam (make-orbit-camera :distance 100.0 :max-distance 200.0 :zoom-speed 1.0)))
+    (zoom-camera-by cam -500.0)  ; Try to zoom way out
+    (is (<= (camera-distance cam) 200.0))))
+
+(test zoom-preserves-angles
+  "Test that zooming does not change theta or phi."
+  (let ((cam (make-orbit-camera :theta 0.5 :phi 0.3)))
+    (zoom-camera-by cam 5.0)
+    (is (= 0.5 (camera-theta cam)))
+    (is (< (abs (- (camera-phi cam) 0.3)) 0.001))))
+
+;; --- Pan Operation ---
+
+(test pan-moves-target
+  "Test that panning moves the target point."
+  (let* ((cam (make-orbit-camera :pan-speed 0.1))
+         (old-target (3d-vectors:vcopy (camera-target cam))))
+    (pan-camera-by cam 10.0 10.0)
+    ;; Target should have moved
+    (let ((diff (3d-vectors:v- (camera-target cam) old-target)))
+      (is (> (3d-vectors:vlength diff) 0.01)))))
+
+(test pan-preserves-distance
+  "Test that panning preserves distance from target."
+  (let ((cam (make-orbit-camera :distance 25.0)))
+    (pan-camera-by cam 20.0 15.0)
+    ;; Distance should still be 25.0
+    (is (= 25.0 (camera-distance cam)))))
+
+(test pan-preserves-angles
+  "Test that panning preserves theta and phi."
+  (let ((cam (make-orbit-camera :theta 0.7 :phi 0.4)))
+    (pan-camera-by cam 10.0 5.0)
+    (is (= 0.7 (camera-theta cam)))
+    (is (< (abs (- (camera-phi cam) 0.4)) 0.001))))
+
+;; --- View Matrix ---
+
+(test view-matrix-produces-mat4
+  "Test that camera-view-matrix-data returns a mat4."
+  (let* ((cam (make-orbit-camera))
+         (mat (camera-view-matrix-data cam)))
+    (is (typep mat '3d-matrices:mat4))))
+
+(test view-matrix-identity-like-at-default
+  "Test view matrix has reasonable values at default camera position."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 10.0))
+         (mat (camera-view-matrix-data cam)))
+    ;; Matrix should exist and be non-zero
+    (is (not (null mat)))
+    ;; Bottom-right element (flat index 15) of a valid view matrix is 1.0
+    (is (< (abs (- (3d-matrices:miref mat 15) 1.0)) 0.001))))
+
+;; --- Projection Matrix ---
+
+(test projection-matrix-produces-mat4
+  "Test that camera-projection-matrix-data returns a mat4."
+  (let* ((cam (make-orbit-camera))
+         (mat (camera-projection-matrix-data cam (/ 16.0 9.0))))
+    (is (typep mat '3d-matrices:mat4))))
+
+(test projection-matrix-bottom-right-element
+  "Test projection matrix has expected bottom-right value."
+  (let* ((cam (make-orbit-camera :fov 60.0 :near 0.1 :far 1000.0))
+         (mat (camera-projection-matrix-data cam 1.0)))
+    ;; For a perspective matrix, element [3][3] (flat index 15) should be 0.0
+    (is (< (abs (3d-matrices:miref mat 15)) 0.001))))
+
+;; --- Sync Camera State ---
+
+(test sync-camera-state-updates-global
+  "Test that sync-camera-state updates *camera-position*."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 20.0))
+         (old-pos (3d-vectors:vcopy *camera-position*)))
+    (sync-camera-state cam)
+    ;; *camera-position* should now match the camera's computed position
+    (let ((cam-pos (camera-position cam)))
+      (is (< (abs (- (3d-vectors:vx *camera-position*) (3d-vectors:vx cam-pos))) 0.001))
+      (is (< (abs (- (3d-vectors:vy *camera-position*) (3d-vectors:vy cam-pos))) 0.001))
+      (is (< (abs (- (3d-vectors:vz *camera-position*) (3d-vectors:vz cam-pos))) 0.001)))))
+
+;; --- Combined Operations ---
+
+(test orbit-then-zoom-preserves-target
+  "Test that orbit followed by zoom keeps the same target."
+  (let* ((target (3d-vectors:vec3 5.0 3.0 1.0))
+         (cam (make-orbit-camera :target target)))
+    (orbit-camera-by cam 30.0 15.0)
+    (zoom-camera-by cam 3.0)
+    ;; Target should be unchanged
+    (is (< (abs (- (3d-vectors:vx (camera-target cam)) 5.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vy (camera-target cam)) 3.0)) 0.001))
+    (is (< (abs (- (3d-vectors:vz (camera-target cam)) 1.0)) 0.001))))
+
+(test full-orbit-returns-to-start
+  "Test that orbiting 2*pi in theta returns to approximately same position."
+  (let* ((cam (make-orbit-camera :theta 0.0 :phi 0.0 :distance 10.0 :orbit-speed 1.0))
+         (start-pos (camera-position cam)))
+    ;; Orbit by 2*pi in theta
+    (orbit-camera-by cam (coerce (* 2 pi) 'single-float) 0.0)
+    (let ((end-pos (camera-position cam)))
+      ;; Should be back to approximately the same position
+      (is (< (abs (- (3d-vectors:vx end-pos) (3d-vectors:vx start-pos))) 0.1))
+      (is (< (abs (- (3d-vectors:vy end-pos) (3d-vectors:vy start-pos))) 0.1))
+      (is (< (abs (- (3d-vectors:vz end-pos) (3d-vectors:vz start-pos))) 0.1)))))

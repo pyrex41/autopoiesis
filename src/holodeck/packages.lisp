@@ -239,6 +239,34 @@
    #:collect-connection-render-descriptions
    #:compute-connection-beam-color
 
+   ;; Orbit camera
+   #:orbit-camera
+   #:make-orbit-camera
+   #:camera-target
+   #:camera-up
+   #:camera-theta
+   #:camera-phi
+   #:camera-distance
+   #:camera-fov
+   #:camera-near-plane
+   #:camera-far-plane
+   #:camera-min-distance
+   #:camera-max-distance
+   #:camera-orbit-speed
+   #:camera-zoom-speed
+   #:camera-pan-speed
+   #:camera-position
+   #:camera-forward
+   #:camera-right
+   #:orbit-camera-by
+   #:zoom-camera-by
+   #:pan-camera-by
+   #:camera-view-matrix-data
+   #:camera-projection-matrix-data
+   #:sync-camera-state
+   #:*phi-min*
+   #:*phi-max*
+
    ;; Lifecycle
    #:*holodeck*
    #:launch-holodeck

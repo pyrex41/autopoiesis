@@ -120,7 +120,8 @@
      (:file "window")
      (:file "shaders")
      (:file "meshes")
-     (:file "rendering")))))
+     (:file "rendering")
+     (:file "camera")))))
 
 ;;; Holodeck test system
 (asdf:defsystem #:autopoiesis/holodeck-test
