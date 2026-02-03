@@ -369,6 +369,165 @@ void main() {
     (values final-r final-g final-b final-a)))
 
 ;;; ===================================================================
+;;; Energy Beam Material Class
+;;; ===================================================================
+
+(defclass energy-beam-material ()
+  ((beam-color :initarg :beam-color
+               :accessor beam-material-color
+               :initform '(0.4 0.4 0.8 0.5)
+               :type list
+               :documentation "RGBA color of the energy beam.")
+   (flow-speed :initarg :flow-speed
+               :accessor beam-material-flow-speed
+               :initform 1.0
+               :type single-float
+               :documentation "Speed of the energy flow animation along the beam.
+                Higher values make the energy particles travel faster.")
+   (flow-scale :initarg :flow-scale
+               :accessor beam-material-flow-scale
+               :initform 6.28
+               :type single-float
+               :documentation "Spatial frequency of the energy flow pattern.
+                Controls how many energy pulses are visible along the beam.")
+   (pulse-intensity :initarg :pulse-intensity
+                    :accessor beam-material-pulse-intensity
+                    :initform 0.7
+                    :type single-float
+                    :documentation "Intensity of the energy flow pulse effect (0.0 to 1.0).
+                     Controls the contrast between bright and dim regions.")
+   (base-alpha :initarg :base-alpha
+               :accessor beam-material-base-alpha
+               :initform 0.3
+               :type single-float
+               :documentation "Minimum alpha when the energy flow is at its dimmest.
+                The beam is always at least this visible.")
+   (color-boost :initarg :color-boost
+                :accessor beam-material-color-boost
+                :initform 0.5
+                :type single-float
+                :documentation "How much to brighten the color at energy peaks.
+                 Values > 0 make the beam brighter than its base color at peaks."))
+  (:documentation
+   "Material properties for energy beam connection rendering.
+    Controls the animated energy flow effect that makes connections
+    between snapshot nodes look like flowing energy conduits."))
+
+(defmethod print-object ((mat energy-beam-material) stream)
+  (print-unreadable-object (mat stream :type t)
+    (format stream "flow=~,1F pulse=~,1F alpha=~,1F"
+            (beam-material-flow-speed mat)
+            (beam-material-pulse-intensity mat)
+            (beam-material-base-alpha mat))))
+
+;;; ===================================================================
+;;; Energy Beam Material Factory
+;;; ===================================================================
+
+(defun connection-type-to-color (connection-type)
+  "Return (r g b a) color values for a connection type.
+   Matches the holographic theme from the spec."
+  (case connection-type
+    (:temporal     (values 0.3 0.5 0.8 0.6))   ; blue
+    (:parent-child (values 0.3 0.5 0.8 0.6))   ; blue (same as temporal)
+    (:fork         (values 0.8 0.3 1.0 0.8))   ; purple
+    (:branch       (values 0.8 0.3 1.0 0.8))   ; purple (same as fork)
+    (:merge        (values 0.2 1.0 0.5 0.8))   ; green
+    (otherwise     (values 0.4 0.4 0.8 0.5)))) ; default blue-grey
+
+(defun make-energy-beam-material-for-connection-type (connection-type)
+  "Create an energy-beam-material configured for CONNECTION-TYPE.
+   Each connection type gets a distinctive energy flow appearance."
+  (multiple-value-bind (r g b a) (connection-type-to-color connection-type)
+    (case connection-type
+      ((:temporal :parent-child)
+       (make-instance 'energy-beam-material
+                      :beam-color (list r g b a)
+                      :flow-speed 1.0
+                      :flow-scale 6.28
+                      :pulse-intensity 0.7
+                      :base-alpha 0.3
+                      :color-boost 0.5))
+      ((:fork :branch)
+       (make-instance 'energy-beam-material
+                      :beam-color (list r g b a)
+                      :flow-speed 2.0
+                      :flow-scale 9.42
+                      :pulse-intensity 0.9
+                      :base-alpha 0.4
+                      :color-boost 0.7))
+      (:merge
+       (make-instance 'energy-beam-material
+                      :beam-color (list r g b a)
+                      :flow-speed 1.5
+                      :flow-scale 4.71
+                      :pulse-intensity 0.6
+                      :base-alpha 0.35
+                      :color-boost 0.4))
+      (otherwise
+       (make-instance 'energy-beam-material
+                      :beam-color (list r g b a)
+                      :flow-speed 1.0
+                      :flow-scale 6.28
+                      :pulse-intensity 0.7
+                      :base-alpha 0.3
+                      :color-boost 0.5)))))
+
+;;; ===================================================================
+;;; CPU-Side Energy Beam Computation
+;;; ===================================================================
+;;;
+;;; These functions replicate the energy-beam GPU shader math on the CPU
+;;; for testing, headless rendering, and preview thumbnails.
+
+(defun compute-energy-flow (progress time flow-speed flow-scale)
+  "Compute the energy flow value at a point along the beam.
+   PROGRESS is the position along the beam in [0,1] (0=start, 1=end).
+   TIME is the current animation time in seconds.
+   FLOW-SPEED controls how fast the energy moves along the beam.
+   FLOW-SCALE controls the spatial frequency of energy pulses.
+
+   Returns a value in [0,1] where 1 = peak energy, 0 = minimum energy.
+   Replicates: sin((progress - time * energyFlow) * 6.28) * 0.5 + 0.5"
+  (let* ((phase (* (- (coerce progress 'single-float)
+                      (* (coerce time 'single-float)
+                         (coerce flow-speed 'single-float)))
+                   (coerce flow-scale 'single-float)))
+         (raw (+ (* (sin phase) 0.5) 0.5)))
+    (coerce raw 'single-float)))
+
+(defun compute-beam-color (material progress time)
+  "Compute the final energy beam color using MATERIAL properties.
+   PROGRESS is the position along the beam in [0,1].
+   TIME is the current animation time in seconds.
+
+   Returns four values: R G B A as single-floats.
+   Replicates the energy-beam fragment shader logic:
+     alpha = color.a * (base-alpha + energy * pulse-intensity)
+     finalColor = color.rgb * (1.0 + energy * color-boost)"
+  (let* ((beam-color (beam-material-color material))
+         (base-r (coerce (first beam-color) 'single-float))
+         (base-g (coerce (second beam-color) 'single-float))
+         (base-b (coerce (third beam-color) 'single-float))
+         (base-a (coerce (fourth beam-color) 'single-float))
+         ;; Compute energy flow at this point
+         (energy (compute-energy-flow progress time
+                                      (beam-material-flow-speed material)
+                                      (beam-material-flow-scale material)))
+         ;; Alpha: base minimum + energy-modulated portion
+         (pulse-int (beam-material-pulse-intensity material))
+         (min-alpha (beam-material-base-alpha material))
+         (alpha (* base-a (+ min-alpha (* energy pulse-int))))
+         ;; Color: base + energy-modulated boost
+         (boost (beam-material-color-boost material))
+         (color-factor (+ 1.0 (* energy boost)))
+         (final-r (min 1.0 (* base-r color-factor)))
+         (final-g (min 1.0 (* base-g color-factor)))
+         (final-b (min 1.0 (* base-b color-factor)))
+         (final-a (min 1.0 alpha)))
+    (values final-r final-g final-b final-a)))
+
+;;; ===================================================================
 ;;; Shader Source Validation
 ;;; ===================================================================
 

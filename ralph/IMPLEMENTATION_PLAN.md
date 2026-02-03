@@ -51,7 +51,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 ### Phase 8.2: Rendering
 - [x] Create `holodeck-window` class extending Trial main
 - [x] Implement hologram-node shader (fresnel, scanlines, glow)
-- [ ] Implement energy-beam shader (animated flow)
+- [x] Implement energy-beam shader (animated flow)
 - [ ] Create mesh primitives (sphere, octahedron, branching-node)
 - [ ] Implement `render-snapshot-entity` with LOD
 - [ ] Implement `render-connection-entity` with energy beams
@@ -163,7 +163,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 #### 8.2: Rendering
 - [x] Create `holodeck-window` class extending Trial main
 - [x] Implement hologram-node shader (fresnel, scanlines, glow)
-- [ ] Implement energy-beam shader (animated flow)
+- [x] Implement energy-beam shader (animated flow)
 - [ ] Create mesh primitives (sphere, octahedron, branching-node)
 - [ ] Implement `render-snapshot-entity` with LOD
 - [ ] Implement `render-connection-entity` with energy beams

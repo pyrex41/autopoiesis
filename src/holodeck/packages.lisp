@@ -160,10 +160,23 @@
    #:material-shader
    #:make-hologram-material-for-type
 
+   ;; Energy beam material
+   #:energy-beam-material
+   #:beam-material-color
+   #:beam-material-flow-speed
+   #:beam-material-flow-scale
+   #:beam-material-pulse-intensity
+   #:beam-material-base-alpha
+   #:beam-material-color-boost
+   #:connection-type-to-color
+   #:make-energy-beam-material-for-connection-type
+
    ;; CPU-side shader computation
    #:compute-fresnel
    #:compute-scanline
    #:compute-hologram-color
+   #:compute-energy-flow
+   #:compute-beam-color
 
    ;; Lifecycle
    #:*holodeck*

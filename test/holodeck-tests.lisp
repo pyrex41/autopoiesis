@@ -751,3 +751,229 @@ out vec4 color;")))
       (is (numberp a))
       ;; Decision material has gold base, so red should dominate
       (is (> r g)))))
+
+;;; ===================================================================
+;;; Energy Beam Material Tests
+;;; ===================================================================
+
+(def-suite energy-beam-tests
+  :in holodeck-tests
+  :description "Tests for energy beam material, factory, and CPU-side computation")
+
+(in-suite energy-beam-tests)
+
+;; --- Energy Beam Material ---
+
+(test energy-beam-material-defaults
+  "Test energy-beam-material default values."
+  (let ((mat (make-instance 'energy-beam-material)))
+    (is (listp (beam-material-color mat)))
+    (is (= 4 (length (beam-material-color mat))))
+    (is (= 1.0 (beam-material-flow-speed mat)))
+    (is (= 6.28 (beam-material-flow-scale mat)))
+    (is (= 0.7 (beam-material-pulse-intensity mat)))
+    (is (= 0.3 (beam-material-base-alpha mat)))
+    (is (= 0.5 (beam-material-color-boost mat)))))
+
+(test energy-beam-material-custom-values
+  "Test energy-beam-material with custom values."
+  (let ((mat (make-instance 'energy-beam-material
+                            :beam-color '(1.0 0.0 0.0 0.8)
+                            :flow-speed 3.0
+                            :flow-scale 12.56
+                            :pulse-intensity 0.9
+                            :base-alpha 0.5
+                            :color-boost 0.8)))
+    (is (equal '(1.0 0.0 0.0 0.8) (beam-material-color mat)))
+    (is (= 3.0 (beam-material-flow-speed mat)))
+    (is (= 12.56 (beam-material-flow-scale mat)))
+    (is (= 0.9 (beam-material-pulse-intensity mat)))
+    (is (= 0.5 (beam-material-base-alpha mat)))
+    (is (= 0.8 (beam-material-color-boost mat)))))
+
+;; --- Connection Type Colors ---
+
+(test connection-type-colors
+  "Test that different connection types map to different colors."
+  (multiple-value-bind (r1 g1 b1 a1) (connection-type-to-color :temporal)
+    (declare (ignore a1))
+    (multiple-value-bind (r2 g2 b2 a2) (connection-type-to-color :fork)
+      (declare (ignore a2))
+      ;; Temporal (blue) and fork (purple) should differ
+      (is (not (and (= r1 r2) (= g1 g2) (= b1 b2)))))))
+
+(test connection-type-color-parent-child
+  "Test parent-child connection color matches temporal."
+  (multiple-value-bind (r1 g1 b1 a1) (connection-type-to-color :temporal)
+    (multiple-value-bind (r2 g2 b2 a2) (connection-type-to-color :parent-child)
+      (is (= r1 r2))
+      (is (= g1 g2))
+      (is (= b1 b2))
+      (is (= a1 a2)))))
+
+(test connection-type-color-merge
+  "Test merge connection color is green."
+  (multiple-value-bind (r g b a) (connection-type-to-color :merge)
+    (declare (ignore a))
+    ;; Merge should be green-dominant
+    (is (> g r))
+    (is (> g b))))
+
+;; --- Material Factory ---
+
+(test energy-beam-material-for-temporal
+  "Test material factory for :temporal connection type."
+  (let ((mat (make-energy-beam-material-for-connection-type :temporal)))
+    (is (= 1.0 (beam-material-flow-speed mat)))
+    (is (= 0.3 (beam-material-base-alpha mat)))
+    ;; Color should be blue-ish
+    (is (> (third (beam-material-color mat))
+           (first (beam-material-color mat))))))
+
+(test energy-beam-material-for-fork
+  "Test material factory for :fork connection type."
+  (let ((mat (make-energy-beam-material-for-connection-type :fork)))
+    ;; Fork beams are faster and more intense
+    (is (> (beam-material-flow-speed mat) 1.0))
+    (is (> (beam-material-pulse-intensity mat) 0.7))
+    ;; Color should be purple-ish (high r and b)
+    (is (> (first (beam-material-color mat)) 0.5))
+    (is (> (third (beam-material-color mat)) 0.5))))
+
+(test energy-beam-material-for-merge
+  "Test material factory for :merge connection type."
+  (let ((mat (make-energy-beam-material-for-connection-type :merge)))
+    ;; Merge beams have moderate flow
+    (is (> (beam-material-flow-speed mat) 1.0))
+    ;; Color should be green-ish
+    (is (> (second (beam-material-color mat))
+           (first (beam-material-color mat))))))
+
+(test energy-beam-material-for-unknown
+  "Test material factory for unknown connection types uses defaults."
+  (let ((mat (make-energy-beam-material-for-connection-type :some-unknown)))
+    (is (= 1.0 (beam-material-flow-speed mat)))
+    (is (= 0.7 (beam-material-pulse-intensity mat)))))
+
+(test energy-beam-material-types-differ
+  "Test that different connection types produce different materials."
+  (let ((temporal (make-energy-beam-material-for-connection-type :temporal))
+        (fork (make-energy-beam-material-for-connection-type :fork))
+        (merge-mat (make-energy-beam-material-for-connection-type :merge)))
+    ;; All should have different base colors
+    (is (not (equal (beam-material-color temporal)
+                    (beam-material-color fork))))
+    (is (not (equal (beam-material-color temporal)
+                    (beam-material-color merge-mat))))))
+
+;; --- CPU-Side Energy Flow ---
+
+(test compute-energy-flow-range
+  "Test energy flow output is in [0,1] range."
+  (dotimes (i 20)
+    (let ((val (compute-energy-flow (/ (float i) 20.0) (* i 0.1) 1.0 6.28)))
+      (is (>= val 0.0))
+      (is (<= val 1.0)))))
+
+(test compute-energy-flow-varies-with-progress
+  "Test that energy flow varies along the beam."
+  (let ((v1 (compute-energy-flow 0.0 0.0 1.0 6.28))
+        (v2 (compute-energy-flow 0.25 0.0 1.0 6.28)))
+    ;; Different progress positions should give different energy values
+    (is (not (= v1 v2)))))
+
+(test compute-energy-flow-varies-with-time
+  "Test that energy flow varies with time (animation)."
+  (let ((v1 (compute-energy-flow 0.5 0.0 1.0 6.28))
+        (v2 (compute-energy-flow 0.5 0.5 1.0 6.28)))
+    (is (not (= v1 v2)))))
+
+(test compute-energy-flow-speed-effect
+  "Test that flow speed affects the animation rate."
+  ;; At different speeds, the same time offset should produce different results
+  (let ((v-slow (compute-energy-flow 0.5 1.0 0.5 6.28))
+        (v-fast (compute-energy-flow 0.5 1.0 2.0 6.28)))
+    (is (not (= v-slow v-fast)))))
+
+(test compute-energy-flow-scale-effect
+  "Test that flow scale affects the frequency of energy pulses."
+  (let ((v-low (compute-energy-flow 0.5 0.0 1.0 3.14))
+        (v-high (compute-energy-flow 0.5 0.0 1.0 12.56)))
+    (is (not (= v-low v-high)))))
+
+;; --- CPU-Side Beam Color ---
+
+(test compute-beam-color-returns-four-values
+  "Test that compute-beam-color returns R G B A."
+  (let ((mat (make-instance 'energy-beam-material)))
+    (multiple-value-bind (r g b a)
+        (compute-beam-color mat 0.5 0.0)
+      (is (numberp r))
+      (is (numberp g))
+      (is (numberp b))
+      (is (numberp a)))))
+
+(test compute-beam-color-range
+  "Test output colors are in [0,1] range."
+  (let ((mat (make-instance 'energy-beam-material)))
+    (dotimes (i 10)
+      (multiple-value-bind (r g b a)
+          (compute-beam-color mat (/ (float i) 10.0) (* i 0.3))
+        (is (>= r 0.0)) (is (<= r 1.0))
+        (is (>= g 0.0)) (is (<= g 1.0))
+        (is (>= b 0.0)) (is (<= b 1.0))
+        (is (>= a 0.0)) (is (<= a 1.0))))))
+
+(test compute-beam-color-peak-brighter-than-trough
+  "Test that energy peaks are brighter than troughs."
+  (let ((mat (make-instance 'energy-beam-material
+                            :beam-color '(0.5 0.5 0.8 0.6)
+                            :pulse-intensity 0.8
+                            :color-boost 0.5)))
+    ;; Energy flow = 1.0 at peak, 0.0 at trough
+    ;; Find a peak and trough by sampling
+    (let ((brightest 0.0)
+          (dimmest 3.0))
+      (dotimes (i 100)
+        (let ((progress (/ (float i) 100.0)))
+          (multiple-value-bind (r g b a)
+              (compute-beam-color mat progress 0.0)
+            (declare (ignore a))
+            (let ((brightness (+ r g b)))
+              (when (> brightness brightest)
+                (setf brightest brightness))
+              (when (< brightness dimmest)
+                (setf dimmest brightness))))))
+      ;; Peak should be noticeably brighter than trough
+      (is (> brightest dimmest)))))
+
+(test compute-beam-color-alpha-modulated
+  "Test that alpha varies along the beam."
+  (let ((mat (make-instance 'energy-beam-material
+                            :beam-color '(0.5 0.5 0.8 0.8)
+                            :pulse-intensity 0.7
+                            :base-alpha 0.3)))
+    ;; Sample alpha at various points
+    (let ((alphas nil))
+      (dotimes (i 100)
+        (multiple-value-bind (r g b a)
+            (compute-beam-color mat (/ (float i) 100.0) 0.0)
+          (declare (ignore r g b))
+          (push a alphas)))
+      ;; Alpha should vary (not all the same)
+      (let ((min-a (apply #'min alphas))
+            (max-a (apply #'max alphas)))
+        (is (> max-a min-a))))))
+
+(test compute-beam-color-with-fork-material
+  "Test beam color with a fork-type material."
+  (let ((mat (make-energy-beam-material-for-connection-type :fork)))
+    (multiple-value-bind (r g b a)
+        (compute-beam-color mat 0.5 1.0)
+      (is (numberp r))
+      (is (numberp g))
+      (is (numberp b))
+      (is (numberp a))
+      ;; Fork material has purple color, so red and blue should be significant
+      (is (> r 0.1))
+      (is (> b 0.1)))))
