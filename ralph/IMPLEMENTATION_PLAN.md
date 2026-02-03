@@ -77,7 +77,7 @@ Current Phase: 7 (2D Visualization) - Ready for implementation
 - [x] Implement search function (find snapshot by content/type)
 
 ### Phase 7.6: Interactive Terminal UI
-- [ ] Implement `terminal-ui` main class with ncurses screen management
+- [x] Implement terminal-ui main class with screen management
 - [ ] Implement keyboard input handler (hjkl navigation, Enter select, q quit, / search)
 - [ ] Implement `run-terminal-ui` main loop (input → update → render cycle)
 - [ ] Implement status bar with current position, branch name, help hints
