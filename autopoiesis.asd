@@ -104,7 +104,8 @@
       :components
       ((:file "packages")
        (:file "permissions")
-       (:file "audit")))
+       (:file "audit")
+       (:file "validation")))
      ;; Main package that reexports everything
      (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))

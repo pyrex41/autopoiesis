@@ -233,7 +233,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Define permission system (resource × action matrix)
 - [x] Implement `check-permission` and `with-permission-check`
 - [x] Implement audit logging with rotation
-- [ ] Implement input validation framework
+- [x] Implement input validation framework
 - [ ] Security test sandbox escape attempts
 
 #### 10.3: Reliability

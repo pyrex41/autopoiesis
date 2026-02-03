@@ -108,4 +108,37 @@
    #:serialize-audit-entry
    #:deserialize-audit-entry
    #:read-audit-log
-   #:audit-log-active-p))
+   #:audit-log-active-p
+   
+   ;; Input validation
+   #:validation-result
+   #:validation-result-valid-p
+   #:validation-result-value
+   #:validation-result-errors
+   #:make-validation-result
+   #:validation-success
+   #:validation-failure
+   
+   ;; Validation condition
+   #:validation-error
+   #:validation-error-input
+   #:validation-error-spec
+   #:validation-error-errors
+   
+   ;; Core validation
+   #:validate-input
+   #:valid-p
+   #:with-validated-input
+   #:validate-inputs
+   
+   ;; Sanitization
+   #:sanitize-string
+   #:sanitize-html
+   
+   ;; Predefined specs
+   #:*validation-spec-agent-id*
+   #:*validation-spec-snapshot-id*
+   #:*validation-spec-branch-name*
+   #:*validation-spec-capability-name*
+   #:*validation-spec-action*
+   #:*validation-spec-resource-type*))

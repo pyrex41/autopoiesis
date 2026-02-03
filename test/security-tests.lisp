@@ -748,3 +748,363 @@
       ;; Cleanup
       (when (probe-file test-path)
         (delete-file test-path)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Input Validation Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test validation-result-creation
+  "Test creating validation results"
+  (let ((success (autopoiesis.security:validation-success "test")))
+    (is-true (autopoiesis.security:validation-result-valid-p success))
+    (is (string= "test" (autopoiesis.security:validation-result-value success)))
+    (is (null (autopoiesis.security:validation-result-errors success))))
+  
+  (let ((failure (autopoiesis.security:validation-failure "bad" "Error 1" "Error 2")))
+    (is-false (autopoiesis.security:validation-result-valid-p failure))
+    (is (string= "bad" (autopoiesis.security:validation-result-value failure)))
+    (is (= 2 (length (autopoiesis.security:validation-result-errors failure))))))
+
+;;; String Validation Tests
+
+(test validate-string-basic
+  "Test basic string validation"
+  ;; Valid string
+  (let ((result (autopoiesis.security:validate-input "hello" '(:string))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Not a string
+  (let ((result (autopoiesis.security:validate-input 123 '(:string))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-string-length
+  "Test string length constraints"
+  ;; Max length
+  (let ((result (autopoiesis.security:validate-input "hello" '(:string :max-length 10))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  (let ((result (autopoiesis.security:validate-input "hello world" '(:string :max-length 5))))
+    (is-false (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Min length
+  (let ((result (autopoiesis.security:validate-input "hi" '(:string :min-length 5))))
+    (is-false (autopoiesis.security:validation-result-valid-p result)))
+  
+  (let ((result (autopoiesis.security:validate-input "hello" '(:string :min-length 5))))
+    (is-true (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-string-pattern
+  "Test string pattern matching"
+  ;; Valid pattern
+  (let ((result (autopoiesis.security:validate-input "agent-123" 
+                                                     '(:string :pattern "^[a-z]+-[0-9]+$"))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Invalid pattern
+  (let ((result (autopoiesis.security:validate-input "AGENT_123" 
+                                                     '(:string :pattern "^[a-z]+-[0-9]+$"))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-string-empty
+  "Test empty string handling"
+  ;; Allow empty by default
+  (let ((result (autopoiesis.security:validate-input "" '(:string))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Disallow empty
+  (let ((result (autopoiesis.security:validate-input "" '(:string :allow-empty nil))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; Integer Validation Tests
+
+(test validate-integer-basic
+  "Test basic integer validation"
+  ;; Valid integer
+  (let ((result (autopoiesis.security:validate-input 42 '(:integer))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Not an integer
+  (let ((result (autopoiesis.security:validate-input 3.14 '(:integer))))
+    (is-false (autopoiesis.security:validation-result-valid-p result)))
+  
+  (let ((result (autopoiesis.security:validate-input "42" '(:integer))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-integer-range
+  "Test integer range constraints"
+  ;; Within range
+  (let ((result (autopoiesis.security:validate-input 50 '(:integer :min 0 :max 100))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Below min
+  (let ((result (autopoiesis.security:validate-input -5 '(:integer :min 0))))
+    (is-false (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Above max
+  (let ((result (autopoiesis.security:validate-input 150 '(:integer :max 100))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; Number Validation Tests
+
+(test validate-number-basic
+  "Test basic number validation"
+  ;; Integer is a number
+  (let ((result (autopoiesis.security:validate-input 42 '(:number))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Float is a number
+  (let ((result (autopoiesis.security:validate-input 3.14 '(:number))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; String is not a number
+  (let ((result (autopoiesis.security:validate-input "42" '(:number))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; Boolean Validation Tests
+
+(test validate-boolean
+  "Test boolean validation"
+  ;; T is valid
+  (let ((result (autopoiesis.security:validate-input t '(:boolean))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; NIL is valid
+  (let ((result (autopoiesis.security:validate-input nil '(:boolean))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Other values are not valid booleans
+  (let ((result (autopoiesis.security:validate-input 1 '(:boolean))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; Keyword Validation Tests
+
+(test validate-keyword-basic
+  "Test basic keyword validation"
+  ;; Valid keyword
+  (let ((result (autopoiesis.security:validate-input :test '(:keyword))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Not a keyword
+  (let ((result (autopoiesis.security:validate-input 'test '(:keyword))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-keyword-options
+  "Test keyword options constraint"
+  ;; Valid option
+  (let ((result (autopoiesis.security:validate-input :read 
+                                                     '(:keyword :options (:read :write :delete)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Invalid option
+  (let ((result (autopoiesis.security:validate-input :execute 
+                                                     '(:keyword :options (:read :write :delete)))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; List Validation Tests
+
+(test validate-list-basic
+  "Test basic list validation"
+  ;; Valid list
+  (let ((result (autopoiesis.security:validate-input '(1 2 3) '(:list))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Empty list is valid
+  (let ((result (autopoiesis.security:validate-input nil '(:list))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Not a list
+  (let ((result (autopoiesis.security:validate-input "not a list" '(:list))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-list-length
+  "Test list length constraints"
+  ;; Min length
+  (let ((result (autopoiesis.security:validate-input '(1 2) '(:list :min-length 3))))
+    (is-false (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Max length
+  (let ((result (autopoiesis.security:validate-input '(1 2 3 4 5) '(:list :max-length 3))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-list-element-type
+  "Test list element type validation"
+  ;; All integers
+  (let ((result (autopoiesis.security:validate-input '(1 2 3) 
+                                                     '(:list :element-type (:integer)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Mixed types when expecting integers
+  (let ((result (autopoiesis.security:validate-input '(1 "two" 3) 
+                                                     '(:list :element-type (:integer)))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; One-Of Validation Tests
+
+(test validate-one-of
+  "Test one-of validation"
+  ;; Valid option
+  (let ((result (autopoiesis.security:validate-input "red" 
+                                                     '(:one-of :options ("red" "green" "blue")))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Invalid option
+  (let ((result (autopoiesis.security:validate-input "yellow" 
+                                                     '(:one-of :options ("red" "green" "blue")))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; Combinator Validation Tests
+
+(test validate-and-combinator
+  "Test AND combinator validation"
+  ;; Both pass
+  (let ((result (autopoiesis.security:validate-input 50 
+                                                     '(:and (:integer :min 0) (:integer :max 100)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; One fails
+  (let ((result (autopoiesis.security:validate-input 150 
+                                                     '(:and (:integer :min 0) (:integer :max 100)))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-or-combinator
+  "Test OR combinator validation"
+  ;; First passes
+  (let ((result (autopoiesis.security:validate-input 42 
+                                                     '(:or (:integer) (:string)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Second passes
+  (let ((result (autopoiesis.security:validate-input "hello" 
+                                                     '(:or (:integer) (:string)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Neither passes
+  (let ((result (autopoiesis.security:validate-input :keyword 
+                                                     '(:or (:integer) (:string)))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-nullable
+  "Test nullable validation"
+  ;; NIL is valid
+  (let ((result (autopoiesis.security:validate-input nil '(:nullable (:string)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Valid string
+  (let ((result (autopoiesis.security:validate-input "hello" '(:nullable (:string)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Invalid type
+  (let ((result (autopoiesis.security:validate-input 42 '(:nullable (:string)))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; Plist Validation Tests
+
+(test validate-plist-basic
+  "Test basic plist validation"
+  ;; Valid plist
+  (let ((result (autopoiesis.security:validate-input '(:name "test" :value 42) '(:plist))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Odd-length list is not a valid plist
+  (let ((result (autopoiesis.security:validate-input '(:name "test" :value) '(:plist))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+(test validate-plist-required-keys
+  "Test plist required keys"
+  ;; Has required keys
+  (let ((result (autopoiesis.security:validate-input '(:name "test" :id 1) 
+                                                     '(:plist :required-keys (:name :id)))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; Missing required key
+  (let ((result (autopoiesis.security:validate-input '(:name "test") 
+                                                     '(:plist :required-keys (:name :id)))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))))
+
+;;; Valid-p Predicate Tests
+
+(test valid-p-predicate
+  "Test valid-p predicate function"
+  (is-true (autopoiesis.security:valid-p "hello" '(:string)))
+  (is-false (autopoiesis.security:valid-p 123 '(:string)))
+  (is-true (autopoiesis.security:valid-p 42 '(:integer :min 0 :max 100)))
+  (is-false (autopoiesis.security:valid-p 150 '(:integer :max 100))))
+
+;;; Validation Error Condition Tests
+
+(test validation-error-condition
+  "Test validation-error condition"
+  (signals autopoiesis.security:validation-error
+    (autopoiesis.security:with-validated-input (x 123 (:string))
+      x)))
+
+;;; Sanitization Tests
+
+(test sanitize-string-basic
+  "Test basic string sanitization"
+  ;; Trim whitespace
+  (is (string= "hello" (autopoiesis.security:sanitize-string "  hello  ")))
+  
+  ;; Truncate
+  (is (string= "hello" (autopoiesis.security:sanitize-string "hello world" :max-length 5)))
+  
+  ;; Don't trim if disabled
+  (is (string= "  hello  " (autopoiesis.security:sanitize-string "  hello  " :trim nil))))
+
+(test sanitize-string-control-chars
+  "Test control character removal"
+  ;; Remove control chars but keep newlines
+  (let ((result (autopoiesis.security:sanitize-string 
+                 (format nil "hello~Cworld~%test" (code-char 1)))))
+    (is (search "helloworld" result))
+    (is (search (string #\Newline) result))))
+
+(test sanitize-html
+  "Test HTML sanitization"
+  (is (string= "&lt;script&gt;" 
+               (autopoiesis.security:sanitize-html "<script>")))
+  (is (string= "&amp;amp;" 
+               (autopoiesis.security:sanitize-html "&amp;")))
+  (is (string= "&quot;quoted&quot;" 
+               (autopoiesis.security:sanitize-html "\"quoted\""))))
+
+;;; Predefined Specs Tests
+
+(test predefined-validation-specs
+  "Test predefined validation specs exist and work"
+  ;; Agent ID spec
+  (is-true (autopoiesis.security:valid-p "agent-123" 
+                                          autopoiesis.security:*validation-spec-agent-id*))
+  (is-false (autopoiesis.security:valid-p "agent 123" 
+                                           autopoiesis.security:*validation-spec-agent-id*))
+  
+  ;; Action spec
+  (is-true (autopoiesis.security:valid-p :read 
+                                          autopoiesis.security:*validation-spec-action*))
+  (is-false (autopoiesis.security:valid-p :unknown 
+                                           autopoiesis.security:*validation-spec-action*))
+  
+  ;; Resource type spec
+  (is-true (autopoiesis.security:valid-p :snapshot 
+                                          autopoiesis.security:*validation-spec-resource-type*))
+  (is-false (autopoiesis.security:valid-p :invalid 
+                                           autopoiesis.security:*validation-spec-resource-type*)))
+
+;;; Batch Validation Tests
+
+(test validate-inputs-batch
+  "Test batch validation of multiple inputs"
+  ;; All valid
+  (let ((result (autopoiesis.security:validate-inputs
+                 '(("name" "test" (:string :max-length 100))
+                   ("count" 42 (:integer :min 0))
+                   ("active" t (:boolean))))))
+    (is-true (autopoiesis.security:validation-result-valid-p result)))
+  
+  ;; One invalid
+  (let ((result (autopoiesis.security:validate-inputs
+                 '(("name" "test" (:string :max-length 100))
+                   ("count" -5 (:integer :min 0))
+                   ("active" t (:boolean))))))
+    (is-false (autopoiesis.security:validation-result-valid-p result))
+    (is (= 1 (length (autopoiesis.security:validation-result-errors result))))))
