@@ -10,7 +10,7 @@
 set -e
 
 MODE="${1:-build}"
-MAX_ITERATIONS="${2:-0}"  # 0 = infinite
+MAX_ITERATIONS="${2:-30}"  # default 30, 0 = infinite
 MODEL="${3:-xai/grok-4-1-fast}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
