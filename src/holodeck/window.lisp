@@ -1,4 +1,4 @@
-;;;; window.lisp - Holodeck window and scene setup
+;;;; window.lisp - Holodeck window, scene setup, and event handling
 ;;;;
 ;;;; Defines the holodeck-window class, which manages the 3D visualization
 ;;;; window, scene graph, camera, and HUD.  When the Trial game engine is
@@ -7,7 +7,12 @@
 ;;;; the same protocol as a standalone CLOS class for testing and headless
 ;;;; operation.
 ;;;;
+;;;; Also defines the holodeck event types and event dispatching system
+;;;; that routes keyboard, mouse, scroll, and resize events to the
+;;;; appropriate input handlers.
+;;;;
 ;;;; Phase 8.2 - Rendering (first task)
+;;;; Phase 8.5 - Input Handling (keyboard and mouse events)
 
 (in-package #:autopoiesis.holodeck)
 
@@ -60,12 +65,79 @@
    (store :initarg :store
           :accessor holodeck-store
           :initform nil
-          :documentation "Snapshot store to visualize."))
+          :documentation "Snapshot store to visualize.")
+   (keyboard-handler :initarg :keyboard-handler
+                     :accessor holodeck-keyboard-handler
+                     :initform nil
+                     :documentation "Keyboard input handler for key bindings.")
+   (camera-input-handler :initarg :camera-input-handler
+                         :accessor holodeck-camera-input-handler
+                         :initform nil
+                         :documentation "Camera input handler for mouse/scroll."))
   (:documentation
    "Main window class for the 3D holodeck visualization.
-    Manages the rendering context, scene graph, camera, and HUD.
+    Manages the rendering context, scene graph, camera, HUD, and input handlers.
     When Trial is available, a subclass can extend trial:main for
     native OpenGL rendering."))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Holodeck Event Types
+;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; Events are represented as structures for efficient dispatch.
+;;; Each event type corresponds to a specific input category.
+
+(defstruct (holodeck-event (:constructor nil))
+  "Base structure for all holodeck events."
+  (timestamp 0.0 :type single-float :read-only t))
+
+(defstruct (key-event (:include holodeck-event)
+                      (:constructor make-key-event
+                          (&key (timestamp 0.0) key action modifiers)))
+  "Keyboard key press or release event.
+   KEY is a keyword identifying the key (e.g., :w, :escape).
+   ACTION is :press or :release.
+   MODIFIERS is a list of active modifiers (:shift :control :alt :super)."
+  (key nil :type keyword :read-only t)
+  (action :press :type keyword :read-only t)
+  (modifiers nil :type list :read-only t))
+
+(defstruct (mouse-move-event (:include holodeck-event)
+                             (:constructor make-mouse-move-event
+                                 (&key (timestamp 0.0) x y)))
+  "Mouse cursor movement event.
+   X and Y are screen-space pixel coordinates."
+  (x 0.0 :type single-float :read-only t)
+  (y 0.0 :type single-float :read-only t))
+
+(defstruct (mouse-button-event (:include holodeck-event)
+                               (:constructor make-mouse-button-event
+                                   (&key (timestamp 0.0) button action x y)))
+  "Mouse button press or release event.
+   BUTTON is :left, :right, or :middle.
+   ACTION is :press or :release.
+   X and Y are the cursor position at the time of the event."
+  (button :left :type keyword :read-only t)
+  (action :press :type keyword :read-only t)
+  (x 0.0 :type single-float :read-only t)
+  (y 0.0 :type single-float :read-only t))
+
+(defstruct (scroll-event (:include holodeck-event)
+                         (:constructor make-scroll-event
+                             (&key (timestamp 0.0) delta-x delta-y)))
+  "Mouse scroll wheel event.
+   DELTA-X is horizontal scroll (usually 0).
+   DELTA-Y is vertical scroll (positive = up/zoom in)."
+  (delta-x 0.0 :type single-float :read-only t)
+  (delta-y 0.0 :type single-float :read-only t))
+
+(defstruct (resize-event (:include holodeck-event)
+                         (:constructor make-resize-event
+                             (&key (timestamp 0.0) width height)))
+  "Window resize event.
+   WIDTH and HEIGHT are the new window dimensions in pixels."
+  (width 0 :type fixnum :read-only t)
+  (height 0 :type fixnum :read-only t))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Generic Protocol
@@ -95,8 +167,18 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defmethod setup-scene ((window holodeck-window))
-  "Default scene setup: initializes ECS storage and marks window ready."
+  "Default scene setup: initializes ECS storage, input handlers, and marks window ready."
   (init-holodeck-storage)
+  ;; Initialize camera if not already set
+  (unless (holodeck-camera window)
+    (setf (holodeck-camera window) (make-orbit-camera)))
+  ;; Initialize keyboard input handler
+  (unless (holodeck-keyboard-handler window)
+    (setf (holodeck-keyboard-handler window) (make-keyboard-input-handler)))
+  ;; Initialize camera input handler attached to the camera
+  (unless (holodeck-camera-input-handler window)
+    (setf (holodeck-camera-input-handler window)
+          (make-camera-input-handler :camera (holodeck-camera window))))
   (setf (holodeck-running-p window) t))
 
 (defmethod holodeck-update ((window holodeck-window) dt)
@@ -111,9 +193,166 @@
   nil)
 
 (defmethod handle-holodeck-event ((window holodeck-window) event)
-  "Default event handler: no-op."
-  (declare (ignore event))
+  "Dispatch EVENT to the appropriate input handler based on event type.
+   Returns T if the event was handled, NIL otherwise."
+  (typecase event
+    (key-event
+     (handle-key-event window event))
+    (mouse-move-event
+     (handle-mouse-move-event window event))
+    (mouse-button-event
+     (handle-mouse-button-event window event))
+    (scroll-event
+     (handle-scroll-event window event))
+    (resize-event
+     (handle-resize-event window event))
+    (t nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Event Handler Methods
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defgeneric handle-key-event (window event)
+  (:documentation "Handle a keyboard key press or release event."))
+
+(defmethod handle-key-event ((window holodeck-window) (event key-event))
+  "Dispatch key event to the keyboard input handler."
+  (let ((handler (holodeck-keyboard-handler window)))
+    (when handler
+      (let ((key (key-event-key event))
+            (action (key-event-action event)))
+        (ecase action
+          (:press (handle-key-press handler key))
+          (:release (handle-key-release handler key)))
+        t))))
+
+(defgeneric handle-mouse-move-event (window event)
+  (:documentation "Handle a mouse cursor movement event."))
+
+(defmethod handle-mouse-move-event ((window holodeck-window) (event mouse-move-event))
+  "Dispatch mouse move event to the camera input handler."
+  (let ((handler (holodeck-camera-input-handler window)))
+    (when handler
+      (handle-mouse-move handler
+                         (mouse-move-event-x event)
+                         (mouse-move-event-y event))
+      t)))
+
+(defgeneric handle-mouse-button-event (window event)
+  (:documentation "Handle a mouse button press or release event."))
+
+(defmethod handle-mouse-button-event ((window holodeck-window) (event mouse-button-event))
+  "Dispatch mouse button event to the camera input handler.
+   Also handles entity selection on left-click."
+  (let ((cam-handler (holodeck-camera-input-handler window))
+        (button (mouse-button-event-button event))
+        (action (mouse-button-event-action event)))
+    (when cam-handler
+      ;; Update cursor position first
+      (handle-mouse-move cam-handler
+                         (mouse-button-event-x event)
+                         (mouse-button-event-y event))
+      ;; Handle button state
+      (ecase action
+        (:press
+         (handle-mouse-button-press cam-handler button)
+         ;; Left-click triggers entity selection
+         (when (eq button :left)
+           (handle-left-click-selection window event)))
+        (:release
+         (handle-mouse-button-release cam-handler button)))
+      t)))
+
+(defgeneric handle-scroll-event (window event)
+  (:documentation "Handle a mouse scroll wheel event."))
+
+(defmethod handle-scroll-event ((window holodeck-window) (event scroll-event))
+  "Dispatch scroll event to the camera input handler for zooming."
+  (let ((handler (holodeck-camera-input-handler window)))
+    (when handler
+      ;; Use delta-y for zoom (vertical scroll)
+      (handle-scroll handler (scroll-event-delta-y event))
+      t)))
+
+(defgeneric handle-resize-event (window event)
+  (:documentation "Handle a window resize event."))
+
+(defmethod handle-resize-event ((window holodeck-window) (event resize-event))
+  "Update window dimensions on resize."
+  (resize-window window
+                 (resize-event-width event)
+                 (resize-event-height event))
+  t)
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Entity Selection on Click
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun handle-left-click-selection (window event)
+  "Handle left-click for entity selection via ray picking.
+   Uses the camera to cast a ray through the click position and
+   selects the nearest interactive entity."
+  (let ((camera (holodeck-camera window)))
+    (when camera
+      (let* ((x (mouse-button-event-x event))
+             (y (mouse-button-event-y event))
+             (width (window-width window))
+             (height (window-height window))
+             ;; Get all entities with interactive component
+             (entities (collect-interactive-entities)))
+        (when entities
+          (let ((picked (pick-entity-at-screen-pos camera x y width height entities)))
+            (if picked
+                (select-entity picked)
+                (deselect-entity)))))))
   nil)
+
+(defun collect-interactive-entities ()
+  "Collect all entity IDs that have an interactive component.
+   Returns a list of entity IDs.
+   
+   Note: cl-fast-ecs doesn't provide entity iteration, so this function
+   returns the tracked snapshot entities from *snapshot-entities* which
+   are created with interactive components."
+  (handler-case
+      (copy-list *snapshot-entities*)
+    (error () nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Per-Frame Input Processing
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defgeneric process-holodeck-input (window)
+  (:documentation "Process accumulated input for one frame.
+    Call this once per frame after all events have been dispatched."))
+
+(defmethod process-holodeck-input ((window holodeck-window))
+  "Process keyboard and camera input for the current frame.
+   Executes pending keyboard actions and applies camera transformations."
+  ;; Process keyboard input and execute actions
+  (let ((kb-handler (holodeck-keyboard-handler window)))
+    (when kb-handler
+      (update-keyboard-input kb-handler)))
+  ;; Process camera input (orbit, pan, zoom)
+  (let ((cam-handler (holodeck-camera-input-handler window)))
+    (when cam-handler
+      (process-camera-input cam-handler)))
+  ;; Update hover state based on current mouse position
+  (update-hover-state window)
+  t)
+
+(defun update-hover-state (window)
+  "Update entity hover state based on current mouse position."
+  (let ((cam-handler (holodeck-camera-input-handler window))
+        (camera (holodeck-camera window)))
+    (when (and cam-handler camera)
+      (let ((x (input-handler-mouse-x cam-handler))
+            (y (input-handler-mouse-y cam-handler))
+            (width (window-width window))
+            (height (window-height window))
+            (entities (collect-interactive-entities)))
+        (when entities
+          (update-hover-from-mouse camera x y width height entities))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Shader Source Definitions

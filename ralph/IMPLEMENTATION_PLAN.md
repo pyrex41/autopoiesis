@@ -185,7 +185,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Define holodeck key bindings (WASD fly, []/step, F/fork, etc.)
 - [x] Implement ray picking for entity selection
 - [x] Implement `screen-to-world-ray` for mouse interaction
-- [ ] Handle keyboard and mouse events
+- [x] Handle keyboard and mouse events
 
 #### 8.6: Main Loop
 - [ ] Implement `launch-holodeck` entry point

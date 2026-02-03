@@ -510,4 +510,45 @@
    #:*hovered-entity*
    #:set-hovered-entity
    #:hovered-entity
-   #:update-hover-from-mouse))
+   #:update-hover-from-mouse
+
+   ;; Holodeck event types
+   #:holodeck-event
+   #:holodeck-event-timestamp
+   #:key-event
+   #:make-key-event
+   #:key-event-key
+   #:key-event-action
+   #:key-event-modifiers
+   #:mouse-move-event
+   #:make-mouse-move-event
+   #:mouse-move-event-x
+   #:mouse-move-event-y
+   #:mouse-button-event
+   #:make-mouse-button-event
+   #:mouse-button-event-button
+   #:mouse-button-event-action
+   #:mouse-button-event-x
+   #:mouse-button-event-y
+   #:scroll-event
+   #:make-scroll-event
+   #:scroll-event-delta-x
+   #:scroll-event-delta-y
+   #:resize-event
+   #:make-resize-event
+   #:resize-event-width
+   #:resize-event-height
+
+   ;; Event handling
+   #:handle-key-event
+   #:handle-mouse-move-event
+   #:handle-mouse-button-event
+   #:handle-scroll-event
+   #:handle-resize-event
+   #:process-holodeck-input
+   #:collect-interactive-entities
+   #:update-hover-state
+
+   ;; Window input handlers
+   #:holodeck-keyboard-handler
+   #:holodeck-camera-input-handler))

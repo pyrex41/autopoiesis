@@ -4492,3 +4492,275 @@ out vec4 color;")))
       (is (member (key-binding-action b)
                   '(:set-view-timeline :set-view-tree
                     :set-view-constellation :set-view-diff))))))
+
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Event Handling Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite event-handling-tests
+  :in holodeck-tests
+  :description "Tests for holodeck event types and event dispatching")
+
+(in-suite event-handling-tests)
+
+;;; --- Event Structure Tests ---
+
+(test key-event-creation
+  "Test creating a key event."
+  (let ((event (make-key-event :key :w :action :press :modifiers (list :shift))))
+    (is (typep event 'key-event))
+    (is (eq :w (key-event-key event)))
+    (is (eq :press (key-event-action event)))
+    (is (equal (list :shift) (key-event-modifiers event)))))
+
+(test key-event-defaults
+  "Test key event default values."
+  (let ((event (make-key-event :key :escape :action :release)))
+    (is (eq :escape (key-event-key event)))
+    (is (eq :release (key-event-action event)))
+    (is (null (key-event-modifiers event)))
+    (is (= 0.0 (holodeck-event-timestamp event)))))
+
+(test mouse-move-event-creation
+  "Test creating a mouse move event."
+  (let ((event (make-mouse-move-event :x 100.0 :y 200.0 :timestamp 1.5)))
+    (is (typep event 'mouse-move-event))
+    (is (= 100.0 (mouse-move-event-x event)))
+    (is (= 200.0 (mouse-move-event-y event)))
+    (is (= 1.5 (holodeck-event-timestamp event)))))
+
+(test mouse-button-event-creation
+  "Test creating a mouse button event."
+  (let ((event (make-mouse-button-event :button :right :action :press :x 50.0 :y 75.0)))
+    (is (typep event 'mouse-button-event))
+    (is (eq :right (mouse-button-event-button event)))
+    (is (eq :press (mouse-button-event-action event)))
+    (is (= 50.0 (mouse-button-event-x event)))
+    (is (= 75.0 (mouse-button-event-y event)))))
+
+(test scroll-event-creation
+  "Test creating a scroll event."
+  (let ((event (make-scroll-event :delta-x 0.0 :delta-y 3.0)))
+    (is (typep event 'scroll-event))
+    (is (= 0.0 (scroll-event-delta-x event)))
+    (is (= 3.0 (scroll-event-delta-y event)))))
+
+(test resize-event-creation
+  "Test creating a resize event."
+  (let ((event (make-resize-event :width 1280 :height 720)))
+    (is (typep event 'resize-event))
+    (is (= 1280 (resize-event-width event)))
+    (is (= 720 (resize-event-height event)))))
+
+;;; --- Window Setup Tests ---
+
+(test window-setup-creates-handlers
+  "Test that setup-scene creates input handlers."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (is (not (null (holodeck-keyboard-handler window))))
+    (is (not (null (holodeck-camera-input-handler window))))
+    (is (not (null (holodeck-camera window))))
+    (is (typep (holodeck-keyboard-handler window) 'keyboard-input-handler))
+    (is (typep (holodeck-camera-input-handler window) 'camera-input-handler))))
+
+(test window-setup-links-camera-to-input-handler
+  "Test that camera input handler is linked to the window camera."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (is (eq (holodeck-camera window)
+            (input-handler-camera (holodeck-camera-input-handler window))))))
+
+;;; --- Event Dispatch Tests ---
+
+(test handle-key-press-event
+  "Test that key press events are dispatched to keyboard handler."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (let ((event (make-key-event :key :w :action :press)))
+      (handle-holodeck-event window event)
+      (is (key-pressed-p (holodeck-keyboard-handler window) :w)))))
+
+(test handle-key-release-event
+  "Test that key release events are dispatched to keyboard handler."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    ;; Press first
+    (handle-holodeck-event window (make-key-event :key :w :action :press))
+    (is (key-pressed-p (holodeck-keyboard-handler window) :w))
+    ;; Then release
+    (handle-holodeck-event window (make-key-event :key :w :action :release))
+    (is (not (key-pressed-p (holodeck-keyboard-handler window) :w)))))
+
+(test handle-mouse-move-event
+  "Test that mouse move events update camera input handler position."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (let ((event (make-mouse-move-event :x 150.0 :y 250.0)))
+      (handle-holodeck-event window event)
+      (let ((handler (holodeck-camera-input-handler window)))
+        (is (= 150.0 (input-handler-mouse-x handler)))
+        (is (= 250.0 (input-handler-mouse-y handler)))))))
+
+(test handle-mouse-button-press-event
+  "Test that mouse button press events update camera input handler."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (let ((event (make-mouse-button-event :button :right :action :press :x 100.0 :y 100.0)))
+      (handle-holodeck-event window event)
+      (let ((handler (holodeck-camera-input-handler window)))
+        (is (button-pressed-p handler :right))))))
+
+(test handle-mouse-button-release-event
+  "Test that mouse button release events update camera input handler."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    ;; Press first
+    (handle-holodeck-event window (make-mouse-button-event :button :right :action :press :x 100.0 :y 100.0))
+    (is (button-pressed-p (holodeck-camera-input-handler window) :right))
+    ;; Then release
+    (handle-holodeck-event window (make-mouse-button-event :button :right :action :release :x 100.0 :y 100.0))
+    (is (not (button-pressed-p (holodeck-camera-input-handler window) :right)))))
+
+(test handle-scroll-event
+  "Test that scroll events accumulate in camera input handler."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (let ((event (make-scroll-event :delta-y 5.0)))
+      (handle-holodeck-event window event)
+      (let ((handler (holodeck-camera-input-handler window)))
+        (is (< (abs (- (input-handler-scroll-accumulator handler) 5.0)) 0.001))))))
+
+(test handle-resize-event
+  "Test that resize events update window dimensions."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window :width 1920 :height 1080)))
+    (setup-scene window)
+    (let ((event (make-resize-event :width 1280 :height 720)))
+      (handle-holodeck-event window event)
+      (is (= 1280 (window-width window)))
+      (is (= 720 (window-height window))))))
+
+;;; --- Process Input Tests ---
+
+(test process-holodeck-input-executes-keyboard-actions
+  "Test that process-holodeck-input executes pending keyboard actions."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window))
+        (action-called nil))
+    (setup-scene window)
+    ;; Register a handler for fly-forward
+    (register-action-handler
+     (handler-registry (holodeck-keyboard-handler window))
+     :fly-forward
+     (lambda () (setf action-called t)))
+    ;; Press W key
+    (handle-holodeck-event window (make-key-event :key :w :action :press))
+    ;; Process input
+    (process-holodeck-input window)
+    (is (eq t action-called))))
+
+(test process-holodeck-input-applies-camera-orbit
+  "Test that process-holodeck-input applies camera orbit from mouse drag."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (let ((cam (holodeck-camera window))
+          (initial-theta nil))
+      ;; Set orbit speed for predictable test
+      (setf (camera-orbit-speed cam) 0.01)
+      (setf initial-theta (camera-theta cam))
+      ;; Start right-drag
+      (handle-holodeck-event window (make-mouse-move-event :x 100.0 :y 100.0))
+      (handle-holodeck-event window (make-mouse-button-event :button :right :action :press :x 100.0 :y 100.0))
+      ;; Move mouse
+      (handle-holodeck-event window (make-mouse-move-event :x 200.0 :y 100.0))
+      ;; Process input
+      (process-holodeck-input window)
+      ;; Camera should have orbited
+      (is (not (= initial-theta (camera-theta cam)))))))
+
+(test process-holodeck-input-applies-camera-zoom
+  "Test that process-holodeck-input applies camera zoom from scroll."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (let* ((cam (holodeck-camera window))
+           (initial-distance (camera-distance cam)))
+      ;; Scroll to zoom in
+      (handle-holodeck-event window (make-scroll-event :delta-y 5.0))
+      ;; Process input
+      (process-holodeck-input window)
+      ;; Camera should have zoomed in (distance decreased)
+      (is (< (camera-distance cam) initial-distance)))))
+
+;;; --- Combined Event Flow Tests ---
+
+(test full-event-flow-keyboard
+  "Test complete keyboard event flow from event to action execution."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window))
+        (fork-called nil))
+    (setup-scene window)
+    ;; Register handler for fork action
+    (register-action-handler
+     (handler-registry (holodeck-keyboard-handler window))
+     :fork-here
+     (lambda () (setf fork-called t)))
+    ;; Press F key (fork)
+    (handle-holodeck-event window (make-key-event :key :f :action :press))
+    ;; Process input
+    (process-holodeck-input window)
+    ;; Action should have been called
+    (is (eq t fork-called))))
+
+(test full-event-flow-camera-pan
+  "Test complete camera pan flow from middle-drag events."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (let* ((cam (holodeck-camera window))
+           (initial-target (3d-vectors:vcopy (camera-target cam))))
+      ;; Set pan speed for predictable test
+      (setf (camera-pan-speed cam) 0.1)
+      ;; Start middle-drag
+      (handle-holodeck-event window (make-mouse-move-event :x 100.0 :y 100.0))
+      (handle-holodeck-event window (make-mouse-button-event :button :middle :action :press :x 100.0 :y 100.0))
+      ;; Move mouse
+      (handle-holodeck-event window (make-mouse-move-event :x 150.0 :y 120.0))
+      ;; Process input
+      (process-holodeck-input window)
+      ;; Camera target should have moved
+      (let ((diff (3d-vectors:v- (camera-target cam) initial-target)))
+        (is (> (3d-vectors:vlength diff) 0.01))))))
+
+(test event-dispatch-returns-t-for-handled-events
+  "Test that handle-holodeck-event returns T for handled events."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    (is (eq t (handle-holodeck-event window (make-key-event :key :w :action :press))))
+    (is (eq t (handle-holodeck-event window (make-mouse-move-event :x 100.0 :y 100.0))))
+    (is (eq t (handle-holodeck-event window (make-mouse-button-event :button :left :action :press :x 100.0 :y 100.0))))
+    (is (eq t (handle-holodeck-event window (make-scroll-event :delta-y 1.0))))
+    (is (eq t (handle-holodeck-event window (make-resize-event :width 800 :height 600))))))
+
+(test event-dispatch-returns-nil-for-unknown-events
+  "Test that handle-holodeck-event returns NIL for unknown event types."
+  (init-holodeck-storage)
+  (let ((window (make-instance 'holodeck-window)))
+    (setup-scene window)
+    ;; Pass a non-event object
+    (is (null (handle-holodeck-event window "not an event")))
+    (is (null (handle-holodeck-event window 42)))
+    (is (null (handle-holodeck-event window nil)))))
+
