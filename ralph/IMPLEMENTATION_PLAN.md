@@ -188,10 +188,10 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Handle keyboard and mouse events
 
 #### 8.6: Main Loop
-- [ ] Implement `launch-holodeck` entry point
-- [ ] Implement render loop (systems → camera → entities → connections → HUD)
+- [x] Implement `launch-holodeck` entry point
+- [x] Implement render loop (systems → camera → entities → connections → HUD)
 - [ ] Implement `sync-live-agents` for real-time updates
-- [ ] Add grid rendering for spatial reference
+- [x] Add grid rendering for spatial reference
 
 ### Phase 9: Self-Extension
 - Depends on: Phase 8 complete (can start 8.3+ in parallel)

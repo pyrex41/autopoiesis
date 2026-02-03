@@ -430,6 +430,20 @@
    #:launch-holodeck
    #:stop-holodeck
 
+   ;; Render loop
+   #:*holodeck-transition*
+   #:*last-frame-time*
+   #:holodeck-frame
+   #:run-holodeck-loop
+   #:holodeck-single-frame
+
+   ;; Grid rendering
+   #:*grid-size*
+   #:*grid-spacing*
+   #:*grid-color*
+   #:*grid-axis-color*
+   #:render-grid-commands
+
    ;; Key binding constants
    #:*key-w* #:*key-a* #:*key-s* #:*key-d* #:*key-q* #:*key-e*
    #:*key-left-bracket* #:*key-right-bracket* #:*key-home* #:*key-end*

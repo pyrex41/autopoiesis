@@ -167,7 +167,7 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defmethod setup-scene ((window holodeck-window))
-  "Default scene setup: initializes ECS storage, input handlers, and marks window ready."
+  "Default scene setup: initializes ECS storage, input handlers, HUD, and marks window ready."
   (init-holodeck-storage)
   ;; Initialize camera if not already set
   (unless (holodeck-camera window)
@@ -179,6 +179,20 @@
   (unless (holodeck-camera-input-handler window)
     (setf (holodeck-camera-input-handler window)
           (make-camera-input-handler :camera (holodeck-camera window))))
+  ;; Initialize HUD with window dimensions
+  (unless (holodeck-hud window)
+    (setf (holodeck-hud window)
+          (make-hud :window-width (window-width window)
+                    :window-height (window-height window))))
+  ;; Reset render loop state
+  (setf *holodeck-transition* nil)
+  (setf *last-frame-time* 0.0)
+  ;; Reset entity tracking lists
+  (reset-snapshot-entities)
+  (reset-connection-entities)
+  ;; Register default meshes and shaders
+  (register-holodeck-meshes)
+  (register-holodeck-shaders)
   (setf (holodeck-running-p window) t))
 
 (defmethod holodeck-update ((window holodeck-window) dt)
@@ -476,6 +490,184 @@ void main() {
   (when *holodeck*
     (setf (holodeck-running-p *holodeck*) nil)
     (setf *holodeck* nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Main Render Loop
+;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; The render loop follows this sequence each frame:
+;;;   1. Calculate delta time
+;;;   2. Process input events
+;;;   3. Update camera (sync state, apply transitions)
+;;;   4. Run ECS systems (movement, pulse, LOD)
+;;;   5. Collect render descriptions for entities and connections
+;;;   6. Update and render HUD
+;;;   7. Present frame (backend-specific)
+;;;
+;;; The loop is designed to work with or without a real rendering backend.
+;;; Without a backend, it produces render descriptions that can be used
+;;; for testing or headless operation.
+
+(defvar *holodeck-transition* nil
+  "Active camera transition, or NIL if no transition in progress.")
+
+(defvar *last-frame-time* 0.0
+  "Timestamp of the last frame for delta time calculation.")
+
+(defgeneric holodeck-frame (window dt)
+  (:documentation "Execute one frame of the holodeck render loop.
+    DT is the delta time in seconds since the last frame.
+    Returns a frame-result plist with render descriptions."))
+
+(defmethod holodeck-frame ((window holodeck-window) dt)
+  "Execute one frame: input → camera → systems → entities → HUD.
+   Returns a plist with:
+     :dt              - Delta time for this frame
+     :camera-position - Current camera world position
+     :view-matrix     - Camera view matrix
+     :projection-matrix - Camera projection matrix
+     :snapshot-descriptions - List of snapshot entity render descriptions
+     :connection-descriptions - List of connection render descriptions
+     :hud-commands    - HUD render commands"
+  (let ((dt-f (coerce dt 'single-float)))
+    ;; 1. Process accumulated input
+    (process-holodeck-input window)
+    
+    ;; 2. Update camera
+    (let ((camera (holodeck-camera window)))
+      (when camera
+        ;; Apply any active transition
+        (when *holodeck-transition*
+          (unless (apply-camera-transition camera *holodeck-transition* dt-f)
+            ;; Transition complete
+            (setf *holodeck-transition* nil)))
+        ;; Sync camera state to global *camera-position* for LOD system
+        (sync-camera-state camera)))
+    
+    ;; 3. Run ECS systems
+    (holodeck-update window dt-f)
+    
+    ;; 4. Collect snapshot entity render descriptions
+    (let ((snapshot-descs (collect-snapshot-render-descriptions)))
+      
+      ;; 5. Collect connection render descriptions
+      (let ((connection-descs (collect-connection-render-descriptions)))
+        
+        ;; 6. Update and render HUD
+        (let ((hud (holodeck-hud window)))
+          (when hud
+            (update-hud hud))
+          (let ((hud-result (when hud (render-hud hud))))
+            
+            ;; 7. Build frame result
+            (let ((camera (holodeck-camera window)))
+              (list :dt dt-f
+                    :camera-position (when camera (camera-position camera))
+                    :view-matrix (when camera
+                                   (camera-view-matrix-data camera))
+                    :projection-matrix (when camera
+                                         (camera-projection-matrix-data
+                                          camera
+                                          (window-aspect-ratio window)))
+                    :snapshot-descriptions snapshot-descs
+                    :connection-descriptions connection-descs
+                    :hud-commands (getf hud-result :commands)
+                    :hud-visible-p (getf hud-result :visible-p)))))))))
+
+(defgeneric run-holodeck-loop (window &key frame-callback)
+  (:documentation "Run the main holodeck loop until stopped.
+    FRAME-CALLBACK, if provided, is called with the frame result after each frame.
+    This is the entry point for interactive use with a rendering backend."))
+
+(defmethod run-holodeck-loop ((window holodeck-window) &key frame-callback)
+  "Run the holodeck main loop.
+   Without a real rendering backend, this simulates frames at ~60fps.
+   The loop continues while (holodeck-running-p window) is true.
+   
+   Each iteration:
+     1. Calculates delta time from wall clock
+     2. Calls holodeck-frame to process the frame
+     3. Calls FRAME-CALLBACK with the frame result (if provided)
+     4. Sleeps to maintain ~60fps (in headless mode)"
+  (setf *last-frame-time* (get-internal-real-time))
+  (setf (holodeck-running-p window) t)
+  
+  (loop while (holodeck-running-p window) do
+    ;; Calculate delta time
+    (let* ((current-time (get-internal-real-time))
+           (dt-internal (- current-time *last-frame-time*))
+           (dt (/ (coerce dt-internal 'single-float)
+                  (coerce internal-time-units-per-second 'single-float))))
+      (setf *last-frame-time* current-time)
+      
+      ;; Clamp delta time to avoid huge jumps
+      (setf dt (min dt 0.1))
+      
+      ;; Execute frame
+      (let ((frame-result (holodeck-frame window dt)))
+        ;; Call user callback if provided
+        (when frame-callback
+          (funcall frame-callback frame-result)))
+      
+      ;; In headless mode, sleep to avoid spinning CPU
+      ;; Target ~60fps = 16.67ms per frame
+      (sleep 0.016))))
+
+(defun holodeck-single-frame (&optional (dt 0.016))
+  "Execute a single frame of the holodeck render loop.
+   Convenience function for testing and non-interactive use.
+   DT defaults to ~60fps frame time.
+   Returns the frame result plist."
+  (when *holodeck*
+    (holodeck-frame *holodeck* dt)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Grid Rendering
+;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; The reference grid provides spatial context in the 3D visualization.
+;;; It renders as a flat grid on the XZ plane at Y=0.
+
+(defparameter *grid-size* 100.0
+  "Size of the reference grid in world units (extends from -size/2 to +size/2).")
+
+(defparameter *grid-spacing* 10.0
+  "Spacing between grid lines in world units.")
+
+(defparameter *grid-color* '(0.1 0.2 0.3 0.3)
+  "RGBA color for grid lines.")
+
+(defparameter *grid-axis-color* '(0.2 0.4 0.6 0.5)
+  "RGBA color for grid axis lines (X and Z axes).")
+
+(defun render-grid-commands ()
+  "Generate render commands for the reference grid.
+   Returns a list of line command plists for drawing the grid.
+   Each command has :type :grid-line and :x1 :y1 :z1 :x2 :y2 :z2 :color."
+  (let ((commands nil)
+        (half-size (/ *grid-size* 2.0))
+        (spacing *grid-spacing*))
+    ;; Generate lines parallel to X axis (varying Z)
+    (loop for z from (- half-size) to half-size by spacing do
+      (let ((color (if (< (abs z) 0.001)
+                       *grid-axis-color*
+                       *grid-color*)))
+        (push (list :type :grid-line
+                    :x1 (- half-size) :y1 0.0 :z1 z
+                    :x2 half-size :y2 0.0 :z2 z
+                    :color color)
+              commands)))
+    ;; Generate lines parallel to Z axis (varying X)
+    (loop for x from (- half-size) to half-size by spacing do
+      (let ((color (if (< (abs x) 0.001)
+                       *grid-axis-color*
+                       *grid-color*)))
+        (push (list :type :grid-line
+                    :x1 x :y1 0.0 :z1 (- half-size)
+                    :x2 x :y2 0.0 :z2 half-size
+                    :color color)
+              commands)))
+    (nreverse commands)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Aspect Ratio and Projection Helpers
