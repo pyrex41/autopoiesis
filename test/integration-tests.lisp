@@ -147,3 +147,191 @@
         (is (equal "tool-123" (getf call :id)))
         (is (equal "read_file" (getf call :name)))
         (is (consp (getf call :input)))))))
+
+;;; ===================================================================
+;;; Tool Mapping Tests
+;;; ===================================================================
+
+(test lisp-type-to-json-type-conversion
+  "Test Lisp type to JSON type conversion"
+  (is (equal "string" (autopoiesis.integration:lisp-type-to-json-type 'string)))
+  (is (equal "integer" (autopoiesis.integration:lisp-type-to-json-type 'integer)))
+  (is (equal "integer" (autopoiesis.integration:lisp-type-to-json-type 'fixnum)))
+  (is (equal "number" (autopoiesis.integration:lisp-type-to-json-type 'float)))
+  (is (equal "number" (autopoiesis.integration:lisp-type-to-json-type 'number)))
+  (is (equal "boolean" (autopoiesis.integration:lisp-type-to-json-type 'boolean)))
+  (is (equal "array" (autopoiesis.integration:lisp-type-to-json-type 'list)))
+  (is (equal "object" (autopoiesis.integration:lisp-type-to-json-type 'hash-table)))
+  ;; Unknown types default to string
+  (is (equal "string" (autopoiesis.integration:lisp-type-to-json-type 'my-custom-type)))
+  (is (equal "string" (autopoiesis.integration:lisp-type-to-json-type t)))
+  (is (equal "string" (autopoiesis.integration:lisp-type-to-json-type nil))))
+
+(test json-type-to-lisp-type-conversion
+  "Test JSON type to Lisp type conversion"
+  (is (eq 'string (autopoiesis.integration:json-type-to-lisp-type "string")))
+  (is (eq 'integer (autopoiesis.integration:json-type-to-lisp-type "integer")))
+  (is (eq 'number (autopoiesis.integration:json-type-to-lisp-type "number")))
+  (is (eq 'boolean (autopoiesis.integration:json-type-to-lisp-type "boolean")))
+  (is (eq 'list (autopoiesis.integration:json-type-to-lisp-type "array")))
+  (is (eq 'hash-table (autopoiesis.integration:json-type-to-lisp-type "object")))
+  (is (eq 'null (autopoiesis.integration:json-type-to-lisp-type "null")))
+  ;; Unknown types default to T
+  (is (eq t (autopoiesis.integration:json-type-to-lisp-type "unknown"))))
+
+(test capability-params-to-json-schema
+  "Test capability parameters to JSON schema conversion"
+  (let* ((params '((path string :required t :doc "File path")
+                   (encoding string :default "utf-8")))
+         (schema (autopoiesis.integration:capability-params-to-json-schema params)))
+    ;; Check top-level type
+    (is (equal "object" (cdr (assoc "type" schema :test #'string=))))
+    ;; Check properties exist
+    (let ((properties (cdr (assoc "properties" schema :test #'string=))))
+      (is (not (null properties)))
+      ;; Check path property
+      (let ((path-prop (cdr (assoc "path" properties :test #'string=))))
+        (is (equal "string" (cdr (assoc "type" path-prop :test #'string=))))
+        (is (equal "File path" (cdr (assoc "description" path-prop :test #'string=)))))
+      ;; Check encoding property
+      (let ((enc-prop (cdr (assoc "encoding" properties :test #'string=))))
+        (is (equal "string" (cdr (assoc "type" enc-prop :test #'string=))))
+        (is (equal "utf-8" (cdr (assoc "default" enc-prop :test #'string=))))))
+    ;; Check required array
+    (let ((required (cdr (assoc "required" schema :test #'string=))))
+      (is (member "path" required :test #'string=))
+      (is (not (member "encoding" required :test #'string=))))))
+
+(test json-schema-to-capability-params
+  "Test JSON schema to capability parameters conversion"
+  (let* ((schema '(("type" . "object")
+                   ("properties" . (("query" . (("type" . "string")
+                                                ("description" . "Search query")))
+                                    ("limit" . (("type" . "integer")
+                                                ("default" . 10)))))
+                   ("required" . ("query"))))
+         (params (autopoiesis.integration:json-schema-to-capability-params schema)))
+    (is (= 2 (length params)))
+    ;; Check query param
+    (let ((query-param (find :query params :key #'first)))
+      (is (not (null query-param)))
+      (is (eq 'string (second query-param)))
+      (is (getf (cddr query-param) :required))
+      (is (equal "Search query" (getf (cddr query-param) :doc))))
+    ;; Check limit param
+    (let ((limit-param (find :limit params :key #'first)))
+      (is (not (null limit-param)))
+      (is (eq 'integer (second limit-param)))
+      (is (not (getf (cddr limit-param) :required)))
+      (is (= 10 (getf (cddr limit-param) :default))))))
+
+(test capability-to-claude-tool-conversion
+  "Test capability to Claude tool format conversion"
+  (let* ((cap (autopoiesis.agent:make-capability
+               :read-file
+               (lambda (&key path) (format nil "Reading ~a" path))
+               :parameters '((path string :required t :doc "File to read"))
+               :description "Read a file from disk"))
+         (tool (autopoiesis.integration:capability-to-claude-tool cap)))
+    ;; Check name - kebab-case converted to snake_case
+    (is (equal "read_file" (cdr (assoc "name" tool :test #'string=))))
+    ;; Check description
+    (is (equal "Read a file from disk" (cdr (assoc "description" tool :test #'string=))))
+    ;; Check schema
+    (let ((schema (cdr (assoc "input_schema" tool :test #'string=))))
+      (is (equal "object" (cdr (assoc "type" schema :test #'string=))))
+      (let ((properties (cdr (assoc "properties" schema :test #'string=))))
+        (is (not (null (assoc "path" properties :test #'string=))))))))
+
+(test claude-tool-to-capability-conversion
+  "Test Claude tool to capability conversion"
+  (let* ((tool-def '(("name" . "write_file")
+                     ("description" . "Write content to a file")
+                     ("input_schema" . (("type" . "object")
+                                        ("properties" . (("path" . (("type" . "string")))
+                                                         ("content" . (("type" . "string")))))
+                                        ("required" . ("path" "content"))))))
+         (handler (lambda (&key path content)
+                    (format nil "Wrote ~a bytes to ~a" (length content) path)))
+         (cap (autopoiesis.integration:claude-tool-to-capability tool-def :handler handler)))
+    (is (eq :write-file (autopoiesis.agent:capability-name cap)))
+    (is (equal "Write content to a file" (autopoiesis.agent:capability-description cap)))
+    ;; Test handler works
+    (is (equal "Wrote 5 bytes to /tmp/x"
+               (funcall (autopoiesis.agent:capability-function cap)
+                        :path "/tmp/x" :content "hello")))))
+
+(test execute-tool-call-success
+  "Test successful tool call execution"
+  (let* ((cap (autopoiesis.agent:make-capability
+               :add-numbers
+               (lambda (&key a b) (+ a b))
+               :description "Add two numbers"))
+         (capabilities (list cap))
+         (tool-call '(:id "call-123" :name "add_numbers" :input (("a" . 5) ("b" . 3))))
+         (result (autopoiesis.integration:execute-tool-call tool-call capabilities)))
+    (is (equal "call-123" (getf result :tool-use-id)))
+    (is (equal "8" (getf result :result)))
+    (is (null (getf result :is-error)))))
+
+(test execute-tool-call-unknown-tool
+  "Test tool call with unknown tool"
+  (let* ((capabilities nil)
+         (tool-call '(:id "call-456" :name "unknown_tool" :input ()))
+         (result (autopoiesis.integration:execute-tool-call tool-call capabilities)))
+    (is (equal "call-456" (getf result :tool-use-id)))
+    (is (search "Unknown tool" (getf result :result)))
+    (is (getf result :is-error))))
+
+(test execute-tool-call-error
+  "Test tool call that raises an error"
+  (let* ((cap (autopoiesis.agent:make-capability
+               :divide
+               (lambda (&key a b) (/ a b))
+               :description "Divide a by b"))
+         (capabilities (list cap))
+         (tool-call '(:id "call-789" :name "divide" :input (("a" . 10) ("b" . 0))))
+         (result (autopoiesis.integration:execute-tool-call tool-call capabilities)))
+    (is (equal "call-789" (getf result :tool-use-id)))
+    (is (search "Error:" (getf result :result)))
+    (is (getf result :is-error))))
+
+(test format-tool-results
+  "Test formatting tool results for Claude API"
+  (let* ((results '((:tool-use-id "call-1" :result "Success" :is-error nil)
+                    (:tool-use-id "call-2" :result "Failed" :is-error t)))
+         (message (autopoiesis.integration:format-tool-results results)))
+    (is (equal "user" (cdr (assoc "role" message :test #'string=))))
+    (let ((content (cdr (assoc "content" message :test #'string=))))
+      (is (= 2 (length content)))
+      ;; Check first result
+      (let ((first-result (first content)))
+        (is (equal "tool_result" (cdr (assoc "type" first-result :test #'string=))))
+        (is (equal "call-1" (cdr (assoc "tool_use_id" first-result :test #'string=))))
+        (is (equal "Success" (cdr (assoc "content" first-result :test #'string=))))
+        (is (null (assoc "is_error" first-result :test #'string=))))
+      ;; Check second result (with error)
+      (let ((second-result (second content)))
+        (is (equal "call-2" (cdr (assoc "tool_use_id" second-result :test #'string=))))
+        (is (cdr (assoc "is_error" second-result :test #'string=)))))))
+
+(test handle-tool-use-response-integration
+  "Test handling a complete tool use response"
+  (let* ((cap (autopoiesis.agent:make-capability
+               :greet
+               (lambda (&key name) (format nil "Hello, ~a!" name))
+               :description "Greet someone"))
+         (capabilities (list cap))
+         (response '((:content . (((:type . "tool_use")
+                                    (:id . "toolu_123")
+                                    (:name . "greet")
+                                    (:input . (("name" . "World"))))))))
+         (result-message (autopoiesis.integration:handle-tool-use-response
+                          response capabilities)))
+    (is (not (null result-message)))
+    (is (equal "user" (cdr (assoc "role" result-message :test #'string=))))
+    (let* ((content (cdr (assoc "content" result-message :test #'string=)))
+           (tool-result (first content)))
+      (is (equal "tool_result" (cdr (assoc "type" tool-result :test #'string=))))
+      (is (equal "toolu_123" (cdr (assoc "tool_use_id" tool-result :test #'string=))))
+      (is (equal "Hello, World!" (cdr (assoc "content" tool-result :test #'string=)))))))

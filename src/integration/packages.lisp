@@ -46,4 +46,20 @@
    #:unregister-external-tool
    #:find-external-tool
    #:invoke-external-tool
-   #:list-external-tools))
+   #:list-external-tools
+
+   ;; Tool mapping (capability <-> Claude tool)
+   #:capability-to-claude-tool
+   #:capabilities-to-claude-tools
+   #:agent-capabilities-to-claude-tools
+   #:claude-tool-to-capability
+   #:execute-tool-call
+   #:execute-all-tool-calls
+   #:handle-tool-use-response
+   #:format-tool-results
+   #:lisp-type-to-json-type
+   #:json-type-to-lisp-type
+   #:capability-params-to-json-schema
+   #:json-schema-to-capability-params
+   #:lisp-name-to-tool-name
+   #:tool-name-to-lisp-name))

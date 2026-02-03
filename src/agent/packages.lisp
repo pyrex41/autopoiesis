@@ -38,6 +38,7 @@
    #:make-capability
    #:capability-name
    #:capability-function
+   #:capability-parameters
    #:capability-permissions
    #:capability-description
    #:register-capability

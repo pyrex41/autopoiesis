@@ -15,6 +15,10 @@
    (function :initarg :function
              :accessor capability-function
              :documentation "Function to invoke")
+   (parameters :initarg :parameters
+               :accessor capability-parameters
+               :initform nil
+               :documentation "Parameter specifications for tool mapping")
    (permissions :initarg :permissions
                 :accessor capability-permissions
                 :initform nil
@@ -25,11 +29,12 @@
                 :documentation "Human-readable description"))
   (:documentation "A capability that an agent can invoke"))
 
-(defun make-capability (name function &key permissions description)
+(defun make-capability (name function &key parameters permissions description)
   "Create a new capability."
   (make-instance 'capability
                  :name name
                  :function function
+                 :parameters parameters
                  :permissions permissions
                  :description (or description "")))
 
@@ -156,9 +161,11 @@
   (multiple-value-bind (doc options body)
       (parse-defcapability-body body-and-options)
     (let ((permissions (getf options :permissions))
-          (description (getf options :description)))
+          (description (getf options :description))
+          (params (parse-capability-params lambda-list)))
       `(register-capability
         (make-capability ',name
                          (lambda ,lambda-list ,@body)
+                         :parameters ',params
                          :permissions ',permissions
                          :description ,(or description doc))))))
