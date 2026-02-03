@@ -10,10 +10,19 @@
    ;; Claude bridge
    #:claude-client
    #:make-claude-client
+   #:client-api-key
+   #:client-model
+   #:client-base-url
+   #:client-max-tokens
+   #:client-api-version
    #:claude-complete
    #:claude-stream
    #:claude-tool-use
    #:with-claude-session
+   #:response-text
+   #:response-tool-calls
+   #:response-stop-reason
+   #:response-usage
 
    ;; Message formatting
    #:format-message

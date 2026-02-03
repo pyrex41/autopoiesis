@@ -1,7 +1,7 @@
 # Autopoiesis Implementation Plan
 
 Last updated: 2026-02-02
-Current Phase: 3 (Snapshot System)
+Current Phase: 5 (Claude Integration)
 
 ## Completed
 
@@ -64,19 +64,23 @@ Current Phase: 3 (Snapshot System)
 - [x] Implement human input blocking mechanism
 - [x] Write interface tests
 
+### Phase 5: Claude Integration
+- [x] Implement Claude API HTTP communication (dexador)
+- [ ] Implement tool mapping (capability → Claude tool)
+- [ ] Implement session management
+- [ ] Write Claude integration tests (mocked)
+
 ## Blocked / Needs Human Input
 
 (none yet)
 
 ## Future (Waiting for Earlier Phases)
 
-### Phase 5: Claude Integration
-- Depends on: Phase 4 complete
-- HTTP client for Claude API
-- Tool use formatting
-
-### Phase 6+: MCP, Visualization
+### Phase 6: MCP Integration
 - Depends on: Phase 5 complete
+
+### Phase 7+: Visualization
+- Depends on: Phase 6 complete
 
 ---
 

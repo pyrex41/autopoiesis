@@ -17,7 +17,8 @@
                #:log4cl
                #:ironclad        ; For hashing
                #:flexi-streams   ; For binary streams
-               #:babel)          ; For UTF-8 encoding
+               #:babel           ; For UTF-8 encoding
+               #:dexador)        ; For HTTP client
   :components
   ((:module "src"
     :components
