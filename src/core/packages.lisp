@@ -90,6 +90,12 @@
    #:uninstall-extension
    #:find-extension
    #:validate-extension-source
+   ;; Sandbox configuration
+   #:*allowed-packages*
+   #:*forbidden-symbols*
+   #:*allowed-special-forms*
+   #:*sandbox-allowed-symbols*
+   #:*sandbox-forbidden-patterns*
 
    ;; Utilities
    #:make-uuid

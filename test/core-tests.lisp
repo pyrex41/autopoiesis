@@ -116,3 +116,157 @@
        '(eval (read)))
     (is (not valid))
     (is (not (null errors)))))
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Sandbox Rules Tests
+;;; ─────────────────────────────────────────────────────────────────
+
+(test sandbox-allowed-packages
+  "Test that *allowed-packages* is defined and contains expected packages"
+  (is (listp autopoiesis.core::*allowed-packages*))
+  (is (member "COMMON-LISP" autopoiesis.core::*allowed-packages* :test #'string=))
+  (is (member "KEYWORD" autopoiesis.core::*allowed-packages* :test #'string=))
+  (is (member "AUTOPOIESIS.CORE" autopoiesis.core::*allowed-packages* :test #'string=)))
+
+(test sandbox-forbidden-symbols
+  "Test that *forbidden-symbols* is defined and contains dangerous operations"
+  (is (listp autopoiesis.core::*forbidden-symbols*))
+  (is (member 'eval autopoiesis.core::*forbidden-symbols*))
+  (is (member 'compile autopoiesis.core::*forbidden-symbols*))
+  (is (member 'load autopoiesis.core::*forbidden-symbols*))
+  (is (member 'open autopoiesis.core::*forbidden-symbols*))
+  (is (member 'delete-file autopoiesis.core::*forbidden-symbols*)))
+
+(test sandbox-allowed-special-forms
+  "Test that *allowed-special-forms* contains safe control structures"
+  (is (listp autopoiesis.core::*allowed-special-forms*))
+  (is (member 'if autopoiesis.core::*allowed-special-forms*))
+  (is (member 'let autopoiesis.core::*allowed-special-forms*))
+  (is (member 'lambda autopoiesis.core::*allowed-special-forms*))
+  (is (member 'progn autopoiesis.core::*allowed-special-forms*))
+  (is (member 'loop autopoiesis.core::*allowed-special-forms*)))
+
+(test validate-complex-safe-code
+  "Test validation of complex but safe code"
+  ;; Nested let with lambda
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source
+       '(let ((x 10))
+          (let* ((y (+ x 5))
+                 (z (* y 2)))
+            (lambda (n) (+ n z)))))
+    (declare (ignore errors))
+    (is-true valid))
+  
+  ;; Loop with conditionals
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source
+       '(loop for i from 1 to 10
+              when (evenp i)
+              collect (* i i)))
+    (declare (ignore errors))
+    (is-true valid))
+  
+  ;; Flet with local functions
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source
+       '(flet ((double (x) (* x 2))
+               (square (x) (* x x)))
+          (+ (double 3) (square 4))))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test validate-forbidden-symbols-rejected
+  "Test that forbidden symbols are rejected"
+  ;; eval is forbidden
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(eval '(+ 1 2)))
+    (is (not valid))
+    (is (some (lambda (e) (search "eval" e :test #'char-equal)) errors)))
+  
+  ;; compile is forbidden
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(compile nil '(lambda (x) x)))
+    (is (not valid))
+    (is (some (lambda (e) (search "compile" e :test #'char-equal)) errors)))
+  
+  ;; setf is forbidden
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(setf x 10))
+    (is (not valid))
+    (is (some (lambda (e) (search "setf" e :test #'char-equal)) errors)))
+  
+  ;; defun is forbidden
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(defun foo (x) x))
+    (is (not valid))
+    (is (some (lambda (e) (search "defun" e :test #'char-equal)) errors))))
+
+(test validate-file-operations-rejected
+  "Test that file operations are rejected"
+  ;; open is forbidden
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(open "/etc/passwd"))
+    (is (not valid))
+    (is (some (lambda (e) (search "open" e :test #'char-equal)) errors)))
+  
+  ;; delete-file is forbidden
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(delete-file "/tmp/test"))
+    (is (not valid))
+    (is (some (lambda (e) (search "delete" e :test #'char-equal)) errors))))
+
+(test validate-sandbox-levels
+  "Test different sandbox levels"
+  ;; :strict rejects forbidden code
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(eval '(+ 1 2)) :sandbox-level :strict)
+    (declare (ignore errors))
+    (is (not valid)))
+  
+  ;; :trusted allows anything
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(eval '(+ 1 2)) :sandbox-level :trusted)
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test validate-quoted-forms-safe
+  "Test that quoted forms are not recursively checked"
+  ;; Quoted eval should be safe (it's just data)
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source '(list 'eval 'compile 'load))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test validate-keywords-allowed
+  "Test that keywords are always allowed"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source
+       '(list :foo :bar :baz))
+    (declare (ignore errors))
+    (is-true valid))
+  
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source
+       '(getf '(:a 1 :b 2) :a))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test validate-lambda-params-unrestricted
+  "Test that lambda parameter names are not restricted"
+  ;; Parameter names can be anything
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source
+       '(lambda (eval compile load) (+ eval compile load)))
+    (declare (ignore errors))
+    (is-true valid)))
+
+(test validate-let-bindings-unrestricted
+  "Test that let binding names are not restricted"
+  ;; Binding names can be anything
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core::validate-extension-source
+       '(let ((eval 1) (compile 2))
+          (+ eval compile)))
+    (declare (ignore errors))
+    (is-true valid)))
