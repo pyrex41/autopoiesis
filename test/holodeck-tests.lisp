@@ -334,3 +334,128 @@
       (cl-fast-ecs:run-systems)
       (is (= 1.0 (position3d-x e1)))
       (is (= 9.0 (position3d-x e2))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Window Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite window-tests
+  :in holodeck-tests
+  :description "Tests for holodeck-window class and lifecycle")
+
+(in-suite window-tests)
+
+(test holodeck-window-creation-defaults
+  "Test that holodeck-window is created with correct defaults."
+  (let ((w (make-instance 'holodeck-window)))
+    (is (= *window-width* (window-width w)))
+    (is (= *window-height* (window-height w)))
+    (is (string= *window-title* (window-title w)))
+    (is (null (holodeck-scene w)))
+    (is (null (holodeck-camera w)))
+    (is (null (holodeck-hud w)))
+    (is (null (holodeck-running-p w)))
+    (is (null (holodeck-store w)))))
+
+(test holodeck-window-custom-initargs
+  "Test that holodeck-window accepts custom initargs."
+  (let ((w (make-instance 'holodeck-window
+                          :width 800
+                          :height 600
+                          :title "Test Holodeck"
+                          :store :test-store)))
+    (is (= 800 (window-width w)))
+    (is (= 600 (window-height w)))
+    (is (string= "Test Holodeck" (window-title w)))
+    (is (eq :test-store (holodeck-store w)))))
+
+(test holodeck-window-aspect-ratio
+  "Test window aspect ratio calculation."
+  (let ((w (make-instance 'holodeck-window :width 1920 :height 1080)))
+    (is (< (abs (- (window-aspect-ratio w) (/ 1920.0 1080.0))) 0.01)))
+  (let ((w (make-instance 'holodeck-window :width 800 :height 800)))
+    (is (< (abs (- (window-aspect-ratio w) 1.0)) 0.01)))
+  ;; Zero height should return 1.0 (not error)
+  (let ((w (make-instance 'holodeck-window :width 800 :height 0)))
+    (is (= 1.0 (window-aspect-ratio w)))))
+
+(test holodeck-window-resize
+  "Test window resize updates dimensions."
+  (let ((w (make-instance 'holodeck-window :width 1920 :height 1080)))
+    (resize-window w 1280 720)
+    (is (= 1280 (window-width w)))
+    (is (= 720 (window-height w)))))
+
+(test setup-scene-initializes-ecs
+  "Test that setup-scene initializes ECS and marks window running."
+  (let ((w (make-instance 'holodeck-window)))
+    (is (null (holodeck-running-p w)))
+    (setup-scene w)
+    (is (holodeck-running-p w))))
+
+(test launch-holodeck-creates-window
+  "Test that launch-holodeck creates and initializes a window."
+  (setf *holodeck* nil)
+  (let ((w (launch-holodeck :width 640 :height 480 :title "Test")))
+    (unwind-protect
+        (progn
+          (is (not (null w)))
+          (is (eq w *holodeck*))
+          (is (= 640 (window-width w)))
+          (is (= 480 (window-height w)))
+          (is (string= "Test" (window-title w)))
+          (is (holodeck-running-p w)))
+      (stop-holodeck))))
+
+(test stop-holodeck-cleans-up
+  "Test that stop-holodeck stops and clears the global."
+  (setf *holodeck* nil)
+  (launch-holodeck)
+  (is (not (null *holodeck*)))
+  (stop-holodeck)
+  (is (null *holodeck*)))
+
+(test launch-holodeck-replaces-existing
+  "Test that launching a new holodeck replaces the existing one."
+  (setf *holodeck* nil)
+  (let ((w1 (launch-holodeck :title "First")))
+    (declare (ignore w1))
+    (let ((w2 (handler-bind ((warning #'muffle-warning))
+                (launch-holodeck :title "Second"))))
+      (unwind-protect
+          (progn
+            (is (eq w2 *holodeck*))
+            (is (string= "Second" (window-title *holodeck*))))
+        (stop-holodeck)))))
+
+(test holodeck-update-advances-time
+  "Test that holodeck-update advances elapsed time."
+  (let ((w (make-instance 'holodeck-window))
+        (initial-time *elapsed-time*))
+    (setup-scene w)
+    (holodeck-update w 0.016)
+    (is (> *elapsed-time* initial-time))
+    (stop-holodeck)))
+
+(test shader-sources-defined
+  "Test that shader source strings are defined and non-empty."
+  (is (stringp *hologram-node-vertex-shader*))
+  (is (> (length *hologram-node-vertex-shader*) 0))
+  (is (stringp *hologram-node-fragment-shader*))
+  (is (> (length *hologram-node-fragment-shader*) 0))
+  (is (stringp *energy-beam-vertex-shader*))
+  (is (> (length *energy-beam-vertex-shader*) 0))
+  (is (stringp *energy-beam-fragment-shader*))
+  (is (> (length *energy-beam-fragment-shader*) 0)))
+
+(test shader-sources-plist-structure
+  "Test that *shader-sources* plist contains expected shader programs."
+  (is (listp *shader-sources*))
+  (let ((hologram (getf *shader-sources* :hologram-node)))
+    (is (not (null hologram)))
+    (is (stringp (getf hologram :vertex)))
+    (is (stringp (getf hologram :fragment))))
+  (let ((beam (getf *shader-sources* :energy-beam)))
+    (is (not (null beam)))
+    (is (stringp (getf beam :vertex)))
+    (is (stringp (getf beam :fragment)))))

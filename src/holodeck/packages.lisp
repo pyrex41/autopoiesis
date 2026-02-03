@@ -98,4 +98,36 @@
 
    ;; Utility functions
    #:distance-to-camera
-   #:snapshot-type-to-color))
+   #:snapshot-type-to-color
+
+   ;; Window class and protocol
+   #:holodeck-window
+   #:*window-width*
+   #:*window-height*
+   #:*window-title*
+   #:window-width
+   #:window-height
+   #:window-title
+   #:holodeck-scene
+   #:holodeck-camera
+   #:holodeck-hud
+   #:holodeck-running-p
+   #:holodeck-store
+   #:setup-scene
+   #:holodeck-render
+   #:holodeck-update
+   #:handle-holodeck-event
+   #:window-aspect-ratio
+   #:resize-window
+
+   ;; Shader sources
+   #:*hologram-node-vertex-shader*
+   #:*hologram-node-fragment-shader*
+   #:*energy-beam-vertex-shader*
+   #:*energy-beam-fragment-shader*
+   #:*shader-sources*
+
+   ;; Lifecycle
+   #:*holodeck*
+   #:launch-holodeck
+   #:stop-holodeck))
