@@ -227,7 +227,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement `parallel-ecs-update` for independent systems
 - [x] Implement `compact-thought-stream` for memory reduction
 - [x] Profile and optimize critical paths
-- [ ] Implement lazy loading for large DAGs
+- [x] Implement lazy loading for large DAGs
 
 #### 10.2: Security Hardening
 - [ ] Define permission system (resource × action matrix)

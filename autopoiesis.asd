@@ -56,6 +56,7 @@
        (:file "content-store")
        (:file "lru-cache")
        (:file "persistence")
+       (:file "lazy-loading")
        (:file "event-log")
        (:file "branch")
        (:file "diff-engine")

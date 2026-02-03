@@ -121,4 +121,33 @@
    #:reset-cache-stats
    #:cache-keys
    #:map-cache
-   #:resize-cache))
+   #:resize-cache
+
+   ;; Lazy Loading
+   #:lazy-snapshot
+   #:make-lazy-snapshot
+   #:lazy-snapshot-id
+   #:lazy-snapshot-timestamp
+   #:lazy-snapshot-parent-id
+   #:lazy-snapshot-loaded-p
+   #:lazy-snapshot-content
+   #:ensure-snapshot-loaded
+   #:make-lazy-snapshot-from-index
+
+   ;; Lazy DAG Iterator
+   #:lazy-dag-iterator
+   #:make-lazy-dag-iterator
+   #:iterator-next-batch
+   #:iterator-exhausted-p
+
+   ;; Paginated Queries
+   #:list-snapshots-paginated
+   #:list-children-paginated
+   #:walk-descendants-paginated
+   #:walk-ancestors-paginated
+
+   ;; Lazy Loading Utilities
+   #:prefetch-snapshots
+   #:get-dag-statistics
+   #:find-snapshots-by-time-range
+   #:collect-snapshot-ids-lazy))

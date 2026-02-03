@@ -647,6 +647,258 @@
       (is (string= "key3" (second keys)))
       (is (string= "key2" (third keys))))))
 
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Lazy Loading Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test lazy-snapshot-basic
+  "Test basic lazy snapshot creation and access"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (state '(:test-data (foo bar baz)))
+         (snap (autopoiesis.snapshot:make-snapshot state)))
+    (unwind-protect
+         (progn
+           ;; Save snapshot
+           (autopoiesis.snapshot:save-snapshot snap store)
+           (let ((id (autopoiesis.snapshot:snapshot-id snap)))
+             ;; Create lazy snapshot from index
+             (let ((lazy-snap (autopoiesis.snapshot:make-lazy-snapshot-from-index id store)))
+               (is (not (null lazy-snap)))
+               ;; ID and timestamp should be available without loading
+               (is (string= id (autopoiesis.snapshot:lazy-snapshot-id lazy-snap)))
+               (is (not (null (autopoiesis.snapshot:lazy-snapshot-timestamp lazy-snap))))
+               ;; Should not be loaded yet
+               (is (not (autopoiesis.snapshot:lazy-snapshot-loaded-p lazy-snap)))
+               ;; Accessing agent-state should trigger load
+               (let ((agent-state (autopoiesis.snapshot:snapshot-agent-state lazy-snap)))
+                 (is (equal state agent-state))
+                 ;; Should now be loaded
+                 (is (autopoiesis.snapshot:lazy-snapshot-loaded-p lazy-snap))))))
+      (cleanup-temp-store temp-path))))
+
+(test lazy-snapshot-parent-access
+  "Test lazy snapshot parent access without loading"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (parent-snap (autopoiesis.snapshot:make-snapshot '(:parent t)))
+         (parent-id (autopoiesis.snapshot:snapshot-id parent-snap)))
+    (unwind-protect
+         (progn
+           (autopoiesis.snapshot:save-snapshot parent-snap store)
+           (let* ((child-snap (autopoiesis.snapshot:make-snapshot '(:child t) :parent parent-id))
+                  (child-id (autopoiesis.snapshot:snapshot-id child-snap)))
+             (autopoiesis.snapshot:save-snapshot child-snap store)
+             ;; Create lazy snapshot
+             (let ((lazy-child (autopoiesis.snapshot:make-lazy-snapshot-from-index child-id store)))
+               ;; Parent ID should be available without loading
+               (is (string= parent-id (autopoiesis.snapshot:lazy-snapshot-parent-id lazy-child)))
+               (is (string= parent-id (autopoiesis.snapshot:snapshot-parent lazy-child)))
+               ;; Should still not be loaded (parent is from index)
+               (is (not (autopoiesis.snapshot:lazy-snapshot-loaded-p lazy-child))))))
+      (cleanup-temp-store temp-path))))
+
+(test lazy-dag-iterator-forward
+  "Test lazy DAG iterator in forward direction"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create a tree: root -> (child1, child2) -> child3 (under child1)
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1))
+                    (child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent root-id)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (autopoiesis.snapshot:save-snapshot child2 store)
+               (let ((child3 (autopoiesis.snapshot:make-snapshot '(:child3 t) :parent child1-id)))
+                 (autopoiesis.snapshot:save-snapshot child3 store)
+                 ;; Create iterator from root
+                 (let ((iterator (autopoiesis.snapshot:make-lazy-dag-iterator root-id store
+                                                                               :direction :forward
+                                                                               :batch-size 10))
+                       (visited-ids nil))
+                   ;; Iterate through all
+                   (loop for batch = (autopoiesis.snapshot:iterator-next-batch iterator)
+                         while batch
+                         do (dolist (lazy-snap batch)
+                              (push (autopoiesis.snapshot:lazy-snapshot-id lazy-snap) visited-ids)))
+                   ;; Should have visited all 4 snapshots
+                   (is (= 4 (length visited-ids)))
+                   ;; Iterator should be exhausted
+                   (is (autopoiesis.snapshot:iterator-exhausted-p iterator)))))))
+      (cleanup-temp-store temp-path))))
+
+(test lazy-dag-iterator-backward
+  "Test lazy DAG iterator in backward direction"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create chain: root -> child1 -> child2 -> child3
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let* ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id))
+                      (child2-id (autopoiesis.snapshot:snapshot-id child2)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 (let* ((child3 (autopoiesis.snapshot:make-snapshot '(:child3 t) :parent child2-id))
+                        (child3-id (autopoiesis.snapshot:snapshot-id child3)))
+                   (autopoiesis.snapshot:save-snapshot child3 store)
+                   ;; Create iterator from child3 going backward
+                   (let ((iterator (autopoiesis.snapshot:make-lazy-dag-iterator child3-id store
+                                                                                 :direction :backward
+                                                                                 :batch-size 10))
+                         (visited-ids nil))
+                     ;; Iterate through all
+                     (loop for batch = (autopoiesis.snapshot:iterator-next-batch iterator)
+                           while batch
+                           do (dolist (lazy-snap batch)
+                                (push (autopoiesis.snapshot:lazy-snapshot-id lazy-snap) visited-ids)))
+                     ;; Should have visited all 4 snapshots (child3, child2, child1, root)
+                     (is (= 4 (length visited-ids)))))))))
+      (cleanup-temp-store temp-path))))
+
+(test list-snapshots-paginated
+  "Test paginated snapshot listing"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create 10 snapshots
+           (loop for i from 1 to 10
+                 do (autopoiesis.snapshot:save-snapshot
+                     (autopoiesis.snapshot:make-snapshot (list :num i))
+                     store))
+           ;; Test pagination
+           (multiple-value-bind (page1 total has-more)
+               (autopoiesis.snapshot:list-snapshots-paginated :offset 0 :limit 3 :store store)
+             (is (= 3 (length page1)))
+             (is (= 10 total))
+             (is-true has-more))
+           ;; Second page
+           (multiple-value-bind (page2 total has-more)
+               (autopoiesis.snapshot:list-snapshots-paginated :offset 3 :limit 3 :store store)
+             (is (= 3 (length page2)))
+             (is (= 10 total))
+             (is-true has-more))
+           ;; Last page
+           (multiple-value-bind (page3 total has-more)
+               (autopoiesis.snapshot:list-snapshots-paginated :offset 9 :limit 3 :store store)
+             (is (= 1 (length page3)))
+             (is (= 10 total))
+             (is-false has-more)))
+      (cleanup-temp-store temp-path))))
+
+(test walk-descendants-paginated
+  "Test paginated descendant walking"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create chain: root -> child1 -> child2
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 ;; Walk descendants
+                 (let ((visited nil))
+                   (autopoiesis.snapshot:walk-descendants-paginated
+                    root-id
+                    (lambda (lazy-snap)
+                      (push (autopoiesis.snapshot:lazy-snapshot-id lazy-snap) visited))
+                    :batch-size 2
+                    :store store)
+                   ;; Should visit all 3
+                   (is (= 3 (length visited))))))))
+      (cleanup-temp-store temp-path))))
+
+(test get-dag-statistics
+  "Test DAG statistics gathering"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create a tree with branch point
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             ;; Two children from root (branch point)
+             (autopoiesis.snapshot:save-snapshot
+              (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id)
+              store)
+             (autopoiesis.snapshot:save-snapshot
+              (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent root-id)
+              store)
+             ;; Get statistics
+             (let ((stats (autopoiesis.snapshot:get-dag-statistics store)))
+               (is (= 3 (getf stats :total-count)))
+               (is (= 1 (getf stats :root-count)))
+               (is (= 1 (getf stats :branch-points)))
+               (is (= 2 (getf stats :max-children))))))
+      (cleanup-temp-store temp-path))))
+
+(test find-snapshots-by-time-range
+  "Test finding snapshots by time range"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create snapshots with known timestamps
+           (let ((base-time (autopoiesis.core:get-precise-time)))
+             ;; Create 3 snapshots
+             (loop for i from 0 to 2
+                   do (let ((snap (autopoiesis.snapshot:make-snapshot (list :num i))))
+                        ;; Manually set timestamp for testing
+                        (setf (autopoiesis.snapshot:snapshot-timestamp snap)
+                              (+ base-time (* i 100)))
+                        (autopoiesis.snapshot:save-snapshot snap store)))
+             ;; Find snapshots in middle range
+             (let ((results (autopoiesis.snapshot:find-snapshots-by-time-range
+                             (+ base-time 50)
+                             (+ base-time 150)
+                             :store store)))
+               ;; Should find the middle snapshot
+               (is (>= (length results) 1)))))
+      (cleanup-temp-store temp-path))))
+
+(test collect-snapshot-ids-lazy
+  "Test lazy collection of snapshot IDs"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create chain: root -> child1 -> child2
+           (let* ((root (autopoiesis.snapshot:make-snapshot '(:root t)))
+                  (root-id (autopoiesis.snapshot:snapshot-id root)))
+             (autopoiesis.snapshot:save-snapshot root store)
+             (let* ((child1 (autopoiesis.snapshot:make-snapshot '(:child1 t) :parent root-id))
+                    (child1-id (autopoiesis.snapshot:snapshot-id child1)))
+               (autopoiesis.snapshot:save-snapshot child1 store)
+               (let* ((child2 (autopoiesis.snapshot:make-snapshot '(:child2 t) :parent child1-id))
+                      (child2-id (autopoiesis.snapshot:snapshot-id child2)))
+                 (autopoiesis.snapshot:save-snapshot child2 store)
+                 ;; Collect ancestors of child2
+                 (let ((ancestor-ids (autopoiesis.snapshot:collect-snapshot-ids-lazy
+                                      child2-id :ancestors :store store)))
+                   (is (= 3 (length ancestor-ids)))
+                   (is (member root-id ancestor-ids :test #'string=)))
+                 ;; Collect descendants of root
+                 (let ((descendant-ids (autopoiesis.snapshot:collect-snapshot-ids-lazy
+                                        root-id :descendants :store store)))
+                   (is (= 3 (length descendant-ids)))
+                   (is (member child2-id descendant-ids :test #'string=)))))))
+      (cleanup-temp-store temp-path))))
+
 (test snapshot-store-with-lru-cache
   "Test snapshot store uses LRU cache correctly"
   (let* ((temp-path (make-temp-store-path))
