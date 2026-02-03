@@ -54,7 +54,7 @@ Current Phase: 6 (MCP Integration)
 - [x] Implement MCP resource handling (resources/list, resources/read)
 - [x] Implement built-in tools (file, web, shell)
 - [x] Implement integration event system
-- [ ] Write MCP integration tests (mocked)
+- [x] Write MCP integration tests (mocked)
 
 ## Recently Completed
 

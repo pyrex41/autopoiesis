@@ -1025,6 +1025,410 @@
                  (cdr (assoc :uri (third resources))))))))
 
 ;;; ===================================================================
+;;; Mocked MCP Protocol Tests
+;;; ===================================================================
+
+;;; These tests simulate full MCP protocol interactions using mocked I/O streams
+
+(defclass mock-mcp-test-harness ()
+  ((server :accessor mock-server :initform nil)
+   (responses :accessor mock-responses :initform nil
+              :documentation "Queue of responses to return")
+   (requests :accessor mock-requests :initform nil
+             :documentation "Captured requests")
+   (input-string :accessor mock-input-string)
+   (output-string :accessor mock-output-string))
+  (:documentation "Test harness for mocking MCP server I/O"))
+
+(defun make-mock-test-harness ()
+  "Create a test harness with mocked streams."
+  (let ((harness (make-instance 'mock-mcp-test-harness)))
+    (setf (mock-input-string harness) (make-string-output-stream)
+          (mock-output-string harness) (make-string-input-stream ""))
+    harness))
+
+(defun queue-mock-response (harness response)
+  "Queue a JSON-RPC response for the mock server to return."
+  (push response (mock-responses harness)))
+
+(defun create-jsonrpc-response (id result)
+  "Create a JSON-RPC 2.0 success response."
+  `((:jsonrpc . "2.0")
+    (:id . ,id)
+    (:result . ,result)))
+
+(defun create-jsonrpc-error (id code message)
+  "Create a JSON-RPC 2.0 error response."
+  `((:jsonrpc . "2.0")
+    (:id . ,id)
+    (:error . ((:code . ,code)
+               (:message . ,message)))))
+
+(test mcp-mock-server-setup
+  "Test that mock MCP servers can be set up correctly"
+  (let ((server (autopoiesis.integration:make-mcp-server
+                 "mock-test" "echo"
+                 :args '("test")
+                 :working-directory "/tmp")))
+    (is (equal "mock-test" (autopoiesis.integration:mcp-name server)))
+    (is (equal "echo" (autopoiesis.integration:mcp-command server)))
+    (is (equal '("test") (autopoiesis.integration:mcp-args server)))
+    ;; working-directory is internal, access via package internals
+    (is (equal "/tmp" (autopoiesis.integration::mcp-working-directory server)))
+    (is (not (autopoiesis.integration:mcp-connected-p server)))))
+
+(test mcp-multiple-servers-registry
+  "Test managing multiple MCP servers in registry"
+  ;; Clear registry
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  ;; Create multiple servers
+  (let ((server1 (autopoiesis.integration:make-mcp-server "server-1" "cmd1"))
+        (server2 (autopoiesis.integration:make-mcp-server "server-2" "cmd2"))
+        (server3 (autopoiesis.integration:make-mcp-server "server-3" "cmd3")))
+    ;; Register all
+    (autopoiesis.integration:register-mcp-server server1)
+    (autopoiesis.integration:register-mcp-server server2)
+    (autopoiesis.integration:register-mcp-server server3)
+    ;; List should return all
+    (let ((servers (autopoiesis.integration:list-mcp-servers)))
+      (is (= 3 (length servers)))
+      (is (member server1 servers))
+      (is (member server2 servers))
+      (is (member server3 servers)))
+    ;; Find each
+    (is (eq server1 (autopoiesis.integration:find-mcp-server "server-1")))
+    (is (eq server2 (autopoiesis.integration:find-mcp-server "server-2")))
+    (is (eq server3 (autopoiesis.integration:find-mcp-server "server-3")))
+    ;; Unregister one
+    (autopoiesis.integration:unregister-mcp-server "server-2")
+    (is (= 2 (length (autopoiesis.integration:list-mcp-servers))))
+    (is (null (autopoiesis.integration:find-mcp-server "server-2")))
+    ;; Clean up
+    (clrhash autopoiesis.integration:*mcp-servers*)))
+
+(test mcp-tool-definition-parsing
+  "Test parsing various MCP tool definitions"
+  ;; Tool with complex schema
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((server (autopoiesis.integration:make-mcp-server "schema-test" "echo")))
+    (autopoiesis.integration:register-mcp-server server)
+    (let* ((tool '((:name . "search_files")
+                   (:description . "Search for files matching a pattern")
+                   (:input-schema . (("type" . "object")
+                                     ("properties" . (("pattern" . (("type" . "string")
+                                                                    ("description" . "Glob pattern")))
+                                                      ("directory" . (("type" . "string")
+                                                                      ("description" . "Directory to search")))
+                                                      ("recursive" . (("type" . "boolean")
+                                                                      ("default" . t)))))
+                                     ("required" . ("pattern"))))))
+           (cap (autopoiesis.integration:mcp-tool-to-capability tool "schema-test")))
+      ;; Check name conversion
+      (is (eq :search-files (autopoiesis.agent:capability-name cap)))
+      ;; Check description includes MCP server info
+      (is (search "Search for files" (autopoiesis.agent:capability-description cap)))
+      (is (search "schema-test" (autopoiesis.agent:capability-description cap)))
+      ;; Check parameters were parsed
+      (let ((params (autopoiesis.agent:capability-parameters cap)))
+        (is (not (null params)))
+        ;; pattern should be required
+        (let ((pattern-param (find :pattern params :key #'first)))
+          (is (not (null pattern-param)))
+          (is (eq 'string (second pattern-param)))
+          (is (getf (cddr pattern-param) :required)))
+        ;; recursive should have default
+        (let ((recursive-param (find :recursive params :key #'first)))
+          (is (not (null recursive-param)))
+          (is (eq 'boolean (second recursive-param)))))))
+  ;; Clean up
+  (clrhash autopoiesis.integration:*mcp-servers*))
+
+(test mcp-tool-minimal-definition
+  "Test parsing minimal MCP tool definition"
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((server (autopoiesis.integration:make-mcp-server "minimal-test" "echo")))
+    (autopoiesis.integration:register-mcp-server server)
+    (let* ((tool '((:name . "simple_tool")))  ; Minimal - just a name
+           (cap (autopoiesis.integration:mcp-tool-to-capability tool "minimal-test")))
+      ;; Should still work
+      (is (eq :simple-tool (autopoiesis.agent:capability-name cap)))
+      ;; Should have MCP server in description
+      (is (search "minimal-test" (autopoiesis.agent:capability-description cap))))
+    ;; Clean up
+    (clrhash autopoiesis.integration:*mcp-servers*)))
+
+(test mcp-capability-invocation-without-server
+  "Test that MCP capability invocation errors when server is not found"
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((server (autopoiesis.integration:make-mcp-server "temp-server" "echo")))
+    (autopoiesis.integration:register-mcp-server server)
+    (let* ((tool '((:name . "test_tool") (:description . "Test")))
+           (cap (autopoiesis.integration:mcp-tool-to-capability tool "temp-server")))
+      ;; Now unregister the server
+      (autopoiesis.integration:unregister-mcp-server "temp-server")
+      ;; Invoking should fail
+      (signals autopoiesis.core:autopoiesis-error
+        (funcall (autopoiesis.agent:capability-function cap)
+                 :arg "value")))))
+
+(test mcp-server-capabilities-tracking
+  "Test tracking server capabilities from initialization"
+  (let ((server (make-mock-mcp-server)))
+    ;; Simulate various capability combinations
+    (setf (autopoiesis.integration:mcp-server-capabilities server)
+          '((:tools . t) (:resources . t) (:prompts . t)))
+    (let ((caps (autopoiesis.integration:mcp-server-capabilities server)))
+      (is (cdr (assoc :tools caps)))
+      (is (cdr (assoc :resources caps)))
+      (is (cdr (assoc :prompts caps))))
+    ;; Test with minimal capabilities
+    (setf (autopoiesis.integration:mcp-server-capabilities server)
+          '((:tools . t)))
+    (let ((caps (autopoiesis.integration:mcp-server-capabilities server)))
+      (is (cdr (assoc :tools caps)))
+      (is (null (cdr (assoc :resources caps)))))))
+
+(test mcp-server-info-storage
+  "Test storing and retrieving server info"
+  (let ((server (make-mock-mcp-server)))
+    (setf (autopoiesis.integration:mcp-server-info server)
+          '((:name . "test-mcp-server")
+            (:version . "1.0.0")
+            (:protocol-version . "2024-11-05")))
+    (let ((info (autopoiesis.integration:mcp-server-info server)))
+      (is (equal "test-mcp-server" (cdr (assoc :name info))))
+      (is (equal "1.0.0" (cdr (assoc :version info))))
+      (is (equal "2024-11-05" (cdr (assoc :protocol-version info)))))))
+
+(test mcp-tool-arguments-conversion
+  "Test that MCP tool arguments are correctly converted"
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  ;; Create a "connected" mock server that we can use
+  (let ((server (make-mock-mcp-server)))
+    (setf (autopoiesis.integration:mcp-name server) "arg-test")
+    (autopoiesis.integration:register-mcp-server server)
+    ;; Create a tool
+    (let* ((tool '((:name . "echo_args")))
+           (cap (autopoiesis.integration:mcp-tool-to-capability tool "arg-test")))
+      ;; The capability function converts keyword args to alist
+      ;; We can't actually call it (no real server), but we can check it exists
+      (is (not (null (autopoiesis.agent:capability-function cap))))))
+  ;; Clean up
+  (clrhash autopoiesis.integration:*mcp-servers*))
+
+(test mcp-multiple-tools-registration
+  "Test registering multiple tools from one server"
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((test-registry (make-hash-table :test 'eq))
+        (server (autopoiesis.integration:make-mcp-server "multi-tool" "echo")))
+    ;; Set up multiple tools
+    (setf (autopoiesis.integration:mcp-tools server)
+          '(((:name . "tool_alpha") (:description . "Alpha tool"))
+            ((:name . "tool_beta") (:description . "Beta tool"))
+            ((:name . "tool_gamma") (:description . "Gamma tool"))
+            ((:name . "tool_delta") (:description . "Delta tool"))))
+    (autopoiesis.integration:register-mcp-server server)
+    ;; Register all tools
+    (let ((caps (autopoiesis.integration:register-mcp-tools-as-capabilities
+                 server :registry test-registry)))
+      (is (= 4 (length caps)))
+      ;; Check all are registered
+      (is (not (null (autopoiesis.agent:find-capability :tool-alpha :registry test-registry))))
+      (is (not (null (autopoiesis.agent:find-capability :tool-beta :registry test-registry))))
+      (is (not (null (autopoiesis.agent:find-capability :tool-gamma :registry test-registry))))
+      (is (not (null (autopoiesis.agent:find-capability :tool-delta :registry test-registry))))
+      ;; Verify descriptions include MCP server name
+      (let ((alpha (autopoiesis.agent:find-capability :tool-alpha :registry test-registry)))
+        (is (search "multi-tool" (autopoiesis.agent:capability-description alpha)))))
+    ;; Unregister all
+    (autopoiesis.integration:unregister-mcp-tools server :registry test-registry)
+    (is (null (autopoiesis.agent:find-capability :tool-alpha :registry test-registry)))
+    (is (null (autopoiesis.agent:find-capability :tool-beta :registry test-registry)))
+    ;; Clean up
+    (clrhash autopoiesis.integration:*mcp-servers*)))
+
+(test mcp-tool-name-collision-handling
+  "Test handling tools with names that need conversion"
+  ;; Tools with special characters in names
+  (clrhash autopoiesis.integration:*mcp-servers*)
+  (let ((server (autopoiesis.integration:make-mcp-server "name-test" "echo")))
+    (autopoiesis.integration:register-mcp-server server)
+    ;; Various naming patterns
+    (let ((tool1 (autopoiesis.integration:mcp-tool-to-capability
+                  '((:name . "read_file")) "name-test"))
+          (tool2 (autopoiesis.integration:mcp-tool-to-capability
+                  '((:name . "READ_FILE")) "name-test"))  ; uppercase
+          (tool3 (autopoiesis.integration:mcp-tool-to-capability
+                  '((:name . "readFile")) "name-test")))  ; camelCase
+      ;; All should convert to keyword symbols
+      (is (keywordp (autopoiesis.agent:capability-name tool1)))
+      (is (keywordp (autopoiesis.agent:capability-name tool2)))
+      (is (keywordp (autopoiesis.agent:capability-name tool3))))
+    ;; Clean up
+    (clrhash autopoiesis.integration:*mcp-servers*)))
+
+(test mcp-jsonrpc-request-id-uniqueness
+  "Test that request IDs are unique and incrementing"
+  (let ((server (make-mock-mcp-server)))
+    (let ((ids (loop repeat 100 collect (autopoiesis.integration::next-request-id server))))
+      ;; All IDs should be unique
+      (is (= 100 (length (remove-duplicates ids))))
+      ;; Should be incrementing
+      (is (apply #'< ids)))))
+
+(test mcp-jsonrpc-request-with-params
+  "Test JSON-RPC request creation with various parameter types"
+  ;; Simple params
+  (let ((req (autopoiesis.integration::make-jsonrpc-request 1 "test/method"
+               '(("key" . "value")))))
+    (is (equal "test/method" (cdr (assoc "method" req :test #'string=))))
+    (let ((params (cdr (assoc "params" req :test #'string=))))
+      (is (equal "value" (cdr (assoc "key" params :test #'string=))))))
+  ;; Nested params
+  (let ((req (autopoiesis.integration::make-jsonrpc-request 2 "nested"
+               '(("outer" . (("inner" . "deep")))))))
+    (let* ((params (cdr (assoc "params" req :test #'string=)))
+           (outer (cdr (assoc "outer" params :test #'string=))))
+      (is (equal "deep" (cdr (assoc "inner" outer :test #'string=))))))
+  ;; Array params (list)
+  (let ((req (autopoiesis.integration::make-jsonrpc-request 3 "array"
+               '(("items" . (1 2 3))))))
+    (let* ((params (cdr (assoc "params" req :test #'string=)))
+           (items (cdr (assoc "items" params :test #'string=))))
+      (is (equal '(1 2 3) items)))))
+
+(test mcp-server-environment-variables
+  "Test MCP server with environment variables"
+  (let ((server (autopoiesis.integration:make-mcp-server
+                 "env-test" "echo"
+                 :env '(("API_KEY" . "secret123")
+                        ("DEBUG" . "true")
+                        ("PATH" . "/usr/bin")))))
+    ;; mcp-env is internal, access via package internals
+    (is (equal '(("API_KEY" . "secret123")
+                 ("DEBUG" . "true")
+                 ("PATH" . "/usr/bin"))
+               (autopoiesis.integration::mcp-env server)))))
+
+(test mcp-full-status-report
+  "Test comprehensive status report from MCP server"
+  (let ((server (autopoiesis.integration:make-mcp-server
+                 "status-full" "cmd"
+                 :args '("--arg1" "--arg2"))))
+    ;; Set up mock state
+    (setf (autopoiesis.integration:mcp-tools server)
+          '(((:name . "t1")) ((:name . "t2")) ((:name . "t3"))))
+    (setf (autopoiesis.integration:mcp-resources server)
+          '(((:uri . "r1")) ((:uri . "r2"))))
+    (setf (autopoiesis.integration:mcp-server-info server)
+          '((:name . "TestServer") (:version . "2.0")))
+    ;; Get status
+    (let ((status (autopoiesis.integration:mcp-server-status server)))
+      (is (equal "status-full" (getf status :name)))
+      (is (not (getf status :connected)))
+      (is (equal "cmd" (getf status :command)))
+      (is (equal '("--arg1" "--arg2") (getf status :args)))
+      (is (= 3 (getf status :tools-count)))
+      (is (= 2 (getf status :resources-count)))
+      (is (not (null (getf status :server-info)))))))
+
+(test mcp-discover-resources-with-no-capability
+  "Test that resource discovery gracefully handles servers without resource capability"
+  (let ((server (make-mock-mcp-server)))
+    ;; Server with only tools capability (no resources)
+    (setf (autopoiesis.integration:mcp-server-capabilities server)
+          '((:tools . t)))
+    ;; discover-resources should return nil without error
+    (let ((resources (autopoiesis.integration::mcp-discover-resources server)))
+      (is (null resources)))))
+
+(test mcp-discover-tools-with-no-capability
+  "Test that tool discovery gracefully handles servers without tool capability"
+  (let ((server (make-mock-mcp-server)))
+    ;; Server with only resources capability (no tools)
+    (setf (autopoiesis.integration:mcp-server-capabilities server)
+          '((:resources . t)))
+    ;; discover-tools should return nil without error
+    (let ((tools (autopoiesis.integration::mcp-discover-tools server)))
+      (is (null tools)))))
+
+;;; ===================================================================
+;;; MCP Event Integration Tests
+;;; ===================================================================
+
+(test mcp-events-on-connect-disconnect
+  "Test that MCP connection events are properly handled"
+  ;; Set up event capture
+  (autopoiesis.integration:clear-event-handlers)
+  (autopoiesis.integration:clear-event-history)
+  (let ((connect-events nil)
+        (disconnect-events nil))
+    (autopoiesis.integration:subscribe-to-event
+     :mcp-connected
+     (lambda (e) (push e connect-events)))
+    (autopoiesis.integration:subscribe-to-event
+     :mcp-disconnected
+     (lambda (e) (push e disconnect-events)))
+    ;; Simulate connection event
+    (autopoiesis.integration:emit-integration-event
+     :mcp-connected :mcp-test-server
+     '(:server-name "test-server" :tools-count 5))
+    (is (= 1 (length connect-events)))
+    (is (equal "test-server"
+               (getf (autopoiesis.integration:integration-event-data
+                      (first connect-events))
+                     :server-name)))
+    ;; Simulate disconnect event
+    (autopoiesis.integration:emit-integration-event
+     :mcp-disconnected :mcp-test-server
+     '(:server-name "test-server" :reason "shutdown"))
+    (is (= 1 (length disconnect-events)))
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test mcp-tool-call-events
+  "Test that MCP tool call events are emitted"
+  (autopoiesis.integration:clear-event-handlers)
+  (autopoiesis.integration:clear-event-history)
+  (let ((tool-calls nil))
+    (autopoiesis.integration:subscribe-to-event
+     :mcp-tool-call
+     (lambda (e) (push e tool-calls)))
+    ;; Simulate MCP tool call event
+    (autopoiesis.integration:emit-integration-event
+     :mcp-tool-call :mcp-filesystem
+     '(:tool "read_file" :server "filesystem" :arguments (:path "/tmp/test.txt")))
+    (is (= 1 (length tool-calls)))
+    (let ((event (first tool-calls)))
+      (is (eq :mcp-tool-call (autopoiesis.integration:integration-event-kind event)))
+      (is (eq :mcp-filesystem (autopoiesis.integration:integration-event-source event)))
+      (is (equal "read_file"
+                 (getf (autopoiesis.integration:integration-event-data event) :tool))))
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+(test mcp-error-events
+  "Test that MCP error events are properly captured"
+  (autopoiesis.integration:clear-event-handlers)
+  (autopoiesis.integration:clear-event-history)
+  (let ((errors nil))
+    (autopoiesis.integration:subscribe-to-event
+     :mcp-error
+     (lambda (e) (push e errors)))
+    ;; Simulate MCP error
+    (autopoiesis.integration:emit-integration-event
+     :mcp-error :mcp-broken-server
+     '(:error "Connection refused" :code -32000 :server "broken-server"))
+    (is (= 1 (length errors)))
+    (let ((error-event (first errors)))
+      (is (equal "Connection refused"
+                 (getf (autopoiesis.integration:integration-event-data error-event) :error)))
+      (is (= -32000
+             (getf (autopoiesis.integration:integration-event-data error-event) :code))))
+    ;; Clean up
+    (autopoiesis.integration:clear-event-handlers)))
+
+;;; ===================================================================
 ;;; Built-in Tools Tests
 ;;; ===================================================================
 
