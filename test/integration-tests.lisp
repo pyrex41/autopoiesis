@@ -335,3 +335,144 @@
       (is (equal "tool_result" (cdr (assoc "type" tool-result :test #'string=))))
       (is (equal "toolu_123" (cdr (assoc "tool_use_id" tool-result :test #'string=))))
       (is (equal "Hello, World!" (cdr (assoc "content" tool-result :test #'string=)))))))
+
+;;; ===================================================================
+;;; Claude Session Management Tests
+;;; ===================================================================
+
+(test claude-session-creation
+  "Test creating a Claude session"
+  (let ((session (autopoiesis.integration:make-claude-session
+                  :agent-id "agent-123"
+                  :system-prompt "You are a test agent.")))
+    (is (not (null (autopoiesis.integration:claude-session-id session))))
+    (is (equal "agent-123" (autopoiesis.integration:claude-session-agent-id session)))
+    (is (equal "You are a test agent." (autopoiesis.integration:claude-session-system-prompt session)))
+    (is (null (autopoiesis.integration:claude-session-messages session)))
+    (is (numberp (autopoiesis.integration:claude-session-created-at session)))))
+
+(test claude-session-with-custom-id
+  "Test creating Claude session with custom ID"
+  (let ((session (autopoiesis.integration:make-claude-session
+                  :id "custom-session-id"
+                  :agent-id "agent-456")))
+    (is (equal "custom-session-id" (autopoiesis.integration:claude-session-id session)))))
+
+(test claude-session-registry-operations
+  "Test Claude session registry find and delete"
+  ;; Clear registry for test isolation
+  (clrhash autopoiesis.integration:*claude-session-registry*)
+  (let ((session (autopoiesis.integration:make-claude-session :agent-id "test-agent")))
+    ;; Register manually
+    (setf (gethash (autopoiesis.integration:claude-session-id session)
+                   autopoiesis.integration:*claude-session-registry*)
+          session)
+    ;; Find it
+    (is (eq session (autopoiesis.integration:find-claude-session
+                     (autopoiesis.integration:claude-session-id session))))
+    ;; Delete it
+    (is (autopoiesis.integration:delete-claude-session
+         (autopoiesis.integration:claude-session-id session)))
+    ;; Should be gone
+    (is (null (autopoiesis.integration:find-claude-session
+               (autopoiesis.integration:claude-session-id session))))))
+
+(test claude-session-add-message
+  "Test adding messages to a Claude session"
+  (let ((session (autopoiesis.integration:make-claude-session)))
+    ;; Add user message
+    (autopoiesis.integration:claude-session-add-message session "user" "Hello!")
+    (is (= 1 (length (autopoiesis.integration:claude-session-messages session))))
+    ;; Add assistant message
+    (autopoiesis.integration:claude-session-add-message session "assistant" "Hi there!")
+    (is (= 2 (length (autopoiesis.integration:claude-session-messages session))))
+    ;; Verify message structure
+    (let ((first-msg (first (autopoiesis.integration:claude-session-messages session))))
+      (is (equal "user" (cdr (assoc "role" first-msg :test #'string=))))
+      (is (equal "Hello!" (cdr (assoc "content" first-msg :test #'string=)))))))
+
+(test claude-session-add-assistant-response
+  "Test adding Claude API response to session"
+  (let ((session (autopoiesis.integration:make-claude-session))
+        (response '((:content . (((:type . "text") (:text . "Response text")))))))
+    (autopoiesis.integration:claude-session-add-assistant-response session response)
+    (is (= 1 (length (autopoiesis.integration:claude-session-messages session))))
+    (let ((msg (first (autopoiesis.integration:claude-session-messages session))))
+      (is (equal "assistant" (cdr (assoc "role" msg :test #'string=)))))))
+
+(test claude-session-add-tool-results
+  "Test adding tool results to Claude session"
+  (let ((session (autopoiesis.integration:make-claude-session))
+        (results '((:tool-use-id "tool-1" :result "Done" :is-error nil))))
+    (autopoiesis.integration:claude-session-add-tool-results session results)
+    (is (= 1 (length (autopoiesis.integration:claude-session-messages session))))
+    (let ((msg (first (autopoiesis.integration:claude-session-messages session))))
+      (is (equal "user" (cdr (assoc "role" msg :test #'string=)))))))
+
+(test claude-session-clear-messages
+  "Test clearing Claude session messages"
+  (let ((session (autopoiesis.integration:make-claude-session)))
+    (autopoiesis.integration:claude-session-add-message session "user" "Test")
+    (autopoiesis.integration:claude-session-add-message session "assistant" "Reply")
+    (is (= 2 (length (autopoiesis.integration:claude-session-messages session))))
+    (autopoiesis.integration:claude-session-clear-messages session)
+    (is (null (autopoiesis.integration:claude-session-messages session)))))
+
+(test claude-session-serialization
+  "Test Claude session serialization and deserialization"
+  (let* ((session (autopoiesis.integration:make-claude-session
+                   :id "ser-test"
+                   :agent-id "agent-ser"
+                   :system-prompt "Test prompt"))
+         (sexpr (autopoiesis.integration:claude-session-to-sexpr session))
+         (restored (autopoiesis.integration:sexpr-to-claude-session sexpr)))
+    (is (equal "ser-test" (autopoiesis.integration:claude-session-id restored)))
+    (is (equal "agent-ser" (autopoiesis.integration:claude-session-agent-id restored)))
+    (is (equal "Test prompt" (autopoiesis.integration:claude-session-system-prompt restored)))))
+
+(test claude-session-serialization-with-messages
+  "Test Claude session serialization preserves messages"
+  (let ((session (autopoiesis.integration:make-claude-session)))
+    (autopoiesis.integration:claude-session-add-message session "user" "Hello")
+    (autopoiesis.integration:claude-session-add-message session "assistant" "Hi")
+    (let* ((sexpr (autopoiesis.integration:claude-session-to-sexpr session))
+           (restored (autopoiesis.integration:sexpr-to-claude-session sexpr)))
+      (is (= 2 (length (autopoiesis.integration:claude-session-messages restored)))))))
+
+(test generate-system-prompt
+  "Test system prompt generation for agent"
+  (let* ((agent (autopoiesis.agent:make-agent :name "TestBot"))
+         (prompt (autopoiesis.integration:generate-system-prompt agent)))
+    (is (stringp prompt))
+    (is (search "TestBot" prompt))
+    (is (search "Autopoiesis" prompt))))
+
+(test create-claude-session-for-agent
+  "Test creating and registering Claude session for agent"
+  ;; Clear registries
+  (clrhash autopoiesis.integration:*claude-session-registry*)
+  (clrhash autopoiesis.integration::*agent-claude-session-map*)
+  (let* ((agent (autopoiesis.agent:make-agent :name "SessionTestAgent"))
+         (session (autopoiesis.integration:create-claude-session-for-agent agent)))
+    ;; Session should be registered
+    (is (eq session (autopoiesis.integration:find-claude-session
+                     (autopoiesis.integration:claude-session-id session))))
+    ;; Should be findable by agent ID
+    (is (eq session (autopoiesis.integration:find-claude-session-for-agent
+                     (autopoiesis.agent:agent-id agent))))
+    ;; Should have system prompt
+    (is (not (null (autopoiesis.integration:claude-session-system-prompt session))))))
+
+(test list-claude-sessions
+  "Test listing all Claude sessions"
+  ;; Clear registry
+  (clrhash autopoiesis.integration:*claude-session-registry*)
+  (let ((s1 (autopoiesis.integration:make-claude-session :id "s1"))
+        (s2 (autopoiesis.integration:make-claude-session :id "s2")))
+    ;; Register them
+    (setf (gethash "s1" autopoiesis.integration:*claude-session-registry*) s1)
+    (setf (gethash "s2" autopoiesis.integration:*claude-session-registry*) s2)
+    (let ((sessions (autopoiesis.integration:list-claude-sessions)))
+      (is (= 2 (length sessions)))
+      (is (member s1 sessions))
+      (is (member s2 sessions)))))

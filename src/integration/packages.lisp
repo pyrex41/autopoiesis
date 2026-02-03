@@ -62,4 +62,30 @@
    #:capability-params-to-json-schema
    #:json-schema-to-capability-params
    #:lisp-name-to-tool-name
-   #:tool-name-to-lisp-name))
+   #:tool-name-to-lisp-name
+
+   ;; Claude session management
+   #:claude-session
+   #:make-claude-session
+   #:claude-session-id
+   #:claude-session-agent-id
+   #:claude-session-messages
+   #:claude-session-system-prompt
+   #:claude-session-tools
+   #:claude-session-created-at
+   #:claude-session-updated-at
+   #:claude-session-metadata
+   #:create-claude-session-for-agent
+   #:find-claude-session
+   #:find-claude-session-for-agent
+   #:list-claude-sessions
+   #:delete-claude-session
+   #:claude-session-add-message
+   #:claude-session-add-assistant-response
+   #:claude-session-add-tool-results
+   #:claude-session-clear-messages
+   #:claude-session-to-sexpr
+   #:sexpr-to-claude-session
+   #:sync-claude-session-tools
+   #:generate-system-prompt
+   #:*claude-session-registry*))

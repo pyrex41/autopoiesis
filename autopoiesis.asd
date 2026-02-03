@@ -75,6 +75,7 @@
        (:file "claude-bridge")
        (:file "message-format")
        (:file "tool-mapping")
+       (:file "session")
        (:file "mcp-client")
        (:file "tool-registry")
        (:file "config")))

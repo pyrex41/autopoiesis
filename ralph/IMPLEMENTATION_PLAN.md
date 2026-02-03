@@ -67,7 +67,7 @@ Current Phase: 5 (Claude Integration)
 ### Phase 5: Claude Integration
 - [x] Implement Claude API HTTP communication (dexador)
 - [x] Implement tool mapping (capability → Claude tool)
-- [ ] Implement session management
+- [x] Implement session management
 - [ ] Write Claude integration tests (mocked)
 
 ## Blocked / Needs Human Input
@@ -133,6 +133,7 @@ Current Phase: 5 (Claude Integration)
 - claude-bridge.lisp
 - message-format.lisp
 - tool-mapping.lisp
+- session.lisp
 - mcp-client.lisp
 - tool-registry.lisp
 - config.lisp
