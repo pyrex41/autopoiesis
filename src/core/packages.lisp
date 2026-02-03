@@ -260,4 +260,17 @@
    #:print-benchmark
    ;; Memory profiling
    #:memory-usage
-   #:with-memory-tracking))
+   #:with-memory-tracking
+
+   ;; Configuration management
+   #:*default-config*
+   #:*current-config*
+   #:load-config
+   #:merge-configs
+   #:config-get
+   #:config-set
+   #:initialize-config
+   #:reset-config
+   #:validate-config
+   #:save-config
+   #:config-to-string))

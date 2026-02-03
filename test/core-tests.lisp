@@ -1531,3 +1531,190 @@
     ;; Cleanup
     (setf autopoiesis.core:*current-degradation-level* nil)
     (remhash :summary-degraded-comp autopoiesis.core:*component-health-registry*)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Configuration Management Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test config-default-config-exists
+  "Test that default configuration is defined"
+  (is-true autopoiesis.core:*default-config*)
+  (is (listp autopoiesis.core:*default-config*))
+  ;; Check required sections exist
+  (is-true (getf autopoiesis.core:*default-config* :server))
+  (is-true (getf autopoiesis.core:*default-config* :storage))
+  (is-true (getf autopoiesis.core:*default-config* :logging))
+  (is-true (getf autopoiesis.core:*default-config* :security))
+  (is-true (getf autopoiesis.core:*default-config* :performance))
+  (is-true (getf autopoiesis.core:*default-config* :claude)))
+
+(test config-merge-simple
+  "Test merging simple configurations"
+  (let ((base '(:a 1 :b 2 :c 3))
+        (override '(:b 20 :d 4)))
+    (let ((merged (autopoiesis.core:merge-configs base override)))
+      (is (= 1 (getf merged :a)))   ; from base
+      (is (= 20 (getf merged :b)))  ; overridden
+      (is (= 3 (getf merged :c)))   ; from base
+      (is (= 4 (getf merged :d)))))) ; from override
+
+(test config-merge-nested
+  "Test merging nested configurations"
+  (let ((base '(:server (:host "localhost" :port 8080)
+                :logging (:level :info)))
+        (override '(:server (:port 9090)
+                    :logging (:level :debug :file "/var/log/app.log"))))
+    (let ((merged (autopoiesis.core:merge-configs base override)))
+      ;; Server section should be merged
+      (let ((server (getf merged :server)))
+        (is (equal "localhost" (getf server :host)))  ; from base
+        (is (= 9090 (getf server :port))))            ; overridden
+      ;; Logging section should be merged
+      (let ((logging (getf merged :logging)))
+        (is (eq :debug (getf logging :level)))        ; overridden
+        (is (equal "/var/log/app.log" (getf logging :file))))))) ; from override
+
+(test config-merge-nil-handling
+  "Test merge-configs handles nil values"
+  ;; Both nil
+  (is (null (autopoiesis.core:merge-configs nil nil)))
+  ;; Base nil
+  (is (equal '(:a 1) (autopoiesis.core:merge-configs nil '(:a 1))))
+  ;; Override nil
+  (is (equal '(:a 1) (autopoiesis.core:merge-configs '(:a 1) nil))))
+
+(test config-get-simple
+  "Test config-get with simple paths"
+  (let ((autopoiesis.core:*current-config*
+          '(:server (:host "localhost" :port 8080)
+            :logging (:level :info))))
+    (is (equal "localhost" (autopoiesis.core:config-get '(:server :host))))
+    (is (= 8080 (autopoiesis.core:config-get '(:server :port))))
+    (is (eq :info (autopoiesis.core:config-get '(:logging :level))))))
+
+(test config-get-default-value
+  "Test config-get returns default for missing paths"
+  (let ((autopoiesis.core:*current-config* '(:a 1)))
+    ;; Missing key
+    (is (eq :default (autopoiesis.core:config-get '(:missing) :default)))
+    ;; Missing nested key
+    (is (eq :default (autopoiesis.core:config-get '(:a :b :c) :default)))
+    ;; Nil default
+    (is (null (autopoiesis.core:config-get '(:missing))))))
+
+(test config-get-uses-default-config-when-current-nil
+  "Test config-get uses *default-config* when *current-config* is nil"
+  (let ((autopoiesis.core:*current-config* nil))
+    ;; Should get values from *default-config*
+    (is (equal "0.0.0.0" (autopoiesis.core:config-get '(:server :host))))
+    (is (= 8080 (autopoiesis.core:config-get '(:server :port))))))
+
+(test config-set-basic
+  "Test config-set modifies configuration"
+  (let ((autopoiesis.core:*current-config* nil))
+    ;; Set a value
+    (autopoiesis.core:config-set '(:server :port) 9999)
+    ;; Verify it was set
+    (is (= 9999 (autopoiesis.core:config-get '(:server :port))))
+    ;; Set another value
+    (autopoiesis.core:config-set '(:custom :key) "value")
+    (is (equal "value" (autopoiesis.core:config-get '(:custom :key))))))
+
+(test config-initialize-config
+  "Test initialize-config sets up configuration"
+  (let ((autopoiesis.core:*current-config* nil))
+    (autopoiesis.core:initialize-config :load-env nil)
+    (is-true autopoiesis.core:*current-config*)
+    ;; Should have default values
+    (is (= 8080 (autopoiesis.core:config-get '(:server :port))))))
+
+(test config-reset-config
+  "Test reset-config restores defaults"
+  (let ((autopoiesis.core:*current-config* nil))
+    ;; Modify config
+    (autopoiesis.core:config-set '(:server :port) 9999)
+    (is (= 9999 (autopoiesis.core:config-get '(:server :port))))
+    ;; Reset
+    (autopoiesis.core:reset-config)
+    ;; Should be back to default
+    (is (= 8080 (autopoiesis.core:config-get '(:server :port))))))
+
+(test config-validate-valid-config
+  "Test validate-config accepts valid configuration"
+  (multiple-value-bind (valid errors)
+      (autopoiesis.core:validate-config autopoiesis.core:*default-config*)
+    (is-true valid)
+    (is (null errors))))
+
+(test config-validate-invalid-port
+  "Test validate-config rejects invalid port"
+  (let ((config '(:server (:host "localhost" :port 99999)
+                  :storage (:type :sqlite)
+                  :logging (:level :info)
+                  :security (:sandbox-level :strict)
+                  :performance (:parallel-systems t)
+                  :claude (:model "test"))))
+    (multiple-value-bind (valid errors)
+        (autopoiesis.core:validate-config config)
+      (is (not valid))
+      (is (some (lambda (e) (search "port" e :test #'char-equal)) errors)))))
+
+(test config-validate-invalid-log-level
+  "Test validate-config rejects invalid log level"
+  (let ((config '(:server (:host "localhost" :port 8080)
+                  :storage (:type :sqlite)
+                  :logging (:level :invalid-level)
+                  :security (:sandbox-level :strict)
+                  :performance (:parallel-systems t)
+                  :claude (:model "test"))))
+    (multiple-value-bind (valid errors)
+        (autopoiesis.core:validate-config config)
+      (is (not valid))
+      (is (some (lambda (e) (search "log level" e :test #'char-equal)) errors)))))
+
+(test config-validate-invalid-sandbox-level
+  "Test validate-config rejects invalid sandbox level"
+  (let ((config '(:server (:host "localhost" :port 8080)
+                  :storage (:type :sqlite)
+                  :logging (:level :info)
+                  :security (:sandbox-level :invalid-sandbox)
+                  :performance (:parallel-systems t)
+                  :claude (:model "test"))))
+    (multiple-value-bind (valid errors)
+        (autopoiesis.core:validate-config config)
+      (is (not valid))
+      (is (some (lambda (e) (search "sandbox" e :test #'char-equal)) errors)))))
+
+(test config-to-string
+  "Test config-to-string produces readable output"
+  (let ((str (autopoiesis.core:config-to-string autopoiesis.core:*default-config*)))
+    (is (stringp str))
+    (is (> (length str) 0))
+    ;; Should contain key sections
+    (is (search ":server" str :test #'char-equal))
+    (is (search ":logging" str :test #'char-equal))))
+
+(test config-save-and-load
+  "Test save-config and load-config roundtrip"
+  (let* ((temp-file (merge-pathnames "test-config.lisp" (uiop:temporary-directory)))
+         (test-config '(:server (:host "test-host" :port 9999)
+                        :storage (:type :memory)
+                        :logging (:level :debug)
+                        :security (:sandbox-level :strict)
+                        :performance (:parallel-systems nil)
+                        :claude (:model "test-model"))))
+    (unwind-protect
+         (progn
+           ;; Save config
+           (is-true (autopoiesis.core:save-config temp-file test-config))
+           ;; Verify file exists
+           (is-true (probe-file temp-file))
+           ;; Load it back
+           (let ((autopoiesis.core:*current-config* nil))
+             (autopoiesis.core:load-config temp-file)
+             ;; Verify values (note: merged with defaults)
+             (is (equal "test-host" (autopoiesis.core:config-get '(:server :host))))
+             (is (= 9999 (autopoiesis.core:config-get '(:server :port))))))
+      ;; Cleanup
+      (when (probe-file temp-file)
+        (delete-file temp-file)))))
