@@ -58,7 +58,13 @@
   (:export
    #:claude-client #:make-claude-client #:claude-complete
    #:mcp-server #:make-mcp-server #:mcp-connect
-   #:external-tool #:make-external-tool #:register-external-tool)
+   #:external-tool #:make-external-tool #:register-external-tool
+   ;; Provider subsystem
+   #:provider #:register-provider #:find-provider #:list-providers
+   #:make-claude-code-provider #:make-codex-provider
+   #:make-opencode-provider #:make-cursor-provider
+   #:provider-backed-agent #:make-provider-backed-agent
+   #:provider-agent-prompt)
 
   ;; Reexport viz
   (:export

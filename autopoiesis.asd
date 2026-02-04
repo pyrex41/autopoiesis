@@ -91,7 +91,14 @@
        (:file "mcp-client")
        (:file "tool-registry")
        (:file "builtin-tools")
-       (:file "config")))
+       (:file "config")
+       (:file "provider")
+       (:file "provider-result")
+       (:file "provider-claude-code")
+       (:file "provider-codex")
+       (:file "provider-opencode")
+       (:file "provider-cursor")
+       (:file "provider-agent")))
       (:module "viz"
        :serial t
        :depends-on ("core" "snapshot" "interface")
@@ -181,6 +188,7 @@
      (:file "viz-tests")
      (:file "security-tests")
      (:file "monitoring-tests")
+     (:file "provider-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))

@@ -32,11 +32,36 @@
       (set-config :mcp-config-path mcp-config))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Provider Configuration
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun load-provider-config-from-env ()
+  "Load provider configuration from environment variables.
+
+   Reads:
+   - CLAUDE_CODE_PATH - Path to claude CLI binary
+   - CODEX_PATH - Path to codex CLI binary
+   - OPENCODE_PATH - Path to opencode CLI binary
+   - CURSOR_AGENT_PATH - Path to cursor-agent CLI binary"
+  (let ((claude-path (uiop:getenv "CLAUDE_CODE_PATH"))
+        (codex-path (uiop:getenv "CODEX_PATH"))
+        (opencode-path (uiop:getenv "OPENCODE_PATH"))
+        (cursor-path (uiop:getenv "CURSOR_AGENT_PATH")))
+    (when claude-path
+      (set-config :claude-code-path claude-path))
+    (when codex-path
+      (set-config :codex-path codex-path))
+    (when opencode-path
+      (set-config :opencode-path opencode-path))
+    (when cursor-path
+      (set-config :cursor-agent-path cursor-path))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Initialization
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun initialize-integrations ()
   "Initialize all integration subsystems."
   (load-config-from-env)
-  ;; Could load MCP servers from config here
+  (load-provider-config-from-env)
   t)

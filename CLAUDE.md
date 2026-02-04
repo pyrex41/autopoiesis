@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Autopoiesis is a self-configuring, self-extending agent platform built on Common Lisp's homoiconic foundation. Agent cognition, conversation, and configuration are represented as S-expressions (code-as-data, data-as-code), enabling agents to modify their own behavior, full state snapshots for time-travel debugging, and human-in-the-loop interaction at any point.
 
-**Current Status:** Phases 0-6 complete, Phase 7 (2D Visualization) in progress. Core functionality is implemented and tested.
+**Current Status:** All phases (0-10) complete. The platform is fully implemented with 2D/3D visualization, self-extension, security, and monitoring.
 
 ## Build & Development Commands
 
@@ -35,14 +35,16 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 
 ## Architecture
 
-Six-layer architecture (bottom to top):
+Eight-layer architecture (bottom to top):
 
-1. **Core Layer** (`src/core/`) - S-expression utilities, cognitive primitives, extension compiler
-2. **Agent Layer** (`src/agent/`) - Agent runtime, capability registry, agent spawner
-3. **Snapshot Layer** (`src/snapshot/`) - Content-addressable storage, branch manager, diff engine
-4. **Human Interface Layer** (`src/interface/`) - Navigator, viewport, annotator for human-in-the-loop
-5. **Visualization Layer** (`src/viz/`) - 2D terminal timeline (in progress), 3D holodeck (planned)
-6. **Integration Layer** (`src/integration/`) - Claude bridge, MCP servers, external tools
+1. **Core Layer** (`src/core/`) - S-expression utilities, cognitive primitives, extension compiler, recovery, profiling, config
+2. **Agent Layer** (`src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner
+3. **Snapshot Layer** (`src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
+4. **Human Interface Layer** (`src/interface/`) - Navigator, viewport, annotator, blocking input, CLI session
+5. **Visualization Layer** (`src/viz/`) - 2D terminal timeline with ANSI rendering and interactive navigation
+6. **Holodeck Layer** (`src/holodeck/`) - 3D ECS visualization with shaders, meshes, dual camera, HUD, ray picking
+7. **Integration Layer** (`src/integration/`) - Claude bridge, MCP servers, tool mapping, built-in tools, event bus
+8. **Cross-cutting** (`src/security/`, `src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
 
 ## Implementation Status
 
@@ -55,32 +57,42 @@ Six-layer architecture (bottom to top):
 | 4 | Human entry points, viewport, CLI session | Complete |
 | 5 | Claude API integration | Complete |
 | 6 | MCP server integration | Complete |
-| 7 | 2D terminal visualization | In Progress |
-| 8 | 3D holodeck visualization | Planned |
-| 9 | Self-extension, agent-written code | Planned |
-| 10 | Performance, security, deployment | Planned |
+| 7 | 2D terminal visualization | Complete |
+| 8 | 3D holodeck visualization | Complete |
+| 9 | Self-extension, agent-written code | Complete |
+| 10 | Performance, security, deployment | Complete |
 
 ## Key Dependencies
 
 - `bordeaux-threads` - Concurrency
 - `cl-json` - Serialization
 - `dexador` - HTTP client (Claude API)
+- `ironclad` - SHA256 hashing (content-addressable storage)
+- `babel` - UTF-8 encoding
 - `local-time` - Timestamps
 - `alexandria` - Utilities
 - `fiveam` - Testing
 - `uiop` - System utilities
+- `hunchentoot` - HTTP server (monitoring endpoints)
+- `cl-ppcre` - Regex (input validation)
+- `3d-vectors` - Vector math (holodeck)
+- `3d-matrices` - Matrix math (holodeck)
+- `cl-fast-ecs` - Entity-Component-System (holodeck)
 
 ## Test Suites
 
-All tests passing (801+ checks):
+All tests passing (2,400+ assertions across 600+ tests):
 
 - `core-tests` - S-expression operations, cognitive primitives (35 checks)
-- `agent-tests` - Agent creation, capabilities, context window (94 checks)
+- `agent-tests` - Agent creation, capabilities, context window, learning (94 checks)
 - `snapshot-tests` - Persistence, DAG traversal, compaction (83 checks)
 - `interface-tests` - Blocking requests, sessions (40 checks)
-- `integration-tests` - Claude API, MCP, tools (404 checks)
+- `integration-tests` - Claude API, MCP, tools, events (404 checks)
 - `e2e-tests` - End-to-end user story tests (134 checks)
-- `viz-tests` - Visualization rendering (11 checks)
+- `viz-tests` - Timeline rendering, navigation, filters, help overlay (92 assertions)
+- `holodeck-tests` - ECS, shaders, meshes, camera, HUD, input, ray picking (442 tests, 1,193 assertions)
+- `security-tests` - Permissions, audit, validation, sandbox escapes (123 tests, 321 assertions)
+- `monitoring-tests` - Metrics, health checks, HTTP endpoints (19 tests, 48 assertions)
 
 ## Specification Documents
 
@@ -92,7 +104,10 @@ All tests passing (801+ checks):
 - `docs/specs/05-visualization.md` - ECS architecture, 3D holodeck design
 - `docs/specs/06-integration.md` - Claude bridge, MCP integration
 - `docs/specs/07-implementation-roadmap.md` - Phased implementation plan
+- `docs/specs/08-specification-addendum.md` - Event sourcing, security architecture, resource management
+- `docs/specs/08-remaining-phases.md` - Phase 7-10 detailed specifications
 - `docs/user-stories.md` - 15 practical user stories with examples
+- `docs/DEPLOYMENT.md` - Docker deployment documentation
 
 ## Code Conventions
 
@@ -120,6 +135,19 @@ All tests passing (801+ checks):
 ;; Tool name conversion (returns keyword)
 (tool-name-to-lisp-name "snake_case")  ; => :SNAKE-CASE
 (lisp-name-to-tool-name :kebab-case)   ; => "kebab_case"
+
+;; Holodeck
+(launch-holodeck &key store)           ; start 3D visualization
+(make-snapshot-entity snapshot-id ...)  ; create ECS entity
+(holodeck-frame dt)                    ; run one frame, returns render descriptions
+
+;; Security
+(check-permission agent-id resource-type action)
+(with-permission-check (agent resource action) body...)
+
+;; Monitoring
+(start-monitoring-server &key port host)
+(record-metric name value &key type labels)
 ```
 
 ## Development Notes

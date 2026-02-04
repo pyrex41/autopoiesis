@@ -129,6 +129,92 @@
    #:list-builtin-tools
    #:*builtin-tools-registered*
 
+   ;; Provider protocol
+   #:provider
+   #:provider-name
+   #:provider-command
+   #:provider-working-directory
+   #:provider-default-model
+   #:provider-max-turns
+   #:provider-timeout
+   #:provider-env
+   #:provider-extra-args
+   #:provider-lock
+   #:provider-process
+   #:provider-session-id
+   #:provider-supported-modes
+   #:provider-invoke
+   #:provider-build-command
+   #:provider-parse-output
+   #:provider-format-tools
+   #:provider-alive-p
+   #:provider-start-session
+   #:provider-send
+   #:provider-stop-session
+   #:provider-to-sexpr
+   #:provider-status
+
+   ;; Provider registry
+   #:*provider-registry*
+   #:register-provider
+   #:unregister-provider
+   #:find-provider
+   #:list-providers
+
+   ;; Provider subprocess
+   #:run-provider-subprocess
+
+   ;; Provider result
+   #:provider-result
+   #:make-provider-result
+   #:provider-result-provider-name
+   #:provider-result-text
+   #:provider-result-tool-calls
+   #:provider-result-turns
+   #:provider-result-cost
+   #:provider-result-duration
+   #:provider-result-raw-output
+   #:provider-result-exit-code
+   #:provider-result-error-output
+   #:provider-result-session-id
+   #:provider-result-metadata
+   #:result-success-p
+   #:provider-result-to-sexpr
+   #:sexpr-to-provider-result
+   #:record-provider-exchange
+
+   ;; Claude Code provider
+   #:claude-code-provider
+   #:make-claude-code-provider
+   #:claude-code-skip-permissions
+   #:claude-code-max-budget-usd
+
+   ;; Codex provider
+   #:codex-provider
+   #:make-codex-provider
+   #:codex-full-auto
+
+   ;; OpenCode provider
+   #:opencode-provider
+   #:make-opencode-provider
+   #:opencode-use-server
+   #:opencode-server-port
+
+   ;; Cursor provider
+   #:cursor-provider
+   #:make-cursor-provider
+   #:cursor-mode
+   #:cursor-force
+
+   ;; Provider-backed agent
+   #:provider-backed-agent
+   #:make-provider-backed-agent
+   #:provider-agent-prompt
+   #:provider-backed-agent-to-sexpr
+   #:agent-provider
+   #:agent-system-prompt
+   #:agent-invocation-mode
+
    ;; Integration events
    #:integration-event-type
    #:integration-event

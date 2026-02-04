@@ -24,7 +24,12 @@
     :mcp-error            ; Error from MCP server
     :external-error       ; Error from external service
     :session-created      ; Claude session created
-    :session-ended))      ; Claude session ended
+    :session-ended        ; Claude session ended
+    :provider-request     ; Request sent to CLI provider
+    :provider-response    ; Response received from CLI provider
+    :provider-session-started  ; Provider streaming session started
+    :provider-session-ended    ; Provider streaming session ended
+    :provider-error))     ; Error from CLI provider
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Integration Event Class
@@ -327,6 +332,20 @@ Each handler is called with the event as its sole argument.")
              (integration-event-source event)
              (getf (integration-event-data event) :error)))
 
+(defun log-provider-request (event)
+  "Default handler for provider-request events - logs the request."
+  (log:debug "Provider request to ~a: ~a"
+             (integration-event-source event)
+             (autopoiesis.core:truncate-string
+              (format nil "~a" (getf (integration-event-data event) :prompt)) 100)))
+
+(defun log-provider-response (event)
+  "Default handler for provider-response events - logs the response."
+  (log:debug "Provider response from ~a: exit ~a, ~,1fs"
+             (integration-event-source event)
+             (getf (integration-event-data event) :exit-code)
+             (getf (integration-event-data event) :duration)))
+
 (defun setup-default-event-handlers ()
   "Set up default event handling.
 
@@ -348,6 +367,10 @@ Each handler is called with the event as its sole argument.")
     ;; Error events
     (subscribe-to-event :external-error #'log-external-error)
 
+    ;; Provider events
+    (subscribe-to-event :provider-request #'log-provider-request)
+    (subscribe-to-event :provider-response #'log-provider-response)
+
     (setf *default-handlers-installed* t)))
 
 (defun remove-default-event-handlers ()
@@ -362,4 +385,6 @@ Each handler is called with the event as its sole argument.")
     (unsubscribe-from-event :mcp-connected #'log-mcp-connected)
     (unsubscribe-from-event :mcp-disconnected #'log-mcp-disconnected)
     (unsubscribe-from-event :external-error #'log-external-error)
+    (unsubscribe-from-event :provider-request #'log-provider-request)
+    (unsubscribe-from-event :provider-response #'log-provider-response)
     (setf *default-handlers-installed* nil)))

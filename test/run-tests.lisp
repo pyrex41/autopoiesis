@@ -22,6 +22,7 @@
   (run! 'viz-tests)
   (run! 'security-tests)
   (run! 'monitoring-tests)
+  (run! 'provider-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -60,3 +61,7 @@
 (defun test-monitoring ()
   "Run only monitoring tests."
   (run! 'monitoring-tests))
+
+(defun test-provider ()
+  "Run only provider tests."
+  (run! 'provider-tests))
