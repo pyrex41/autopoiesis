@@ -1,7 +1,7 @@
 # Autopoiesis Implementation Plan
 
-Last updated: 2026-02-03
-Current Phase: Complete - All phases implemented and tested
+Last updated: 2026-02-04
+Current Phase: Provider abstraction complete
 
 ## Completed
 
@@ -51,6 +51,24 @@ Current Phase: Complete - All phases implemented and tested
 (All phases complete - no pending tasks)
 
 ## Recently Completed
+
+### Provider Abstraction (Completed 2026-02-04)
+- [x] Define abstract `provider` protocol (class, generics, registry)
+- [x] Implement `provider-result` class with S-expr serialization
+- [x] Implement `record-provider-exchange` for thought stream recording
+- [x] Implement `run-provider-subprocess` shared utility (timeout, SIGTERM/SIGKILL)
+- [x] Implement `claude-code-provider` (JSON output, --skip-permissions, --max-turns)
+- [x] Implement `codex-provider` (JSONL streaming events, --full-auto)
+- [x] Implement `opencode-provider` (JSONL text/step events, cost tracking)
+- [x] Implement `cursor-provider` (JSON output, --force, shorter timeout)
+- [x] Implement `provider-backed-agent` with cognitive loop specializations
+- [x] Implement `provider-agent-prompt` convenience API
+- [x] Add provider event types and default handlers to event bus
+- [x] Add provider env config loading (CLAUDE_CODE_PATH, CODEX_PATH, etc.)
+- [x] Add reexports to top-level autopoiesis package
+- [x] Write 21 unit tests (70 checks), all passing
+- [x] Live-tested against all 4 CLIs (3/4 pass; Codex fails on missing API key only)
+- [x] Full test suite: 2,170 checks, 0 failures, 0 regressions
 
 ### Phase 10: Production (Completed)
 - [x] Implement LRU cache for hot snapshots
@@ -145,6 +163,7 @@ Current Phase: Complete - All phases implemented and tested
 ## Future Enhancements
 
 All planned phases (0-10) are complete. Potential future work:
+- Provider streaming mode (long-lived sessions)
 - Additional MCP server integrations
 - Performance tuning for large-scale deployments
 - Extended visualization modes
@@ -207,6 +226,13 @@ All planned phases (0-10) are complete. Potential future work:
 - tool-registry.lisp
 - builtin-tools.lisp
 - config.lisp
+- provider.lisp
+- provider-result.lisp
+- provider-claude-code.lisp
+- provider-codex.lisp
+- provider-opencode.lisp
+- provider-cursor.lisp
+- provider-agent.lisp
 
 ### test/
 - packages.lisp
@@ -214,4 +240,5 @@ All planned phases (0-10) are complete. Potential future work:
 - agent-tests.lisp
 - snapshot-tests.lisp
 - integration-tests.lisp
+- provider-tests.lisp
 - run-tests.lisp
