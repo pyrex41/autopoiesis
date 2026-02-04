@@ -248,7 +248,7 @@ See `docs/specs/08-remaining-phases.md` for complete specifications.
 - [x] Implement health check endpoints
 - [x] Implement metrics collection
 - [x] Create docker-compose for full stack
-- [ ] Write deployment documentation
+- [x] Write deployment documentation
 
 ---
 
