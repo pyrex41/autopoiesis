@@ -1,4 +1,4 @@
-# Autopoiesis Build Mode
+# Autopoiesis Build Mode (ralph loop supports claude, cursor-agent, opencode CLIs)
 
 You are in BUILD MODE. Your job is to implement exactly ONE task from the implementation plan, validate it works, and commit.
 
@@ -15,7 +15,7 @@ First, read these files:
 
 1. **Select ONE task** from "Next Up" in IMPLEMENTATION_PLAN.md
    - Pick the first uncompleted task (they're priority ordered)
-   - If the list is empty, exit - planning mode needed
+   - If the list is empty, write "no tasks remaining" to `ralph/.stop` and exit
 
 2. **Implement the task**
    - Write clean, idiomatic Common Lisp
@@ -65,5 +65,11 @@ First, read these files:
 2. Fix the issue
 3. Re-run validation
 4. If you can't fix after 3 attempts, mark as blocked and exit
+
+## Stopping the Loop
+
+Write a reason to `ralph/.stop` to signal the loop should not start another iteration:
+- No tasks left in "Next Up" → `echo "no tasks remaining" > ralph/.stop`
+- All tasks blocked / need human input → `echo "all tasks blocked" > ralph/.stop`
 
 When your ONE task is complete and committed, exit. The loop handles the next task.

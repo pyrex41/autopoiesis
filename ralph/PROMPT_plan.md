@@ -1,4 +1,4 @@
-# Autopoiesis Planning Mode
+# Autopoiesis Planning Mode (ralph loop supports claude, cursor-agent, opencode CLIs)
 
 You are in PLANNING MODE. Your job is to analyze the gap between specifications and current implementation, then update the implementation plan. DO NOT write any implementation code.
 
@@ -66,5 +66,10 @@ Phase: [current phase number]
 4. Keep tasks atomic and testable
 5. Follow the phase order from `docs/specs/07-implementation-roadmap.md`
 6. Exit when planning is complete for this iteration
+
+## Stopping the Loop
+
+If there is nothing meaningful left to plan (all specs are covered, no new gaps found), write a reason to `ralph/.stop` to signal the loop should stop:
+- `echo "planning complete - all specs covered" > ralph/.stop`
 
 When done, simply exit. The loop will restart for the next iteration.
