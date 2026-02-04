@@ -1,22 +1,22 @@
 ---
 date: 2026-02-03T12:00:00-08:00
 researcher: reuben
-git_commit: 9f630af37644ef87a240e91e7606fdaf79ece322
+git_commit: 392c43a
 branch: main
 repository: ap
 topic: "Comprehensive Autopoiesis Codebase Overview"
 tags: [research, codebase, architecture, overview, common-lisp, agent-platform]
 status: complete
-last_updated: 2026-02-03
+last_updated: 2026-02-04
 last_updated_by: reuben
-last_updated_note: "Corrected phase status — all phases 0-10 complete, holodeck fully implemented"
+last_updated_note: "Updated to reflect eight-layer architecture, provider abstraction, current test counts, resolved open questions"
 ---
 
 # Research: What Is Autopoiesis?
 
-**Date**: 2026-02-03
+**Date**: 2026-02-03 (updated 2026-02-04)
 **Researcher**: reuben
-**Git Commit**: 9f630af37644ef87a240e91e7606fdaf79ece322
+**Git Commit**: 392c43a
 **Branch**: main
 **Repository**: ap
 
@@ -28,17 +28,17 @@ What is this project? A comprehensive overview of the Autopoiesis codebase — i
 
 Autopoiesis is a self-configuring, self-extending agent platform built in Common Lisp. The core insight is that because Lisp is homoiconic (code and data share the same representation as S-expressions), agent cognition, conversation state, and configuration can all be represented as S-expressions. This means agents can inspect and modify their own behavior, full state snapshots enable time-travel debugging, and humans can intervene at any point in the agent's cognitive process.
 
-The system is implemented as a six-layer architecture (68 source files) with comprehensive tests (801+ checks across 9 test suites), backed by a content-addressable snapshot DAG for persistence and time-travel. It integrates with Claude via the Anthropic API and supports MCP servers for external tool access.
+The system is implemented as an eight-layer architecture (77+ source files) with comprehensive tests (2,400+ assertions across 600+ tests in 10 test suites), backed by a content-addressable snapshot DAG for persistence and time-travel. It integrates with Claude via the Anthropic API, supports MCP servers for external tool access, and provides a provider abstraction layer for wrapping external CLI coding tools (Claude Code, Codex, OpenCode, Cursor) as cognitive backends.
 
-**All phases (0-10) are complete.** The CLAUDE.md is outdated — it says Phase 7 is "in progress" and Phase 8 is "planned", but `ralph/IMPLEMENTATION_PLAN.md` confirms everything through Phase 10 is done. The holodeck alone has 11 source files with 442 tests and 1,186 assertions.
+**All phases (0-10) are complete.** CLAUDE.md correctly reflects this status.
 
 ## Detailed Findings
 
-### The Six-Layer Architecture
+### The Eight-Layer Architecture
 
 #### Layer 1: Core (`src/core/`) — The S-Expression Foundation
 
-The core layer provides the homoiconic foundation everything else builds on. Nine source files implement:
+The core layer provides the homoiconic foundation everything else builds on. Eight source files implement:
 
 **S-Expression Utilities** (`src/core/s-expr.lisp`)
 - `sexpr-equal` — Deep structural equality checking for atoms, conses, arrays, hash-tables
@@ -84,7 +84,7 @@ The core package exports 276 symbols.
 
 #### Layer 2: Agent (`src/agent/`) — The Cognitive Runtime
 
-Ten source files implement the autonomous agent runtime:
+Eight source files implement the autonomous agent runtime:
 
 **Agent Class** (`src/agent/agent.lisp`)
 CLOS class with 7 slots: `id` (UUID), `name`, `state` (`:initialized`/`:running`/`:paused`/`:stopped`), `capabilities`, `thought-stream`, `parent`, `children`. State transitions via `start-agent`, `stop-agent`, `pause-agent`, `resume-agent`. Global registry maps agent IDs to instances.
@@ -226,7 +226,7 @@ Full ECS (Entity Component System) 3D visualization — this is not stubs, it's 
 
 #### Layer 6: Integration (`src/integration/`) — External Services
 
-Ten source files bridge to external systems:
+Fourteen source files bridge to external systems:
 
 **Claude Bridge** (`src/integration/claude-bridge.lisp`)
 HTTP client for Anthropic Messages API via Dexador. Sends completion requests with optional tools. Parses responses extracting text blocks and tool use blocks.
@@ -237,27 +237,42 @@ Conversation state management per agent. Auto-generates system prompts describin
 **MCP Client** (`src/integration/mcp-client.lisp`)
 JSON-RPC over stdio protocol (version 2024-11-05). Launches MCP servers as subprocesses, performs initialization handshake, discovers tools and resources. Thread-safe communication with locks. Converts MCP tools to Autopoiesis capabilities via closure-based handlers.
 
+**Provider Abstraction** (`src/integration/provider.lisp`, `provider-agent.lisp`, `provider-*.lisp`)
+A novel architecture for wrapping external CLI coding tools as cognitive backends. This is unique to Autopoiesis — no other agent framework treats CLI agents as interchangeable inference engines while maintaining thought-stream introspection.
+
+- **Abstract Provider Protocol** (`provider.lisp`): Base `provider` class with generic functions `provider-invoke`, `provider-build-command`, `provider-parse-output`. Subprocess execution with timeout, streaming support, and thread-safe locking. Global provider registry with find/list/register operations.
+- **Provider-Backed Agent** (`provider-agent.lisp`): Extends the `agent` class to delegate cognition to external CLI tools. Full cognitive loop specialization: `perceive` coerces environment to prompt, `reason` prepends system prompt and gathers tool specs, `decide` records delegation decision, `act` invokes provider and records exchange in thought stream, `reflect` evaluates success/failure.
+- **Claude Code Provider** (`provider-claude-code.lisp`): Wraps `claude` CLI with `--output-format json`, `--max-turns`, `--dangerously-skip-permissions`, `--allowedTools`, `--max-budget` flags. Parses JSON output extracting result, cost, turns, session ID.
+- **Codex Provider** (`provider-codex.lisp`): Wraps `codex exec` with JSONL streaming output. Parses newline-delimited JSON events (`response.completed`, `item.completed`, `turn.completed`).
+- **OpenCode Provider** (`provider-opencode.lisp`): Wraps `opencode` CLI with JSONL streaming.
+- **Cursor Provider** (`provider-cursor.lisp`): Wraps `cursor-agent` with `--force` flag for non-interactive execution. Shorter default timeout (120s) due to hang risk.
+
 **Tool Mapping** (`src/integration/tool-mapping.lisp`)
 Bidirectional conversion between Lisp conventions (kebab-case keywords, Lisp types) and Claude conventions (snake_case strings, JSON Schema types). Executes tool calls from Claude responses and formats results back.
 
 **Built-in Tools** (`src/integration/builtin-tools.lisp`)
-Filesystem (read, write, list, exists, delete, glob, grep), web (fetch, head), shell (run-command, git-status, git-diff, git-log).
+13 tools: Filesystem (read, write, list, exists, delete, glob, grep), web (fetch, head), shell (run-command, git-status, git-diff, git-log).
 
 **Event Bus** (`src/integration/events.lisp`)
-Pub/sub event system with type-specific and global handlers. 1000-event history for debugging. Events: tool-called, tool-result, claude-request, claude-response, mcp-connected, etc.
+Pub/sub event system with type-specific and global handlers. 1000-event history for debugging. 13 event types including provider events: tool-called, tool-result, claude-request, claude-response, mcp-connected, provider-request, provider-response, provider-session-started, provider-session-ended, provider-error, etc.
 
 ---
 
 ### Cross-Cutting Concerns
 
-**Security** (`src/security/`)
-Permission system, audit logging, input validation. Three source files.
+**Security** (`src/security/`, 3 files)
+- Permission system with resource x action matrix (7 resource types, 6 action types), wildcard matching, admin override
+- Audit logging with thread-safe rotation, ISO 8601 timestamps, JSON serialization, file rotation at 10MB
+- Input validation framework supporting 17 types with combinators (`:and`, `:or`, `:not`, `:nullable`), HTML sanitization, predefined specs for agent IDs, snapshot IDs, branch names
 
-**Monitoring** (`src/monitoring/`)
-Health check HTTP endpoints. Two source files.
+**Monitoring** (`src/monitoring/`, 2 files)
+- Prometheus-compatible metrics endpoint with counters, gauges, histograms
+- Kubernetes-style probes: `/healthz` (liveness), `/readyz` (readiness), `/health` (detailed), `/metrics`
+- Thread-safe metrics registry with labeled dimensions
+- Hunchentoot HTTP server on port 8081
 
 **Top-Level Package** (`src/autopoiesis.lisp`)
-Reexports public APIs from all 8 sub-packages. Provides `initialize`, `version` (0.1.0-bootstrap), `health-check`, and `help` functions.
+Reexports public APIs from all sub-packages. Provides `initialize`, `version` (0.1.0-bootstrap), `health-check`, and `help` functions.
 
 ---
 
@@ -271,7 +286,7 @@ Single system definition loading all layers in dependency order.
 - `scripts/test.sh` — Runs all test suites
 
 **Test Suite** (`test/`, 12 files)
-9 test suites using FiveAM framework:
+10 test suites using FiveAM framework (2,400+ assertions across 600+ tests):
 | Suite | Tests | Assertions | Covers |
 |-------|-------|------------|--------|
 | core-tests | — | 35 | S-expr, cognitive primitives, extension compiler, profiling, recovery, config |
@@ -279,6 +294,7 @@ Single system definition loading all layers in dependency order.
 | snapshot-tests | — | 83 | Persistence, DAG traversal, compaction, branches |
 | interface-tests | — | 40 | Blocking requests, sessions |
 | integration-tests | — | 404 | Claude API, MCP, tools, events |
+| provider-tests | — | — | Provider protocol, registry, cognitive loop integration, mock provider |
 | e2e-tests | — | 134 | End-to-end user stories |
 | viz-tests | 25 | 92 | Timeline rendering, navigation, resize, filters, session integration, help |
 | holodeck-tests | 442 | 1,193 | ECS components/systems, shaders, meshes, camera, HUD, input, ray picking, key bindings, live agent sync |
@@ -303,8 +319,8 @@ The `ralph/` directory contains automation for implementation:
 
 | Dependency | Purpose |
 |------------|---------|
-| bordeaux-threads | Concurrency (blocking input, thread-safe registries) |
-| cl-json | JSON serialization (Claude API, MCP protocol) |
+| bordeaux-threads | Concurrency (blocking input, thread-safe registries, provider locks) |
+| cl-json | JSON serialization (Claude API, MCP protocol, provider output parsing) |
 | dexador | HTTP client (Claude API, web tools) |
 | ironclad | SHA256 hashing (content-addressable storage) |
 | babel | UTF-8 encoding (hash computation) |
@@ -312,6 +328,11 @@ The `ralph/` directory contains automation for implementation:
 | alexandria | Utilities (shuffle, hash-table ops) |
 | fiveam | Testing framework |
 | uiop | System utilities (process execution, environment) |
+| hunchentoot | HTTP server (monitoring endpoints on port 8081) |
+| cl-ppcre | Regex (input validation) |
+| 3d-vectors | Vector math (holodeck) |
+| 3d-matrices | Matrix math (holodeck) |
+| cl-fast-ecs | Entity-Component-System (holodeck) |
 
 ## Code References
 
@@ -327,6 +348,11 @@ The `ralph/` directory contains automation for implementation:
 - `src/interface/session.lisp:373-410` — CLI REPL loop
 - `src/integration/claude-bridge.lisp:62-91` — Claude API HTTP communication
 - `src/integration/mcp-client.lisp:196-244` — MCP server connection lifecycle
+- `src/integration/provider.lisp:13-68` — Abstract provider base class
+- `src/integration/provider.lisp:89-126` — Default `provider-invoke` with subprocess execution
+- `src/integration/provider-agent.lisp:56-122` — Provider-backed cognitive loop specialization
+- `src/integration/provider-claude-code.lisp:52-72` — Claude Code CLI command building
+- `src/integration/events.lisp:136-168` — Event emission with type-specific and global dispatch
 - `src/viz/terminal-ui.lisp:181-193` — Terminal UI main loop
 - `src/autopoiesis.lisp:112-147` — System health check
 
@@ -337,80 +363,55 @@ The `ralph/` directory contains automation for implementation:
 1. **Agent Creation**: `make-agent` → registers in global registry → empty thought stream and context window
 2. **Cognitive Cycle**: `perceive` → `reason` → `decide` → `act` → `reflect` → thoughts appended to stream
 3. **Claude Integration**: Agent capabilities → converted to Claude tools → sent with API request → tool calls extracted → capabilities invoked → results sent back
-4. **Snapshot Persistence**: Agent state → `sexpr-hash` → content-addressable store → filesystem with LRU cache → index updated
-5. **Time-Travel**: `checkout-snapshot` → load from cache or disk → set as current → return agent state
-6. **Human Interaction**: Agent calls `blocking-human-input` → blocks on condition variable → CLI displays prompt → human types response → condition signaled → agent continues
-7. **MCP Integration**: Launch subprocess → JSON-RPC initialize → discover tools → convert to capabilities → register in agent
+4. **Provider-Backed Agent**: Provider created and registered → `make-provider-backed-agent` → cognitive cycle delegates to CLI tool → `provider-build-command` constructs args → subprocess executed → output parsed → exchange recorded to thought stream as 4 thoughts (prompt observation, tool actions, result observation, reflection)
+5. **Snapshot Persistence**: Agent state → `sexpr-hash` → content-addressable store → filesystem with LRU cache → index updated
+6. **Time-Travel**: `checkout-snapshot` → load from cache or disk → set as current → return agent state
+7. **Human Interaction**: Agent calls `blocking-human-input` → blocks on condition variable → CLI displays prompt → human types response → condition signaled → agent continues
+8. **MCP Integration**: Launch subprocess → JSON-RPC initialize → discover tools → convert to capabilities → register in agent
 
 ### Key Design Patterns
 
 - **Content-Addressable Storage** — SHA256 hashing for deduplication and integrity
-- **Registry Pattern** — Global hash tables for agents, capabilities, sessions, tools, annotations, MCP servers
+- **Registry Pattern** — Global hash tables for agents, capabilities, sessions, tools, annotations, MCP servers, providers
 - **Generic Function Dispatch** — Cognitive cycle phases as generic functions for specialization
+- **Protocol Pattern** — Provider defines abstract protocol via generic functions, specialized by concrete implementations
+- **Factory Pattern** — Provider creation uses factory functions (`make-claude-code-provider`, `make-codex-provider`, etc.)
+- **Adapter Pattern** — Bidirectional: `mcp-tool-to-capability` (MCP→Autopoiesis) and `capability-to-claude-tool` (Autopoiesis→Claude)
+- **Bridge Pattern** — Claude bridge, MCP client, and provider abstraction each decouple agents from external protocol specifics
 - **Condition/Restart System** — Lisp condition system for error recovery with six standard restarts
 - **Closure-Based Handlers** — MCP tool→capability bridge captures server reference in closure
 - **Priority Queue Eviction** — Context window manages working memory by token budget
-
-## Historical Context (from thoughts/)
-
-- `thoughts/shared/research/2026-02-03-e2e-tests-vs-implementation.md` — Research comparing E2E test expectations with actual implementation status
+- **Observer Pattern** — Event bus allows subscribers to observe all integration events
 
 ## Related Research
 
-No other research documents currently exist in `thoughts/shared/research/`.
+- `thoughts/shared/research/2026-02-03-e2e-tests-vs-implementation.md` — Analysis of 19 failing E2E tests, identifying API signature mismatches between spec-first tests and actual implementation
+- `thoughts/shared/research/2026-02-03-autopoiesis-real-agent-use-cases.md` — 20 powerful real-world agent system use cases for Autopoiesis, with integration requirements and difficulty assessments
 
-## Follow-up Research 2026-02-03T12:30:00-08:00
+## Configuration
 
-### Corrected Implementation Status
+Environment variables used by the integration layer (loaded via `src/core/config.lisp`):
 
-The initial research incorrectly stated Phase 7 was "in progress" and Phase 8 was "planned" — this was based on the outdated CLAUDE.md. Per `ralph/IMPLEMENTATION_PLAN.md`, **all phases 0-10 are complete**:
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | Project setup, ASDF, dependencies | **Complete** |
-| 1 | S-expression utilities, cognitive primitives | **Complete** |
-| 2 | Agent class, capability system, cognitive loop | **Complete** |
-| 3 | Snapshot persistence, branching, time-travel | **Complete** |
-| 4 | Human entry points, viewport, CLI session | **Complete** |
-| 5 | Claude API integration | **Complete** |
-| 6 | MCP server integration | **Complete** |
-| 7 | 2D terminal visualization | **Complete** |
-| 8 | 3D holodeck visualization | **Complete** |
-| 9 | Self-extension, agent-written code | **Complete** |
-| 10 | Performance, security, deployment | **Complete** |
-
-### Holodeck: Not Stubs
-
-The holodeck is a complete 3D ECS visualization system across 11 source files with:
-- 8 ECS component types + 3 ECS systems (movement, pulse, LOD)
-- 3 shader programs with CPU-side fallback for headless testing
-- 3 mesh generators at 4 LOD levels each (sphere, octahedron, branching-node)
-- Dual camera (orbit + fly) with 7 easing functions and smooth transitions
-- Full HUD with 4 panels and timeline scrubber
-- Ray picking via screen-to-world unprojection + ray-sphere intersection
-- 32 key bindings across 5 categories
-- 60fps main loop with live agent sync
-- **442 tests / 1,193 assertions** in `test/holodeck-tests.lisp` (the single largest test file at 5,147 lines)
-
-### Security & Monitoring: Fully Implemented
-
-**Security** (`src/security/`, 3 files):
-- Permission system with resource x action matrix, wildcard matching, admin override
-- Audit logging with thread-safe rotation, ISO 8601 timestamps, JSON serialization, file rotation at 10MB
-- Input validation framework supporting 17 types with combinators (:and, :or, :not, :nullable)
-- HTML sanitization, predefined specs for agent IDs, snapshot IDs, branch names
-- 123 tests / 321 assertions including 65 sandbox escape attempt tests
-
-**Monitoring** (`src/monitoring/`, 2 files):
-- Prometheus-compatible metrics endpoint with counters, gauges, histograms
-- Kubernetes-style probes: /healthz (liveness), /readyz (readiness), /health (detailed), /metrics
-- Thread-safe metrics registry with labeled dimensions
-- Hunchentoot HTTP server on port 8081
-- 19 tests / 48 assertions including real HTTP integration tests
+| Variable | Purpose |
+|----------|---------|
+| `ANTHROPIC_API_KEY` | Claude API key |
+| `AUTOPOIESIS_MODEL` | Default model name |
+| `MCP_CONFIG_PATH` | Path to MCP configuration |
+| `CLAUDE_CODE_PATH` | Path to `claude` CLI binary |
+| `CODEX_PATH` | Path to `codex` CLI binary |
+| `OPENCODE_PATH` | Path to `opencode` CLI binary |
+| `CURSOR_AGENT_PATH` | Path to `cursor-agent` CLI binary |
+| `AUTOPOIESIS_DATA_DIR` | Data directory (Docker, defaults to /data) |
+| `AUTOPOIESIS_LOG_DIR` | Log directory (Docker, defaults to /data/logs) |
+| `AUTOPOIESIS_LOG_LEVEL` | Log level: debug, info, warn, error |
+| `AUTOPOIESIS_HOST` | Server bind address (defaults to 0.0.0.0) |
+| `AUTOPOIESIS_PORT` | Main application port (defaults to 8080) |
+| `AUTOPOIESIS_MONITORING_PORT` | Monitoring port (defaults to 8081) |
 
 ## Open Questions
 
 - The learning system has a full pattern extraction pipeline — has it been exercised with real agent runs?
-- MCP client uses SBCL-specific process management (`sb-ext:run-program`) — is portability to other CL implementations planned?
+- MCP client and provider abstraction use SBCL-specific process management (`sb-ext:run-program`) — is portability to other CL implementations planned?
 - Branch merging in the snapshot layer raises "not yet implemented" — is this blocking any workflows?
-- CLAUDE.md is outdated (says Phase 7 "in progress", Phase 8 "planned") — should it be updated to reflect all phases complete?
+- Claude streaming is stubbed (`claude-bridge.lisp:109`) — is streaming support needed for production use?
+- Provider-backed agents record exchanges as thoughts but don't currently integrate with the snapshot DAG for branching — should they?
