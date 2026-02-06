@@ -29,12 +29,13 @@
   (((list task-config))
    (let* ((task-id (maps:get 'task-id task-config
                      (make-task-id)))
-          (`#(,cmd ,args) (build-claude-command task-config))
+          (shell-cmd (build-claude-command task-config))
           (timeout (maps:get 'timeout task-config 300000))
+          ;; Use spawn (shell) with </dev/null to close stdin.
+          ;; Claude CLI hangs when stdin is an Erlang port pipe.
           (port (erlang:open_port
-                  `#(spawn_executable ,cmd)
-                  `(#(args ,args)
-                    #(line 65536)
+                  `#(spawn ,shell-cmd)
+                  '(#(line 65536)
                     binary
                     exit_status
                     use_stdio
@@ -137,16 +138,18 @@
 ;;; ============================================================
 
 (defun build-claude-command (config)
-  "Build claude CLI command args for non-interactive execution.
-   Returns #(executable-path args-list)."
+  "Build claude CLI shell command for non-interactive execution.
+   Returns a shell command string with </dev/null to close stdin."
   (let* ((claude-path (maps:get 'claude-path config
                         (find-claude-executable)))
          (prompt (maps:get 'prompt config ""))
          (mcp-config (maps:get 'mcp-config config 'undefined))
          (allowed-tools (maps:get 'allowed-tools config ""))
          (max-turns (maps:get 'max-turns config 50))
-         (args (list "-p" prompt
+         (args (list claude-path
+                     "-p" (shell-quote prompt)
                      "--output-format" "stream-json"
+                     "--verbose"
                      "--max-turns" (integer_to_list max-turns)
                      "--dangerously-skip-permissions"))
          ;; Add MCP config if specified
@@ -157,13 +160,28 @@
          (args3 (case allowed-tools
                   ("" args2)
                   (tools (++ args2 (list "--allowedTools" tools))))))
-    `#(,claude-path ,args3)))
+    ;; Join args with spaces and redirect stdin from /dev/null
+    (lists:flatten (++ (lists:join " " args3) " </dev/null"))))
 
 (defun find-claude-executable ()
   "Find the claude executable path."
   (case (os:find_executable "claude")
     ('false "claude")
     (path path)))
+
+(defun shell-quote (str)
+  "Wrap a string in single quotes for shell, escaping internal single quotes."
+  (lists:flatten
+    (list "'" (shell-escape-single-quotes str) "'")))
+
+(defun shell-escape-single-quotes (str)
+  "Replace ' with '\\'' in a string for safe shell quoting."
+  (case str
+    ('() '())
+    ((cons 39 rest)  ;; 39 = single quote character
+     (++ "'\\''" (shell-escape-single-quotes rest)))
+    ((cons c rest)
+     (cons c (shell-escape-single-quotes rest)))))
 
 ;;; ============================================================
 ;;; JSON parsing and result extraction

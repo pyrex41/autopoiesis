@@ -9,69 +9,64 @@
 ;;; ============================================================
 
 (defun build_claude_command_basic_test ()
-  "build-claude-command should construct claude CLI invocation."
-  (let ((`#(,cmd ,args) (claude-worker:build-claude-command
-                           #M(prompt "hello"))))
+  "build-claude-command should construct a shell command string."
+  (let ((cmd (claude-worker:build-claude-command #M(prompt "hello"))))
     (assert-truthy (is_list cmd))
-    (assert-truthy (is_list args))
-    ;; Should include -p flag
-    (assert-truthy (lists:member "-p" args))
-    ;; Should include prompt
-    (assert-truthy (lists:member "hello" args))
+    ;; Should include -p flag with quoted prompt
+    (assert-contains "-p 'hello'" cmd)
     ;; Should include stream-json format
-    (assert-truthy (lists:member "--output-format" args))
-    (assert-truthy (lists:member "stream-json" args))
+    (assert-contains "--output-format stream-json" cmd)
     ;; Should include dangerously-skip-permissions
-    (assert-truthy (lists:member "--dangerously-skip-permissions" args))))
+    (assert-contains "--dangerously-skip-permissions" cmd)
+    ;; Should include --verbose (required for stream-json with -p)
+    (assert-contains "--verbose" cmd)
+    ;; Should redirect stdin from /dev/null
+    (assert-contains "</dev/null" cmd)))
 
 (defun build_claude_command_with_mcp_test ()
   "build-claude-command should include MCP config when specified."
-  (let ((`#(,_cmd ,args) (claude-worker:build-claude-command
-                            #M(prompt "test"
-                               mcp-config "/tmp/mcp.json"))))
-    (assert-truthy (lists:member "--mcp-config" args))
-    (assert-truthy (lists:member "/tmp/mcp.json" args))))
+  (let ((cmd (claude-worker:build-claude-command
+               #M(prompt "test" mcp-config "/tmp/mcp.json"))))
+    (assert-contains "--mcp-config /tmp/mcp.json" cmd)))
 
 (defun build_claude_command_without_mcp_test ()
   "build-claude-command should not include MCP config when not specified."
-  (let ((`#(,_cmd ,args) (claude-worker:build-claude-command
-                            #M(prompt "test"))))
-    (assert-truthy (not (lists:member "--mcp-config" args)))))
+  (let ((cmd (claude-worker:build-claude-command #M(prompt "test"))))
+    (assert-not-contains "--mcp-config" cmd)))
 
 (defun build_claude_command_with_max_turns_test ()
   "build-claude-command should include custom max-turns."
-  (let ((`#(,_cmd ,args) (claude-worker:build-claude-command
-                            #M(prompt "test" max-turns 10))))
-    (assert-truthy (lists:member "--max-turns" args))
-    (assert-truthy (lists:member "10" args))))
+  (let ((cmd (claude-worker:build-claude-command
+               #M(prompt "test" max-turns 10))))
+    (assert-contains "--max-turns 10" cmd)))
 
 (defun build_claude_command_default_max_turns_test ()
   "build-claude-command should default to 50 max-turns."
-  (let ((`#(,_cmd ,args) (claude-worker:build-claude-command
-                            #M(prompt "test"))))
-    (assert-truthy (lists:member "--max-turns" args))
-    (assert-truthy (lists:member "50" args))))
+  (let ((cmd (claude-worker:build-claude-command #M(prompt "test"))))
+    (assert-contains "--max-turns 50" cmd)))
 
 (defun build_claude_command_with_allowed_tools_test ()
   "build-claude-command should include allowed tools when specified."
-  (let ((`#(,_cmd ,args) (claude-worker:build-claude-command
-                            #M(prompt "test"
-                               allowed-tools "mcp__cortex__cortex_status"))))
-    (assert-truthy (lists:member "--allowedTools" args))
-    (assert-truthy (lists:member "mcp__cortex__cortex_status" args))))
+  (let ((cmd (claude-worker:build-claude-command
+               #M(prompt "test"
+                  allowed-tools "mcp__cortex__cortex_status"))))
+    (assert-contains "--allowedTools mcp__cortex__cortex_status" cmd)))
 
 (defun build_claude_command_without_allowed_tools_test ()
   "build-claude-command should not include --allowedTools when empty."
-  (let ((`#(,_cmd ,args) (claude-worker:build-claude-command
-                            #M(prompt "test"))))
-    (assert-truthy (not (lists:member "--allowedTools" args)))))
+  (let ((cmd (claude-worker:build-claude-command #M(prompt "test"))))
+    (assert-not-contains "--allowedTools" cmd)))
 
 (defun build_claude_command_custom_path_test ()
   "build-claude-command should use custom claude path."
-  (let ((`#(,cmd ,_args) (claude-worker:build-claude-command
-                            #M(prompt "test"
-                               claude-path "/usr/local/bin/claude"))))
-    (assert-equal "/usr/local/bin/claude" cmd)))
+  (let ((cmd (claude-worker:build-claude-command
+               #M(prompt "test" claude-path "/usr/local/bin/claude"))))
+    (assert-contains "/usr/local/bin/claude" cmd)))
+
+(defun build_claude_command_quotes_prompt_test ()
+  "build-claude-command should single-quote the prompt for shell safety."
+  (let ((cmd (claude-worker:build-claude-command #M(prompt "hello world"))))
+    (assert-contains "-p 'hello world'" cmd)))
 
 ;;; ============================================================
 ;;; parse-result tests
@@ -126,3 +121,15 @@
   (case (== expected actual)
     ('true 'ok)
     ('false (error `#(assertion-failed expected ,expected actual ,actual)))))
+
+(defun assert-contains (substring str)
+  "Assert that str contains substring."
+  (case (string:find str substring)
+    ('nomatch (error `#(assertion-failed substring-not-found ,substring)))
+    (_ 'ok)))
+
+(defun assert-not-contains (substring str)
+  "Assert that str does NOT contain substring."
+  (case (string:find str substring)
+    ('nomatch 'ok)
+    (_ (error `#(assertion-failed substring-found ,substring)))))
