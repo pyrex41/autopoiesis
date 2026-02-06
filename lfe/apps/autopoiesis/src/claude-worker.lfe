@@ -140,11 +140,13 @@
 (defun build-claude-command (config)
   "Build claude CLI shell command for non-interactive execution.
    Returns a shell command string with </dev/null to close stdin."
-  (let* ((claude-path (maps:get 'claude-path config
-                        (find-claude-executable)))
-         (prompt (maps:get 'prompt config ""))
+  (let* ((claude-path (ensure-string
+                        (maps:get 'claude-path config
+                          (find-claude-executable))))
+         (prompt (ensure-string (maps:get 'prompt config "")))
          (mcp-config (maps:get 'mcp-config config 'undefined))
-         (allowed-tools (maps:get 'allowed-tools config ""))
+         (allowed-tools (ensure-string
+                          (maps:get 'allowed-tools config "")))
          (max-turns (maps:get 'max-turns config 50))
          (args (list claude-path
                      "-p" (shell-quote prompt)
@@ -155,7 +157,8 @@
          ;; Add MCP config if specified
          (args2 (case mcp-config
                   ('undefined args)
-                  (path (++ args (list "--mcp-config" path)))))
+                  (path (++ args (list "--mcp-config"
+                                       (ensure-string path))))))
          ;; Add allowed tools if specified
          (args3 (case allowed-tools
                   ("" args2)
@@ -171,8 +174,9 @@
 
 (defun shell-quote (str)
   "Wrap a string in single quotes for shell, escaping internal single quotes."
-  (lists:flatten
-    (list "'" (shell-escape-single-quotes str) "'")))
+  (let ((s (if (is_binary str) (binary_to_list str) str)))
+    (lists:flatten
+      (list "'" (shell-escape-single-quotes s) "'"))))
 
 (defun shell-escape-single-quotes (str)
   "Replace ' with '\\'' in a string for safe shell quoting."
@@ -239,6 +243,12 @@
 ;;; ============================================================
 ;;; Utilities
 ;;; ============================================================
+
+(defun ensure-string (val)
+  "Convert binary or atom to list string. Pass through lists."
+  (cond ((is_binary val) (binary_to_list val))
+        ((is_atom val) (atom_to_list val))
+        ('true val)))
 
 (defun make-task-id ()
   "Generate a unique task ID string."
