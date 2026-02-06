@@ -198,6 +198,139 @@
       (cleanup-temp-store temp-path))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Agent Snapshot Lookup and Restoration Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test find-latest-snapshot-for-agent-basic
+  "Test finding the latest snapshot for a given agent"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (agent (autopoiesis.agent:make-agent :name "test-agent"))
+         (agent-id (autopoiesis.agent:agent-id agent)))
+    (unwind-protect
+         (progn
+           ;; Create two snapshots for the same agent with different timestamps
+           (let* ((state1 (autopoiesis.agent:agent-to-sexpr agent))
+                  (snap1 (autopoiesis.snapshot:make-snapshot state1)))
+             (autopoiesis.snapshot:save-snapshot snap1 store)
+             ;; Modify agent and create second snapshot
+             (sleep 0.01)
+             (autopoiesis.agent:start-agent agent)
+             (let* ((state2 (autopoiesis.agent:agent-to-sexpr agent))
+                    (snap2 (autopoiesis.snapshot:make-snapshot state2))
+                    (snap2-id (autopoiesis.snapshot:snapshot-id snap2)))
+               (autopoiesis.snapshot:save-snapshot snap2 store)
+               ;; Find latest should return snap2
+               (let ((found-id (autopoiesis.snapshot:find-latest-snapshot-for-agent
+                                 agent-id store)))
+                 (is (not (null found-id)))
+                 (is (string= snap2-id found-id))))))
+      (cleanup-temp-store temp-path))))
+
+(test find-latest-snapshot-for-agent-no-match
+  "Test find-latest-snapshot-for-agent returns NIL when no snapshots exist"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Store has no snapshots
+           (is (null (autopoiesis.snapshot:find-latest-snapshot-for-agent
+                       "nonexistent-agent" store)))
+           ;; Add a snapshot for a different agent
+           (let* ((agent (autopoiesis.agent:make-agent :name "other-agent"))
+                  (state (autopoiesis.agent:agent-to-sexpr agent))
+                  (snap (autopoiesis.snapshot:make-snapshot state)))
+             (autopoiesis.snapshot:save-snapshot snap store)
+             ;; Should still return NIL for the wrong agent-id
+             (is (null (autopoiesis.snapshot:find-latest-snapshot-for-agent
+                         "nonexistent-agent" store)))))
+      (cleanup-temp-store temp-path))))
+
+(test find-latest-snapshot-for-agent-multiple-agents
+  "Test finding latest snapshot with multiple agents in the store"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (agent-a (autopoiesis.agent:make-agent :name "agent-a"))
+         (agent-b (autopoiesis.agent:make-agent :name "agent-b"))
+         (id-a (autopoiesis.agent:agent-id agent-a))
+         (id-b (autopoiesis.agent:agent-id agent-b)))
+    (unwind-protect
+         (progn
+           ;; Save snapshots for both agents
+           (let ((snap-a (autopoiesis.snapshot:make-snapshot
+                           (autopoiesis.agent:agent-to-sexpr agent-a))))
+             (autopoiesis.snapshot:save-snapshot snap-a store))
+           (sleep 0.01)
+           (let* ((snap-b (autopoiesis.snapshot:make-snapshot
+                            (autopoiesis.agent:agent-to-sexpr agent-b)))
+                  (snap-b-id (autopoiesis.snapshot:snapshot-id snap-b)))
+             (autopoiesis.snapshot:save-snapshot snap-b store)
+             ;; Each agent should find its own latest snapshot
+             (let ((found-a (autopoiesis.snapshot:find-latest-snapshot-for-agent id-a store))
+                   (found-b (autopoiesis.snapshot:find-latest-snapshot-for-agent id-b store)))
+               (is (not (null found-a)))
+               (is (not (null found-b)))
+               (is (not (string= found-a found-b)))
+               (is (string= snap-b-id found-b)))))
+      (cleanup-temp-store temp-path))))
+
+(test restore-agent-from-snapshot-basic
+  "Test restoring an agent from its latest snapshot"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (agent (autopoiesis.agent:make-agent :name "restorable-agent"
+                                               :capabilities '(:read :write)))
+         (agent-id (autopoiesis.agent:agent-id agent)))
+    (unwind-protect
+         (progn
+           ;; Save agent snapshot
+           (let* ((state (autopoiesis.agent:agent-to-sexpr agent))
+                  (snap (autopoiesis.snapshot:make-snapshot state)))
+             (autopoiesis.snapshot:save-snapshot snap store))
+           ;; Restore agent
+           (let ((restored (autopoiesis.snapshot:restore-agent-from-snapshot
+                             agent-id store)))
+             (is (not (null restored)))
+             (is (string= agent-id (autopoiesis.agent:agent-id restored)))
+             (is (string= "restorable-agent" (autopoiesis.agent:agent-name restored)))
+             (is (equal '(:read :write) (autopoiesis.agent:agent-capabilities restored)))))
+      (cleanup-temp-store temp-path))))
+
+(test restore-agent-from-snapshot-no-match
+  "Test restore-agent-from-snapshot returns NIL when no snapshot exists"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (is (null (autopoiesis.snapshot:restore-agent-from-snapshot
+                     "nonexistent-agent" store)))
+      (cleanup-temp-store temp-path))))
+
+(test restore-agent-from-snapshot-latest-state
+  "Test that restore-agent-from-snapshot returns the latest agent state"
+  (let* ((temp-path (make-temp-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path))
+         (agent (autopoiesis.agent:make-agent :name "evolving-agent"))
+         (agent-id (autopoiesis.agent:agent-id agent)))
+    (unwind-protect
+         (progn
+           ;; Save first snapshot (initialized state)
+           (let ((snap1 (autopoiesis.snapshot:make-snapshot
+                          (autopoiesis.agent:agent-to-sexpr agent))))
+             (autopoiesis.snapshot:save-snapshot snap1 store))
+           ;; Change agent state and save second snapshot
+           (sleep 0.01)
+           (autopoiesis.agent:start-agent agent)
+           (let ((snap2 (autopoiesis.snapshot:make-snapshot
+                          (autopoiesis.agent:agent-to-sexpr agent))))
+             (autopoiesis.snapshot:save-snapshot snap2 store))
+           ;; Restore should give the latest (running) state
+           (let ((restored (autopoiesis.snapshot:restore-agent-from-snapshot
+                             agent-id store)))
+             (is (not (null restored)))
+             (is (eq :running (autopoiesis.agent:agent-state restored)))))
+      (cleanup-temp-store temp-path))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; DAG Traversal Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 

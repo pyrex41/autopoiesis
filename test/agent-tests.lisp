@@ -34,6 +34,182 @@
     (is (eq :stopped (autopoiesis.agent:agent-state agent)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Agent Serialization Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test agent-serialization
+  "Test agent serialization and deserialization"
+  (let* ((agent (autopoiesis.agent:make-agent
+                 :name "test-agent"
+                 :capabilities '(:read :write :execute)))
+         (sexpr (autopoiesis.agent:agent-to-sexpr agent))
+         (restored (autopoiesis.agent:sexpr-to-agent sexpr)))
+    ;; Check sexpr format
+    (is (eq :agent (first sexpr)))
+    (is (not (null restored)))
+    ;; Check all fields round-trip
+    (is (equal (autopoiesis.agent:agent-id agent)
+               (autopoiesis.agent:agent-id restored)))
+    (is (string= (autopoiesis.agent:agent-name agent)
+                 (autopoiesis.agent:agent-name restored)))
+    (is (eq (autopoiesis.agent:agent-state agent)
+            (autopoiesis.agent:agent-state restored)))
+    (is (equal (autopoiesis.agent:agent-capabilities agent)
+               (autopoiesis.agent:agent-capabilities restored)))
+    (is (null (autopoiesis.agent:agent-parent restored)))
+    (is (null (autopoiesis.agent:agent-children restored)))))
+
+(test agent-serialization-with-thoughts
+  "Test agent serialization preserves thought-stream"
+  (let ((agent (autopoiesis.agent:make-agent :name "thinking-agent")))
+    ;; Add some thoughts
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-thought '(saw "something")
+       :type :observation
+       :confidence 0.9))
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-thought '(decided "action")
+       :type :decision
+       :confidence 0.8))
+    (let* ((sexpr (autopoiesis.agent:agent-to-sexpr agent))
+           (restored (autopoiesis.agent:sexpr-to-agent sexpr)))
+      ;; Thought stream should be preserved
+      (is (= (autopoiesis.core:stream-length
+              (autopoiesis.agent:agent-thought-stream agent))
+             (autopoiesis.core:stream-length
+              (autopoiesis.agent:agent-thought-stream restored)))))))
+
+(test agent-serialization-with-parent-children
+  "Test agent serialization with parent and children"
+  (let ((parent (autopoiesis.agent:make-agent :name "parent")))
+    (let ((child (autopoiesis.agent:make-agent
+                  :name "child"
+                  :parent (autopoiesis.agent:agent-id parent))))
+      (push (autopoiesis.agent:agent-id child)
+            (autopoiesis.agent:agent-children parent))
+      ;; Serialize and restore parent
+      (let* ((sexpr (autopoiesis.agent:agent-to-sexpr parent))
+             (restored (autopoiesis.agent:sexpr-to-agent sexpr)))
+        (is (equal (autopoiesis.agent:agent-children parent)
+                   (autopoiesis.agent:agent-children restored))))
+      ;; Serialize and restore child
+      (let* ((sexpr (autopoiesis.agent:agent-to-sexpr child))
+             (restored (autopoiesis.agent:sexpr-to-agent sexpr)))
+        (is (equal (autopoiesis.agent:agent-parent child)
+                   (autopoiesis.agent:agent-parent restored)))))))
+
+(test agent-serialization-with-state
+  "Test agent serialization preserves lifecycle state"
+  (let ((agent (autopoiesis.agent:make-agent :name "stateful")))
+    (autopoiesis.agent:start-agent agent)
+    (let* ((sexpr (autopoiesis.agent:agent-to-sexpr agent))
+           (restored (autopoiesis.agent:sexpr-to-agent sexpr)))
+      (is (eq :running (autopoiesis.agent:agent-state restored))))))
+
+(test agent-serialization-invalid-input
+  "Test sexpr-to-agent returns NIL for invalid input"
+  (is (null (autopoiesis.agent:sexpr-to-agent nil)))
+  (is (null (autopoiesis.agent:sexpr-to-agent '(:not-agent :name "test"))))
+  (is (null (autopoiesis.agent:sexpr-to-agent "not a list"))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Init Workflow Tests (restore-or-create-then-start)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun make-temp-agent-store-path ()
+  "Create a temporary directory path for agent init tests."
+  (let ((path (merge-pathnames
+               (format nil "autopoiesis-agent-test-~a/" (autopoiesis.core:make-uuid))
+               (uiop:temporary-directory))))
+    (ensure-directories-exist path)
+    path))
+
+(defun cleanup-temp-agent-store (path)
+  "Remove temporary test store directory."
+  (when (probe-file path)
+    (uiop:delete-directory-tree path :validate t)))
+
+(test init-workflow-create-new-agent
+  "Test init workflow creates new agent when no snapshot exists"
+  (let* ((temp-path (make-temp-agent-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (let* ((agent-id "nonexistent-agent")
+                (restored (autopoiesis.snapshot:restore-agent-from-snapshot agent-id store))
+                (agent (or restored
+                           (autopoiesis.agent:make-agent :name "test-worker"))))
+           ;; Should not have found a snapshot
+           (is (null restored))
+           ;; Agent should be created fresh
+           (is (not (null agent)))
+           (is (string= "test-worker" (autopoiesis.agent:agent-name agent)))
+           (is (eq :initialized (autopoiesis.agent:agent-state agent)))
+           ;; Start the agent
+           (autopoiesis.agent:start-agent agent)
+           (is (eq :running (autopoiesis.agent:agent-state agent))))
+      (cleanup-temp-agent-store temp-path))))
+
+(test init-workflow-restore-from-snapshot
+  "Test init workflow restores agent from snapshot when one exists"
+  (let* ((temp-path (make-temp-agent-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create and save an agent snapshot
+           (let* ((original (autopoiesis.agent:make-agent
+                             :name "saved-agent"
+                             :capabilities '(:read :write)))
+                  (original-id (autopoiesis.agent:agent-id original))
+                  (state (autopoiesis.agent:agent-to-sexpr original))
+                  (snapshot (autopoiesis.snapshot:make-snapshot state)))
+             (autopoiesis.snapshot:save-snapshot snapshot store)
+             ;; Now simulate init workflow: try restore, fallback to create
+             (let* ((restored (autopoiesis.snapshot:restore-agent-from-snapshot
+                                original-id store))
+                    (agent (or restored
+                               (autopoiesis.agent:make-agent :name "fallback"))))
+               ;; Should have restored from snapshot
+               (is (not (null restored)))
+               (is (eq agent restored))
+               (is (string= "saved-agent" (autopoiesis.agent:agent-name agent)))
+               (is (equal '(:read :write) (autopoiesis.agent:agent-capabilities agent)))
+               (is (string= original-id (autopoiesis.agent:agent-id agent)))
+               ;; Start the restored agent
+               (autopoiesis.agent:start-agent agent)
+               (is (eq :running (autopoiesis.agent:agent-state agent))))))
+      (cleanup-temp-agent-store temp-path))))
+
+(test init-workflow-restore-preserves-thoughts
+  "Test init workflow restores agent with thought stream intact"
+  (let* ((temp-path (make-temp-agent-store-path))
+         (store (autopoiesis.snapshot:make-snapshot-store temp-path)))
+    (unwind-protect
+         (progn
+           ;; Create agent with thoughts
+           (let* ((original (autopoiesis.agent:make-agent :name "thinking-agent"))
+                  (original-id (autopoiesis.agent:agent-id original)))
+             (autopoiesis.core:stream-append
+              (autopoiesis.agent:agent-thought-stream original)
+              (autopoiesis.core:make-thought '(observed "test data")
+                :type :observation :confidence 0.9))
+             ;; Save snapshot
+             (let ((snapshot (autopoiesis.snapshot:make-snapshot
+                              (autopoiesis.agent:agent-to-sexpr original))))
+               (autopoiesis.snapshot:save-snapshot snapshot store))
+             ;; Restore and verify thoughts survived
+             (let ((restored (autopoiesis.snapshot:restore-agent-from-snapshot
+                               original-id store)))
+               (is (not (null restored)))
+               (is (= 1 (autopoiesis.core:stream-length
+                          (autopoiesis.agent:agent-thought-stream restored))))
+               ;; Start and verify running
+               (autopoiesis.agent:start-agent restored)
+               (is (eq :running (autopoiesis.agent:agent-state restored))))))
+      (cleanup-temp-agent-store temp-path))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Capability Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 

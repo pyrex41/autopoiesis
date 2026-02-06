@@ -18,6 +18,10 @@
    #:agent-parent
    #:agent-children
 
+   ;; Agent serialization
+   #:agent-to-sexpr
+   #:sexpr-to-agent
+
    ;; Agent lifecycle
    #:start-agent
    #:stop-agent

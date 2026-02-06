@@ -48,6 +48,8 @@
    #:clear-snapshot-cache
    #:snapshot-cache-stats
    #:close-store
+   #:find-latest-snapshot-for-agent
+   #:restore-agent-from-snapshot
 
    ;; Branch management
    #:branch

@@ -199,10 +199,13 @@
   (let* ((index (store-index store))
          (id (snapshot-id snapshot))
          (parent-id (snapshot-parent snapshot))
-         (timestamp (snapshot-timestamp snapshot)))
-    ;; Index by ID (store minimal metadata)
+         (timestamp (snapshot-timestamp snapshot))
+         (agent-state (snapshot-agent-state snapshot))
+         (agent-id (when (and (listp agent-state) (eq (first agent-state) :agent))
+                     (getf (rest agent-state) :id))))
+    ;; Index by ID (store minimal metadata including agent-id)
     (setf (gethash id (index-by-id index))
-          (list :timestamp timestamp :parent parent-id))
+          (list :timestamp timestamp :parent parent-id :agent-id agent-id))
     ;; Index by parent
     (when parent-id
       (pushnew id (gethash parent-id (index-by-parent index)) :test #'equal))
@@ -392,6 +395,40 @@
                  (push child result)
                  (push child queue))))
     result))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Agent Snapshot Lookup and Restoration
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun find-latest-snapshot-for-agent (agent-id &optional (store *snapshot-store*))
+  "Find the most recent snapshot for AGENT-ID by querying the index.
+   Returns the snapshot ID, or NIL if no snapshot exists for this agent."
+  (unless (and store (store-index store))
+    (return-from find-latest-snapshot-for-agent nil))
+  (let ((index (store-index store))
+        (latest-id nil)
+        (latest-timestamp 0))
+    ;; Scan index metadata for matching agent-id, track latest by timestamp
+    (maphash (lambda (snap-id meta)
+               (when (and (equal (getf meta :agent-id) agent-id)
+                          (> (or (getf meta :timestamp) 0) latest-timestamp))
+                 (setf latest-id snap-id
+                       latest-timestamp (getf meta :timestamp))))
+             (index-by-id index))
+    latest-id))
+
+(defun restore-agent-from-snapshot (agent-id &optional (store *snapshot-store*))
+  "Restore an agent from its most recent snapshot.
+   Finds the latest snapshot for AGENT-ID, loads it, and reconstructs
+   the agent using sexpr-to-agent. Returns the restored agent, or NIL
+   if no snapshot exists."
+  (let ((snapshot-id (find-latest-snapshot-for-agent agent-id store)))
+    (unless snapshot-id
+      (return-from restore-agent-from-snapshot nil))
+    (let ((snapshot (load-snapshot snapshot-id store)))
+      (unless snapshot
+        (return-from restore-agent-from-snapshot nil))
+      (autopoiesis.agent:sexpr-to-agent (snapshot-agent-state snapshot)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Cleanup and Maintenance

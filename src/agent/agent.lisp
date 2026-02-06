@@ -75,3 +75,38 @@
 (defun agent-running-p (agent)
   "Return T if agent is running."
   (eq (agent-state agent) :running))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Serialization
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun agent-to-sexpr (agent)
+  "Convert AGENT to a pure S-expression representation.
+   The thought-stream is serialized using stream-to-sexpr."
+  `(:agent
+    :id ,(agent-id agent)
+    :name ,(agent-name agent)
+    :state ,(agent-state agent)
+    :capabilities ,(agent-capabilities agent)
+    :thought-stream ,(autopoiesis.core:stream-to-sexpr
+                      (agent-thought-stream agent))
+    :parent ,(agent-parent agent)
+    :children ,(agent-children agent)))
+
+(defun sexpr-to-agent (sexpr)
+  "Reconstruct an AGENT from its S-expression representation."
+  (when (and (listp sexpr) (eq (first sexpr) :agent))
+    (let ((plist (rest sexpr)))
+      (let ((agent (make-instance 'agent
+                     :name (getf plist :name "unnamed")
+                     :state (getf plist :state :initialized)
+                     :capabilities (getf plist :capabilities)
+                     :thought-stream (if (getf plist :thought-stream)
+                                         (autopoiesis.core:sexpr-to-stream
+                                          (getf plist :thought-stream))
+                                         (autopoiesis.core:make-thought-stream))
+                     :parent (getf plist :parent)
+                     :children (getf plist :children))))
+        (when (getf plist :id)
+          (setf (slot-value agent 'id) (getf plist :id)))
+        agent))))
