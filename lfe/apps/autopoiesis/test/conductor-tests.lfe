@@ -71,6 +71,40 @@
     (assert-truthy (=< result (+ now 2)))))
 
 ;;; ============================================================
+;;; Claude dispatch tests
+;;; ============================================================
+
+(defun task_result_handling_test ()
+  "Task result cast should be handled without crashing conductor."
+  (with-conductor
+    (lambda ()
+      ;; Send a task-result cast to conductor
+      (gen_server:cast 'conductor
+        `#(task-result #M(task-id "test-task-1" status complete result #M())))
+      (timer:sleep 50)
+      ;; Conductor should still be alive
+      (let ((status (conductor:status)))
+        (assert-truthy (is_map status))
+        (assert-truthy (>= (maps:get 'tasks-completed status) 1))))))
+
+(defun task_result_failure_tracking_test ()
+  "Failed task results should increment consecutive-failures."
+  (with-conductor
+    (lambda ()
+      ;; Send a failed task-result
+      (gen_server:cast 'conductor
+        `#(task-result #M(task-id "fail-1" status failed error timeout)))
+      (timer:sleep 50)
+      (let ((status (conductor:status)))
+        (assert-truthy (>= (maps:get 'consecutive-failures status) 1)))
+      ;; Send a successful result — should reset failures
+      (gen_server:cast 'conductor
+        `#(task-result #M(task-id "ok-1" status complete result #M())))
+      (timer:sleep 50)
+      (let ((status2 (conductor:status)))
+        (assert-equal 0 (maps:get 'consecutive-failures status2))))))
+
+;;; ============================================================
 ;;; Section 2: Standalone conductor tests (with-conductor helper)
 ;;; ============================================================
 

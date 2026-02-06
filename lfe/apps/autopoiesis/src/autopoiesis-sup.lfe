@@ -11,7 +11,8 @@
                        period 10))
          (children (list (conductor-spec)
                           (agent-sup-spec)
-                          (connector-sup-spec))))
+                          (connector-sup-spec)
+                          (claude-sup-spec))))
     `#(ok #(,sup-flags ,children))))
 
 (defun agent-sup-spec ()
@@ -29,6 +30,14 @@
       shutdown infinity
       type supervisor
       modules (connector-sup)))
+
+(defun claude-sup-spec ()
+  #M(id claude-sup
+     start #(claude-sup start_link ())
+     restart permanent
+     shutdown infinity
+     type supervisor
+     modules (claude-sup)))
 
 (defun conductor-spec ()
    #M(id conductor

@@ -14,12 +14,15 @@
            (health-status (if (and (> tick-count 0) (< queue-length 1000))
                               #"ok"
                               #"degraded"))
+           (claude-agents (length (claude-sup:list-claude-agents)))
            (body (jsx:encode
                    `#M(status ,health-status
                        tick_count ,tick-count
                        event_queue_length ,queue-length
                        events_processed ,(maps:get 'events-processed cond-status 0)
-                       timers_fired ,(maps:get 'timers-fired cond-status 0)))))
+                       timers_fired ,(maps:get 'timers-fired cond-status 0)
+                       claude_agents ,claude-agents
+                       tasks_completed ,(maps:get 'tasks-completed cond-status 0)))))
       (reply-json 200 body req0 state))
     (catch
       (`#(,_type ,_reason ,_stack)

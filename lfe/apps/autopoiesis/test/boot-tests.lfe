@@ -56,6 +56,9 @@
        ;; Check connector supervisor
        (assert-supervisor-running 'connector-sup)
 
+       ;; Check claude supervisor
+       (assert-supervisor-running 'claude-sup)
+
        ;; Check conductor (a worker, not a supervisor)
        (assert-process-running 'conductor)
 
@@ -98,6 +101,7 @@
   (catch (unregister 'autopoiesis-sup))
   (catch (unregister 'agent-sup))
   (catch (unregister 'connector-sup))
+  (catch (unregister 'claude-sup))
   (catch (unregister 'conductor))
 
   ;; Start the supervisor
@@ -175,12 +179,13 @@
      (progn
        ;; Get children of main supervisor
        (let ((children (supervisor:which_children 'autopoiesis-sup)))
-         ;; Should have exactly 3 children: agent-sup, connector-sup, and conductor
-         (assert-equal 3 (length children))
+         ;; Should have exactly 4 children: agent-sup, connector-sup, claude-sup, and conductor
+         (assert-equal 4 (length children))
 
          ;; Check all expected children are present
          (assert-truthy (has-child-id 'agent-sup children))
          (assert-truthy (has-child-id 'connector-sup children))
+         (assert-truthy (has-child-id 'claude-sup children))
          (assert-truthy (has-child-id 'conductor children)))
 
        ;; Clean up
@@ -208,6 +213,10 @@
        ;; Connector supervisor should use one_for_one
        (let ((connector-strategy (get-supervisor-strategy 'connector-sup)))
          (assert-equal 'one_for_one connector-strategy))
+
+       ;; Claude supervisor should use simple_one_for_one
+       (let ((claude-strategy (get-supervisor-strategy 'claude-sup)))
+         (assert-equal 'simple_one_for_one claude-strategy))
 
        ;; Clean up
        (application:stop 'autopoiesis)))

@@ -8,7 +8,8 @@
   (export (schedule 1) (schedule 2) (schedule 3)
           (cancel 1) (queue-event 1) (status 0))
   ;; Exported for testing
-  (export (classify-event 1) (compute-next-run 1)))
+  (export (classify-event 1) (compute-next-run 1)
+          (schedule-infra-watcher 0)))
 
 ;; State record — replaces plain maps
 (defrecord state
@@ -63,7 +64,10 @@
                               events-processed 0
                               timers-fired 0
                               timers-scheduled 0
-                              timers-cancelled 0))))
+                              timers-cancelled 0
+                              tasks-completed 0
+                              consecutive-failures 0
+                              last-failure-time 0))))
     `#(ok ,initial)))
 
 (defun handle_call
@@ -92,6 +96,37 @@
   ((`#(event ,event) state)
    (let ((new-queue (++ (state-event-queue state) (list event))))
      `#(noreply ,(set-state-event-queue state new-queue))))
+
+  ;; Task result from claude worker
+  ((`#(task-result ,result) state)
+   (let* ((task-id (maps:get 'task-id result "unknown"))
+          (task-status (maps:get 'status result 'unknown))
+          (metrics (state-metrics state))
+          (new-metrics (increment-metric 'tasks-completed metrics)))
+     (case task-status
+       ('complete
+        (logger:info "Task ~s completed successfully" (list task-id))
+        (process-task-result result)
+        ;; Reset consecutive failures on success
+        (let ((reset-metrics (maps:put 'consecutive-failures 0 new-metrics)))
+          `#(noreply ,(set-state-metrics state reset-metrics))))
+       ('failed
+        (let* ((failures (+ 1 (maps:get 'consecutive-failures metrics 0)))
+               (fail-metrics (maps:put 'consecutive-failures failures
+                               (maps:put 'last-failure-time
+                                 (erlang:system_time 'second) new-metrics))))
+          (logger:warning "Task ~s failed: ~p (consecutive: ~p)"
+                          (list task-id
+                                (maps:get 'error result 'unknown)
+                                failures))
+          (if (> failures 3)
+            (logger:error "~p consecutive task failures — backing off"
+                          (list failures))
+            'ok)
+          `#(noreply ,(set-state-metrics state fail-metrics))))
+       (_
+        (logger:info "Task ~s status: ~p" (list task-id task-status))
+        `#(noreply ,(set-state-metrics state new-metrics))))))
 
   ((_msg state)
    `#(noreply ,state)))
@@ -147,10 +182,21 @@
            (set-state-timer-heap state heap))))))
 
 (defun execute-timer-action (action state)
-  "Execute a scheduled action. Fast-path runs directly; slow-path spawns agent."
+  "Execute a scheduled action. Fast-path runs directly; slow-path spawns agent.
+   Actions with action-type 'claude dispatch to Claude workers."
   (case (maps:get 'requires-llm action 'false)
     ('true
-     (spawn-agent-for-work action)
+     (case (maps:get 'action-type action 'cl)
+       ('claude
+        ;; Check rate limiting — skip if same task type already running
+        (let ((task-type (maps:get 'id action 'unknown)))
+          (case (claude-task-running-p task-type)
+            ('true
+             (logger:info "Skipping ~p — already running" (list task-type)))
+            ('false
+             (spawn-claude-for-work action)))))
+       (_
+        (spawn-agent-for-work action)))
      state)
     ('false
      (let ((func (maps:get 'action action 'undefined)))
@@ -292,6 +338,111 @@
     (lists:flatten (io_lib:format "agent-~B" (list n)))))
 
 ;;; ============================================================
+;;; Claude agent spawning
+;;; ============================================================
+
+(defun spawn-claude-for-work (work-item)
+  "Spawn a Claude Code agent for slow-path work.
+   Runs asynchronously to avoid blocking conductor."
+  (let ((task-id (make-agent-id)))
+    (spawn
+      (lambda ()
+        (case (catch (claude-sup:spawn-claude-agent
+                       `#M(task-id ,task-id
+                           prompt ,(build-prompt-for-work work-item)
+                           timeout 300000
+                           max-turns 50)))
+          (`#(ok ,pid)
+           (logger:info "Spawned Claude worker ~s (pid ~p)"
+                        (list task-id pid)))
+          (`#(EXIT ,reason)
+           (logger:warning "Failed to spawn Claude worker: ~p"
+                           (list reason)))
+          (`#(error ,reason)
+           (logger:warning "Failed to spawn Claude worker: ~p"
+                           (list reason))))))))
+
+(defun build-prompt-for-work (work-item)
+  "Build a Claude prompt from a work item."
+  (let ((work-type (maps:get 'type work-item 'unknown))
+        (payload (maps:get 'payload work-item #M())))
+    (lists:flatten
+      (io_lib:format "Task type: ~p~nPayload: ~p~nAnalyze and report findings."
+                     (list work-type payload)))))
+
+;;; ============================================================
+;;; Infrastructure watcher scheduling
+;;; ============================================================
+
+(defun schedule-infra-watcher ()
+  "Schedule the infrastructure watcher to run periodically."
+  (let* ((prompt (read-prompt-file "config/infra-watcher-prompt.md"))
+         (mcp-config (mcp-config-path "config/cortex-mcp.json")))
+    (schedule
+      `#M(id infra-watcher
+          interval 300
+          recurring true
+          requires-llm true
+          action-type claude
+          prompt ,prompt
+          mcp-config ,mcp-config
+          timeout 120000
+          max-turns 20
+          allowed-tools "mcp__cortex__cortex_status,mcp__cortex__cortex_schema,mcp__cortex__cortex_query,mcp__cortex__cortex_entity_detail"))))
+
+(defun process-task-result (result)
+  "Process a completed task result. Log findings, escalate if needed."
+  (let ((data (maps:get 'result result #M())))
+    (case (maps:get #"status" data 'undefined)
+      (#"critical"
+       (logger:error "CRITICAL: Infrastructure anomaly detected!")
+       (logger:error "Details: ~p" (list data)))
+      (#"warning"
+       (logger:warning "Infrastructure warning: ~p"
+                       (list (maps:get #"summary" data #"no summary"))))
+      (_
+       (logger:info "Infrastructure check: ~p"
+                    (list (maps:get #"summary" data #"all clear")))))))
+
+;;; ============================================================
+;;; File reading utilities
+;;; ============================================================
+
+(defun read-prompt-file (relative-path)
+  "Read a prompt file relative to the LFE config directory."
+  (case (file:read_file relative-path)
+    (`#(ok ,content) (binary_to_list content))
+    (`#(error ,_reason)
+     (logger:warning "Could not read prompt file ~s" (list relative-path))
+     "Analyze infrastructure and report findings.")))
+
+(defun mcp-config-path (relative-path)
+  "Resolve MCP config path. Returns absolute path or undefined."
+  (case (filelib:is_file relative-path)
+    ('true (filename:absname relative-path))
+    ('false 'undefined)))
+
+;;; ============================================================
+;;; Rate limiting
+;;; ============================================================
+
+(defun claude-task-running-p (task-type)
+  "Check if a Claude task of this type is already running."
+  (let ((agents (claude-sup:list-claude-agents)))
+    (lists:any
+      (lambda (child)
+        (case child
+          (`#(,_id ,pid ,_type ,_modules)
+           (if (is_pid pid)
+             (try
+               (let ((status (claude-worker:get-status pid)))
+                 (=:= (maps:get 'task-type status 'undefined) task-type))
+               (catch (`#(,_ ,_ ,_) 'false)))
+             'false))
+          (_ 'false)))
+      agents)))
+
+;;; ============================================================
 ;;; Metrics and status
 ;;; ============================================================
 
@@ -309,4 +460,6 @@
         events-processed ,(maps:get 'events-processed metrics 0)
         timers-fired ,(maps:get 'timers-fired metrics 0)
         timers-scheduled ,(maps:get 'timers-scheduled metrics 0)
-        timers-cancelled ,(maps:get 'timers-cancelled metrics 0))))
+        timers-cancelled ,(maps:get 'timers-cancelled metrics 0)
+        tasks-completed ,(maps:get 'tasks-completed metrics 0)
+        consecutive-failures ,(maps:get 'consecutive-failures metrics 0))))
