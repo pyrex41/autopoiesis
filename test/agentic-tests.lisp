@@ -387,3 +387,289 @@
         (is (not (null result)))
         ;; Agent should be running after prompt
         (is (autopoiesis.agent:agent-running-p agent))))))
+
+;;; ===================================================================
+;;; Self-Extension Tool Tests
+;;; ===================================================================
+
+(def-suite self-extension-tests
+  :description "Tests for self-extension tools (define, test, promote capabilities)"
+  :in integration-tests)
+
+(in-suite self-extension-tests)
+
+;; Helper to get tool function by its defcapability symbol
+(defun get-tool-fn (tool-symbol)
+  "Get the function for a tool defined via defcapability."
+  (autopoiesis.agent:capability-function
+   (autopoiesis.agent:find-capability tool-symbol)))
+
+;; Helper to clean up a capability from the global registry after test
+(defmacro with-temp-capability (cap-name-string &body body)
+  "Execute BODY, then remove the capability named CAP-NAME-STRING from the registry."
+  (let ((name-sym (gensym "NAME")))
+    `(let ((,name-sym (intern (string-upcase ,cap-name-string) :keyword)))
+       (unwind-protect (progn ,@body)
+         (autopoiesis.agent:unregister-capability ,name-sym)))))
+
+(test test-define-capability-success
+  "define-capability-tool creates a new capability from code string."
+  (with-temp-capability "test-adder"
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+                           :name "test-adder"
+                           :description "Add two numbers"
+                           :parameters "((x integer) (y integer))"
+                           :code "(+ x y)")))
+      ;; Should succeed
+      (is (search "defined successfully" result))
+      ;; Should be findable in the global registry
+      (let ((cap (autopoiesis.agent:find-capability :test-adder)))
+        (is (not (null cap)))
+        (is (typep cap 'autopoiesis.agent:agent-capability))
+        (is (eq :draft (autopoiesis.agent:cap-promotion-status cap)))))))
+
+(test test-define-capability-rejects-unsafe-code
+  "define-capability-tool rejects code with forbidden operations."
+  (with-temp-capability "evil-tool"
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+                           :name "evil-tool"
+                           :description "Tries to eval"
+                           :parameters "((code string))"
+                           :code "(eval code)")))
+      ;; Should fail with validation error
+      (is (search "Error" result))
+      ;; Should NOT be in the registry
+      (is (null (autopoiesis.agent:find-capability :evil-tool))))))
+
+(test test-define-capability-rejects-file-ops
+  "define-capability-tool rejects code that opens files."
+  (with-temp-capability "file-stealer"
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+                           :name "file-stealer"
+                           :description "Tries to read files"
+                           :parameters "((path string))"
+                           :code "(open path)")))
+      (is (search "Error" result))
+      (is (null (autopoiesis.agent:find-capability :file-stealer))))))
+
+(test test-test-capability-pass
+  "test-capability-tool runs tests and reports pass."
+  (with-temp-capability "test-multiply"
+    ;; First define the capability
+    (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+             :name "test-multiply"
+             :description "Multiply two numbers"
+             :parameters "((x integer) (y integer))"
+             :code "(* x y)")
+    ;; Now test it
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::test-capability-tool)
+                           :name "test-multiply"
+                           :test-cases "(((2 3) 6) ((4 5) 20) ((0 100) 0))")))
+      (is (search "ALL TESTS PASSED" result))
+      (is (search "PASS" result))
+      ;; Status should now be :testing
+      (let ((cap (autopoiesis.agent:find-capability :test-multiply)))
+        (is (eq :testing (autopoiesis.agent:cap-promotion-status cap)))))))
+
+(test test-test-capability-fail
+  "test-capability-tool reports failures when tests don't match."
+  (with-temp-capability "test-bad-math"
+    ;; Define a capability that adds instead of multiplies
+    (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+             :name "test-bad-math"
+             :description "Should multiply but adds"
+             :parameters "((x integer) (y integer))"
+             :code "(+ x y)")
+    ;; Test with multiplication expectations
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::test-capability-tool)
+                           :name "test-bad-math"
+                           :test-cases "(((2 3) 6) ((4 5) 20))")))
+      (is (search "SOME TESTS FAILED" result))
+      (is (search "FAIL" result)))))
+
+(test test-test-capability-not-found
+  "test-capability-tool returns error for nonexistent capability."
+  (let ((result (funcall (get-tool-fn 'autopoiesis.integration::test-capability-tool)
+                         :name "nonexistent-cap"
+                         :test-cases "(((1) 1))")))
+    (is (search "not found" result))))
+
+(test test-test-capability-rejects-builtin
+  "test-capability-tool rejects testing built-in capabilities."
+  (let ((result (funcall (get-tool-fn 'autopoiesis.integration::test-capability-tool)
+                         :name "read-file"
+                         :test-cases "(((1) 1))")))
+    ;; read-file is a builtin, registered under symbol, not keyword
+    ;; This should fail because :READ-FILE won't find the builtin
+    ;; (builtins are registered under their package symbol, not keyword)
+    (is (search "not found" result))))
+
+(test test-promote-capability-success
+  "promote-capability-tool promotes a tested capability to global registry."
+  (with-temp-capability "test-promotable"
+    ;; Define
+    (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+             :name "test-promotable"
+             :description "A promotable capability"
+             :parameters "((x integer))"
+             :code "(1+ x)")
+    ;; Test
+    (funcall (get-tool-fn 'autopoiesis.integration::test-capability-tool)
+             :name "test-promotable"
+             :test-cases "(((5) 6) ((0) 1) ((-1) 0))")
+    ;; Promote
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::promote-capability-tool)
+                           :name "test-promotable")))
+      (is (search "promoted" result))
+      ;; Status should be :promoted
+      (let ((cap (autopoiesis.agent:find-capability :test-promotable)))
+        (is (eq :promoted (autopoiesis.agent:cap-promotion-status cap)))))))
+
+(test test-promote-capability-without-testing
+  "promote-capability-tool rejects promoting untested capabilities."
+  (with-temp-capability "test-untested"
+    ;; Define but don't test
+    (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+             :name "test-untested"
+             :description "Never tested"
+             :parameters "((x integer))"
+             :code "(1+ x)")
+    ;; Try to promote
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::promote-capability-tool)
+                           :name "test-untested")))
+      (is (search "Cannot promote" result)))))
+
+(test test-promote-capability-with-failing-tests
+  "promote-capability-tool rejects promoting capabilities with failed tests."
+  (with-temp-capability "test-failing"
+    ;; Define
+    (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+             :name "test-failing"
+             :description "Will fail tests"
+             :parameters "((x integer))"
+             :code "(1+ x)")
+    ;; Test with wrong expectations
+    (funcall (get-tool-fn 'autopoiesis.integration::test-capability-tool)
+             :name "test-failing"
+             :test-cases "(((5) 100))")
+    ;; Try to promote - should be rejected
+    (let ((result (funcall (get-tool-fn 'autopoiesis.integration::promote-capability-tool)
+                           :name "test-failing")))
+      (is (search "Cannot promote" result)))))
+
+(test test-list-capabilities-tool
+  "list-capabilities-tool lists registered capabilities."
+  ;; There should be builtin tools registered at load time
+  (let ((result (funcall (get-tool-fn 'autopoiesis.integration::list-capabilities-tool))))
+    (is (stringp result))
+    ;; Should list at least some capabilities (the defcapability ones)
+    (is (> (length result) 0))))
+
+(test test-list-capabilities-tool-with-filter
+  "list-capabilities-tool filters by name."
+  (let ((result (funcall (get-tool-fn 'autopoiesis.integration::list-capabilities-tool)
+                         :filter "read")))
+    (is (stringp result))
+    ;; Should find read-file at minimum
+    (is (search "READ" (string-upcase result)))))
+
+(test test-inspect-thoughts-tool
+  "inspect-thoughts returns a response."
+  (let ((result (funcall (get-tool-fn 'autopoiesis.integration::inspect-thoughts)
+                         :count 5)))
+    (is (stringp result))
+    (is (> (length result) 0))))
+
+;;; ===================================================================
+;;; End-to-End Self-Extension Workflow
+;;; ===================================================================
+
+(test test-self-extension-e2e-workflow
+  "Full end-to-end: define → test → promote → use as tool."
+  (with-temp-capability "test-e2e-double"
+    ;; Step 1: Define a capability
+    (let ((def-result (funcall (get-tool-fn 'autopoiesis.integration::define-capability-tool)
+                               :name "test-e2e-double"
+                               :description "Double a number"
+                               :parameters "((n integer))"
+                               :code "(* n 2)")))
+      (is (search "defined successfully" def-result)))
+
+    ;; Step 2: Test it
+    (let ((test-result (funcall (get-tool-fn 'autopoiesis.integration::test-capability-tool)
+                                :name "test-e2e-double"
+                                :test-cases "(((5) 10) ((0) 0) ((-3) -6))")))
+      (is (search "ALL TESTS PASSED" test-result)))
+
+    ;; Step 3: Promote it
+    (let ((promote-result (funcall (get-tool-fn 'autopoiesis.integration::promote-capability-tool)
+                                   :name "test-e2e-double")))
+      (is (search "promoted" promote-result)))
+
+    ;; Step 4: Verify it's usable as a tool
+    (let ((cap (autopoiesis.agent:find-capability :test-e2e-double)))
+      (is (not (null cap)))
+      (is (eq :promoted (autopoiesis.agent:cap-promotion-status cap)))
+      ;; Actually invoke it
+      (let ((result (funcall (autopoiesis.agent:capability-function cap) 7)))
+        (is (= 14 result))))))
+
+(defun wrap-as-keyword-capability (cap)
+  "Create a keyword-named wrapper capability for use in agentic loop.
+   The agentic loop's execute-tool-call converts tool names to keywords,
+   so capabilities must have keyword names for dispatch to work."
+  (autopoiesis.agent:make-capability
+   (intern (string (autopoiesis.agent:capability-name cap)) :keyword)
+   (autopoiesis.agent:capability-function cap)
+   :description (autopoiesis.agent:capability-description cap)
+   :parameters (autopoiesis.agent:capability-parameters cap)))
+
+(test test-self-extension-e2e-in-agentic-loop
+  "Agent uses self-extension tools in a mocked agentic loop."
+  (with-temp-capability "test-loop-triple"
+    (let* ((capabilities (mapcar #'wrap-as-keyword-capability
+                                 (list (autopoiesis.agent:find-capability
+                                        'autopoiesis.integration::define-capability-tool)
+                                       (autopoiesis.agent:find-capability
+                                        'autopoiesis.integration::test-capability-tool)
+                                       (autopoiesis.agent:find-capability
+                                        'autopoiesis.integration::promote-capability-tool))))
+           ;; Mock responses: Claude calls define → test → promote → final text
+           (responses (list
+                       ;; Turn 1: Claude calls define_capability_tool
+                       (make-mock-tool-response
+                        "define_capability_tool" "toolu_def"
+                        '(("name" . "test-loop-triple")
+                          ("description" . "Triple a number")
+                          ("parameters" . "((n integer))")
+                          ("code" . "(* n 3)")))
+                       ;; Turn 2: Claude calls test_capability_tool
+                       (make-mock-tool-response
+                        "test_capability_tool" "toolu_test"
+                        '(("name" . "test-loop-triple")
+                          ("test-cases" . "(((3) 9) ((0) 0))")))
+                       ;; Turn 3: Claude calls promote_capability_tool
+                       (make-mock-tool-response
+                        "promote_capability_tool" "toolu_promote"
+                        '(("name" . "test-loop-triple")))
+                       ;; Turn 4: Claude says done
+                       (make-mock-text-response "I've created and promoted the triple capability."))))
+
+      (with-mock-claude responses
+        (multiple-value-bind (final-resp all-messages turn-count)
+            (autopoiesis.integration:agentic-loop
+             (make-mock-client)
+             (list (make-user-message "Create a capability that triples a number"))
+             capabilities
+             :max-turns 10)
+          (declare (ignore all-messages))
+          (is (= 4 turn-count))
+          (is (equal "end_turn" (autopoiesis.integration:response-stop-reason final-resp)))
+
+          ;; Verify the capability was actually created and promoted
+          (let ((cap (autopoiesis.agent:find-capability :test-loop-triple)))
+            (is (not (null cap)))
+            (is (eq :promoted (autopoiesis.agent:cap-promotion-status cap)))
+            ;; Actually invoke it
+            (is (= 9 (funcall (autopoiesis.agent:capability-function cap) 3)))))))))
+

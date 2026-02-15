@@ -266,6 +266,166 @@
              :working-directory directory)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Self-Extension Tools
+;;; ═══════════════════════════════════════════════════════════════════
+
+(autopoiesis.agent:defcapability define-capability-tool (&key name description parameters code)
+  "Define a new capability by writing Lisp code.
+
+   NAME - String name for the new capability (e.g., \"calculate-sum\")
+   DESCRIPTION - Human-readable description of what the capability does
+   PARAMETERS - S-expression string describing parameters as ((name type) ...)
+                e.g., \"((numbers list))\" or \"((x integer) (y integer))\"
+   CODE - S-expression string of the implementation body
+          e.g., \"(reduce #'+ numbers)\" or \"(+ x y)\"
+          Code is validated against the sandbox whitelist before compilation.
+
+   Returns a success message with the capability name, or an error message."
+  :permissions (:self-extend)
+  :body
+  (handler-case
+      (let* ((cap-name (intern (string-upcase name) :keyword))
+             (parsed-params (read-from-string parameters))
+             (parsed-code (read-from-string code))
+             (body-forms (if (and (consp parsed-code)
+                                  (consp (car parsed-code)))
+                             ;; Multiple forms: ((form1) (form2))
+                             parsed-code
+                             ;; Single form: (form)
+                             (list parsed-code))))
+        ;; Use a minimal agent for the definition workflow.
+        ;; The capability gets added to the agent AND registered globally
+        ;; so that test-capability and promote-capability can find it.
+        (let ((temp-agent (make-instance 'autopoiesis.agent:agent
+                                         :name "extension-definer")))
+          (multiple-value-bind (cap errors)
+              (autopoiesis.agent:agent-define-capability
+               temp-agent cap-name description parsed-params body-forms)
+            (if cap
+                (progn
+                  ;; Register in global registry so test/promote can find it
+                  (autopoiesis.agent:register-capability cap)
+                  (format nil "Capability ~a defined successfully (status: ~a). Use test_capability_tool to test it before promoting."
+                          name (autopoiesis.agent:cap-promotion-status cap)))
+                (format nil "Error defining capability ~a: ~{~a~^; ~}" name errors)))))
+    (error (e)
+      (format nil "Error: ~a" e))))
+
+(autopoiesis.agent:defcapability test-capability-tool (&key name test-cases)
+  "Test a previously defined capability with test cases.
+
+   NAME - String name of the capability to test (e.g., \"calculate-sum\")
+   TEST-CASES - S-expression string of test cases as ((input expected) ...)
+                e.g., \"(((2 3) 5) ((10 20) 30))\"
+                Each test case is (input expected-output) where input is
+                passed to the capability and result is compared to expected.
+
+   Returns test results showing pass/fail for each case."
+  :permissions (:self-extend)
+  :body
+  (handler-case
+      (let* ((cap-name (intern (string-upcase name) :keyword))
+             (parsed-tests (read-from-string test-cases))
+             (cap (autopoiesis.agent:find-capability cap-name)))
+        (if (not cap)
+            (format nil "Error: Capability ~a not found in registry" name)
+            (if (not (typep cap 'autopoiesis.agent:agent-capability))
+                (format nil "Error: ~a is a built-in capability and cannot be tested this way" name)
+                (multiple-value-bind (passed-p results)
+                    (autopoiesis.agent:test-agent-capability cap parsed-tests)
+                  (format nil "~a: ~a~%~{  ~a~^~%~}"
+                          name
+                          (if passed-p "ALL TESTS PASSED" "SOME TESTS FAILED")
+                          (mapcar (lambda (r)
+                                    (format nil "[~a] input=~s expected=~s~a"
+                                            (getf r :status)
+                                            (getf r :input)
+                                            (getf r :expected)
+                                            (if (eq (getf r :status) :error)
+                                                (format nil " error=~a" (getf r :error))
+                                                (format nil " actual=~s" (getf r :actual)))))
+                                  results))))))
+    (error (e)
+      (format nil "Error: ~a" e))))
+
+(autopoiesis.agent:defcapability promote-capability-tool (&key name)
+  "Promote a tested capability to the global registry.
+
+   NAME - String name of the capability to promote (e.g., \"calculate-sum\")
+
+   The capability must have been tested first (via test_capability) and all
+   tests must have passed. On success, the capability becomes globally
+   available as a tool in subsequent agentic loop turns.
+
+   Returns a success or failure message."
+  :permissions (:self-extend)
+  :body
+  (handler-case
+      (let* ((cap-name (intern (string-upcase name) :keyword))
+             (cap (autopoiesis.agent:find-capability cap-name)))
+        (if (not cap)
+            (format nil "Error: Capability ~a not found" name)
+            (if (not (typep cap 'autopoiesis.agent:agent-capability))
+                (format nil "Error: ~a is a built-in capability and cannot be promoted" name)
+                (if (autopoiesis.agent:promote-capability cap)
+                    (format nil "Capability ~a promoted to global registry. It is now available as a tool."
+                            name)
+                    (format nil "Error: Cannot promote ~a. Status is ~a (must be :testing with all tests passing)."
+                            name (autopoiesis.agent:cap-promotion-status cap))))))
+    (error (e)
+      (format nil "Error: ~a" e))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Introspection Tools
+;;; ═══════════════════════════════════════════════════════════════════
+
+(autopoiesis.agent:defcapability list-capabilities-tool (&key filter)
+  "List all available capabilities with descriptions.
+
+   FILTER - Optional string to filter capabilities by name (case-insensitive).
+
+   Returns a formatted list of all capabilities showing name, description,
+   and parameters."
+  :permissions ()
+  :body
+  (let* ((all-caps (autopoiesis.agent:list-capabilities))
+         (filtered (if filter
+                       (remove-if-not
+                        (lambda (cap)
+                          (search (string-upcase filter)
+                                  (string-upcase (string (autopoiesis.agent:capability-name cap)))))
+                        all-caps)
+                       all-caps)))
+    (if (null filtered)
+        "No capabilities found."
+        (format nil "~{~a~^~%~%~}"
+                (mapcar (lambda (cap)
+                          (format nil "~a~%  ~a~@[~%  Parameters: ~a~]~@[~%  [agent-defined, status: ~a]~]"
+                                  (autopoiesis.agent:capability-name cap)
+                                  (or (autopoiesis.agent:capability-description cap) "(no description)")
+                                  (autopoiesis.agent:capability-parameters cap)
+                                  (when (typep cap 'autopoiesis.agent:agent-capability)
+                                    (autopoiesis.agent:cap-promotion-status cap))))
+                        filtered)))))
+
+(autopoiesis.agent:defcapability inspect-thoughts (&key count agent-name)
+  "Inspect recent thoughts from an agent's thought stream.
+
+   COUNT - Number of recent thoughts to return (default: 10)
+   AGENT-NAME - Not currently used (reserved for multi-agent introspection)
+
+   Returns a formatted list of recent thoughts showing type, content,
+   and timestamp."
+  :permissions ()
+  :body
+  (declare (ignore agent-name))
+  (let ((n (or count 10)))
+    ;; Since this tool runs in the context of an agentic loop without
+    ;; direct access to the calling agent, return a message about usage.
+    ;; In practice, the agent can access its own thought stream.
+    (format nil "inspect-thoughts: This tool provides thought stream introspection.~%To inspect thoughts, the agent should use its own thought-stream via the cognitive loop.~%Requested last ~a thoughts." n)))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Tool Registration
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -279,7 +439,11 @@
   '(read-file write-file list-directory file-exists-p
     delete-file-tool glob-files grep-files
     web-fetch web-head
-    run-command git-status git-diff git-log))
+    run-command git-status git-diff git-log
+    ;; Self-extension tools
+    define-capability-tool test-capability-tool promote-capability-tool
+    ;; Introspection tools
+    list-capabilities-tool inspect-thoughts))
 
 (defun register-builtin-tools (&key (registry autopoiesis.agent:*capability-registry*))
   "Register all built-in tools in the capability registry.

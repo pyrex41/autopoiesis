@@ -128,6 +128,13 @@
    #:unregister-builtin-tools
    #:list-builtin-tools
    #:*builtin-tools-registered*
+   ;; Self-extension tools
+   #:define-capability-tool
+   #:test-capability-tool
+   #:promote-capability-tool
+   ;; Introspection tools
+   #:list-capabilities-tool
+   #:inspect-thoughts
 
    ;; Provider protocol
    #:provider
