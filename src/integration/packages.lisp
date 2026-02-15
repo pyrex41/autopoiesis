@@ -215,6 +215,21 @@
    #:agent-system-prompt
    #:agent-invocation-mode
 
+   ;; Agentic loop
+   #:agentic-loop
+   #:agentic-complete
+   #:*claude-complete-function*
+
+   ;; Agentic agent
+   #:agentic-agent
+   #:make-agentic-agent
+   #:agent-client
+   #:agent-max-turns
+   #:agent-conversation-history
+   #:agent-tool-capabilities
+   #:agentic-agent-prompt
+   #:agentic-agent-to-sexpr
+
    ;; Integration events
    #:integration-event-type
    #:integration-event

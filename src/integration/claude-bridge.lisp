@@ -161,3 +161,76 @@
   "Execute BODY with a Claude client bound."
   `(let ((,client (make-claude-client :api-key ,api-key :model ,model)))
      ,@body))
+
+;;; ===================================================================
+;;; Agentic Loop
+;;; ===================================================================
+
+(defvar *claude-complete-function* nil
+  "When non-nil, agentic-loop calls this instead of claude-complete.
+   Signature: (funcall fn client messages :system system :tools tools)
+   Used for testing without real API calls.")
+
+(defun agentic-loop (client messages capabilities &key system (max-turns 25) on-thought)
+  "Run a multi-turn agentic loop with Claude.
+
+   Calls Claude, checks if stop_reason is tool_use, executes tools,
+   sends results back, repeats until end_turn or max-turns reached.
+
+   CLIENT - A claude-client instance
+   MESSAGES - Initial message list (will be extended in-place via nconc)
+   CAPABILITIES - List of capability instances for tool execution
+   SYSTEM - Optional system prompt string
+   MAX-TURNS - Maximum loop iterations (default 25)
+   ON-THOUGHT - Optional callback called as (funcall on-thought type content)
+               where type is one of :llm-response, :tool-execution, :tool-result, :complete, :error
+
+   Returns (values final-response all-messages turn-count)."
+  (let ((tools (capabilities-to-claude-tools capabilities))
+        (turn-count 0)
+        (response nil)
+        (complete-fn (or *claude-complete-function* #'claude-complete)))
+    (handler-case
+        (loop
+          (let ((resp (funcall complete-fn client messages :system system :tools tools)))
+            (setf response resp)
+            (incf turn-count)
+            (when on-thought
+              (funcall on-thought :llm-response (response-text resp)))
+            ;; Append assistant message to conversation
+            (let ((content-blocks (cdr (assoc :content resp))))
+              (nconc messages
+                     (list `(("role" . "assistant")
+                             ("content" . ,content-blocks)))))
+            ;; Check stop reason
+            (let ((stop-reason (response-stop-reason resp)))
+              (when (or (not (string= stop-reason "tool_use"))
+                        (>= turn-count max-turns))
+                (when on-thought
+                  (funcall on-thought :complete (response-text resp)))
+                (return (values response messages turn-count)))
+              ;; Execute tools and continue
+              (when on-thought
+                (funcall on-thought :tool-execution
+                         (mapcar (lambda (tc) (getf tc :name))
+                                 (response-tool-calls resp))))
+              (let* ((results (execute-all-tool-calls resp capabilities))
+                     (tool-message (format-tool-results results)))
+                (when on-thought
+                  (funcall on-thought :tool-result results))
+                (nconc messages (list tool-message))))))
+      (error (e)
+        (when on-thought
+          (funcall on-thought :error (format nil "~a" e)))
+        (error e)))))
+
+(defun agentic-complete (client prompt capabilities &key system (max-turns 25) on-thought)
+  "Convenience wrapper: run an agentic loop starting from a single user prompt.
+   Returns (values final-text final-response all-messages turn-count)."
+  (let ((messages (list `(("role" . "user") ("content" . ,prompt)))))
+    (multiple-value-bind (response all-messages turn-count)
+        (agentic-loop client messages capabilities
+                      :system system
+                      :max-turns max-turns
+                      :on-thought on-thought)
+      (values (response-text response) response all-messages turn-count))))

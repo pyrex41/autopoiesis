@@ -98,7 +98,8 @@
        (:file "provider-codex")
        (:file "provider-opencode")
        (:file "provider-cursor")
-       (:file "provider-agent")))
+       (:file "provider-agent")
+       (:file "agentic-agent")))
       (:module "viz"
        :serial t
        :depends-on ("core" "snapshot" "interface")
@@ -241,6 +242,7 @@
      (:file "monitoring-tests")
      (:file "provider-tests")
      (:file "rest-api-tests")
+     (:file "agentic-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
