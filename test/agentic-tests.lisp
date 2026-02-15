@@ -673,3 +673,490 @@
             ;; Actually invoke it
             (is (= 9 (funcall (autopoiesis.agent:capability-function cap) 3)))))))))
 
+;;; ===================================================================
+;;; OpenAI Bridge Tests
+;;; ===================================================================
+
+(def-suite openai-bridge-tests
+  :description "Tests for the OpenAI-compatible API bridge"
+  :in integration-tests)
+
+(in-suite openai-bridge-tests)
+
+(test test-make-openai-client
+  "Create an OpenAI client and verify slots."
+  (let ((client (autopoiesis.integration:make-openai-client
+                 :api-key "test-key"
+                 :model "gpt-4o"
+                 :base-url "http://localhost:11434/v1")))
+    (is (equal "test-key" (autopoiesis.integration:openai-client-api-key client)))
+    (is (equal "gpt-4o" (autopoiesis.integration:openai-client-model client)))
+    (is (equal "http://localhost:11434/v1" (autopoiesis.integration:openai-client-base-url client)))
+    (is (= 4096 (autopoiesis.integration:openai-client-max-tokens client)))))
+
+(test test-claude-messages-to-openai-basic
+  "Convert basic Claude messages to OpenAI format."
+  (let ((messages (list (make-user-message "Hello")
+                        `(("role" . "assistant") ("content" . "Hi there!")))))
+    (let ((result (autopoiesis.integration:claude-messages-to-openai messages)))
+      (is (= 2 (length result)))
+      (is (equal "user" (cdr (assoc "role" (first result) :test #'string=))))
+      (is (equal "assistant" (cdr (assoc "role" (second result) :test #'string=)))))))
+
+(test test-claude-messages-to-openai-with-system
+  "System prompt becomes first message in OpenAI format."
+  (let ((messages (list (make-user-message "Hello"))))
+    (let ((result (autopoiesis.integration:claude-messages-to-openai
+                   messages :system "You are helpful.")))
+      (is (= 2 (length result)))
+      (is (equal "system" (cdr (assoc "role" (first result) :test #'string=))))
+      (is (equal "You are helpful." (cdr (assoc "content" (first result) :test #'string=)))))))
+
+(test test-claude-messages-to-openai-tool-results
+  "Claude tool_result content blocks become OpenAI tool role messages."
+  (let ((messages (list `(("role" . "user")
+                          ("content" . ((("type" . "tool_result")
+                                         ("tool_use_id" . "call_123")
+                                         ("content" . "Result text"))))))))
+    (let ((result (autopoiesis.integration:claude-messages-to-openai messages)))
+      (is (= 1 (length result)))
+      (is (equal "tool" (cdr (assoc "role" (first result) :test #'string=))))
+      (is (equal "call_123" (cdr (assoc "tool_call_id" (first result) :test #'string=))))
+      (is (equal "Result text" (cdr (assoc "content" (first result) :test #'string=)))))))
+
+(test test-claude-messages-to-openai-assistant-tool-use
+  "Claude assistant tool_use blocks become OpenAI tool_calls field."
+  (let ((messages (list `(("role" . "assistant")
+                          ("content" . (((:type . "tool_use")
+                                         (:id . "toolu_001")
+                                         (:name . "read_file")
+                                         (:input . (("path" . "/tmp/test"))))))))))
+    (let ((result (autopoiesis.integration:claude-messages-to-openai messages)))
+      (is (= 1 (length result)))
+      (let* ((msg (first result))
+             (tool-calls (cdr (assoc "tool_calls" msg :test #'string=))))
+        (is (not (null tool-calls)))
+        (is (= 1 (length tool-calls)))
+        (let* ((tc (first tool-calls))
+               (func (cdr (assoc "function" tc :test #'string=))))
+          (is (equal "toolu_001" (cdr (assoc "id" tc :test #'string=))))
+          (is (equal "function" (cdr (assoc "type" tc :test #'string=))))
+          (is (equal "read_file" (cdr (assoc "name" func :test #'string=)))))))))
+
+(test test-claude-tools-to-openai
+  "Convert Claude tool format to OpenAI function calling format."
+  (let* ((tools (list `(("name" . "read_file")
+                        ("description" . "Read a file")
+                        ("input_schema" . (("type" . "object")
+                                           ("properties" . (("path" . (("type" . "string"))))))))))
+         (result (autopoiesis.integration:claude-tools-to-openai tools)))
+    (is (= 1 (length result)))
+    (let* ((tool (first result))
+           (func (cdr (assoc "function" tool :test #'string=))))
+      (is (equal "function" (cdr (assoc "type" tool :test #'string=))))
+      (is (equal "read_file" (cdr (assoc "name" func :test #'string=))))
+      (is (equal "Read a file" (cdr (assoc "description" func :test #'string=))))
+      (is (not (null (cdr (assoc "parameters" func :test #'string=))))))))
+
+(test test-openai-response-to-claude-format-text
+  "Convert OpenAI text response to Claude format."
+  (let* ((openai-resp `((:id . "chatcmpl-123")
+                        (:choices . (((:message . ((:role . "assistant")
+                                                   (:content . "Hello!")))
+                                      (:finish--reason . "stop"))))
+                        (:model . "gpt-4o")
+                        (:usage . ((:prompt--tokens . 10)
+                                   (:completion--tokens . 5)))))
+         (result (autopoiesis.integration:openai-response-to-claude-format openai-resp)))
+    (is (equal "end_turn" (cdr (assoc :stop--reason result))))
+    (is (equal "assistant" (cdr (assoc :role result))))
+    (let ((content (cdr (assoc :content result))))
+      (is (= 1 (length content)))
+      (is (equal "text" (cdr (assoc :type (first content))))))))
+
+(test test-openai-response-to-claude-format-tool-calls
+  "Convert OpenAI tool call response to Claude format."
+  (let* ((openai-resp `((:id . "chatcmpl-456")
+                        (:choices . (((:message . ((:role . "assistant")
+                                                   (:content . "")
+                                                   (:tool--calls . (((:id . "call_789")
+                                                                     (:type . "function")
+                                                                     (:function . ((:name . "read_file")
+                                                                                   (:arguments . "{\"path\":\"/tmp/test\"}"))))))))
+                                      (:finish--reason . "tool_calls"))))
+                        (:model . "gpt-4o")))
+         (result (autopoiesis.integration:openai-response-to-claude-format openai-resp)))
+    (is (equal "tool_use" (cdr (assoc :stop--reason result))))
+    (let ((content (cdr (assoc :content result))))
+      (is (>= (length content) 1))
+      (let ((tool-block (find "tool_use" content :key (lambda (b) (cdr (assoc :type b))) :test #'string=)))
+        (is (not (null tool-block)))
+        (is (equal "call_789" (cdr (assoc :id tool-block))))
+        (is (equal "read_file" (cdr (assoc :name tool-block))))))))
+
+;;; ===================================================================
+;;; Inference Provider Tests
+;;; ===================================================================
+
+(def-suite inference-provider-tests
+  :description "Tests for the inference provider"
+  :in integration-tests)
+
+(in-suite inference-provider-tests)
+
+(test test-make-inference-provider-anthropic
+  "Create an Anthropic inference provider."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key"
+                   :api-format :anthropic
+                   :model "claude-sonnet-4-20250514")))
+    (is (typep provider 'autopoiesis.integration:inference-provider))
+    (is (eq :anthropic (autopoiesis.integration:provider-api-format provider)))
+    (is (equal "anthropic" (autopoiesis.integration:provider-name provider)))
+    (is (typep (autopoiesis.integration:provider-api-client provider)
+               'autopoiesis.integration:claude-client))))
+
+(test test-make-inference-provider-openai
+  "Create an OpenAI inference provider."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key"
+                   :api-format :openai
+                   :model "gpt-4o")))
+    (is (typep provider 'autopoiesis.integration:inference-provider))
+    (is (eq :openai (autopoiesis.integration:provider-api-format provider)))
+    (is (equal "openai" (autopoiesis.integration:provider-name provider)))
+    (is (typep (autopoiesis.integration:provider-api-client provider)
+               'autopoiesis.integration:openai-client))))
+
+(test test-make-anthropic-provider-convenience
+  "Convenience constructor for Anthropic provider."
+  (let ((provider (autopoiesis.integration:make-anthropic-provider
+                   :api-key "test-key"
+                   :system-prompt "You are helpful.")))
+    (is (eq :anthropic (autopoiesis.integration:provider-api-format provider)))
+    (is (equal "You are helpful." (autopoiesis.integration:provider-system-prompt provider)))))
+
+(test test-make-openai-provider-convenience
+  "Convenience constructor for OpenAI provider."
+  (let ((provider (autopoiesis.integration:make-openai-provider
+                   :api-key "test-key"
+                   :model "gpt-4o-mini"
+                   :base-url "https://api.groq.com/openai/v1")))
+    (is (eq :openai (autopoiesis.integration:provider-api-format provider)))
+    (is (equal "gpt-4o-mini"
+               (autopoiesis.integration:openai-client-model
+                (autopoiesis.integration:provider-api-client provider))))))
+
+(test test-make-ollama-provider-convenience
+  "Convenience constructor for Ollama provider."
+  (let ((provider (autopoiesis.integration:make-ollama-provider
+                   :model "llama3.1"
+                   :port 11434)))
+    (is (eq :openai (autopoiesis.integration:provider-api-format provider)))
+    (is (equal "ollama" (autopoiesis.integration:provider-name provider)))
+    (is (equal "http://localhost:11434/v1"
+               (autopoiesis.integration:openai-client-base-url
+                (autopoiesis.integration:provider-api-client provider))))))
+
+(test test-inference-provider-supported-modes
+  "Inference provider supports one-shot and agentic modes."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key")))
+    (is (member :one-shot (autopoiesis.integration:provider-supported-modes provider)))
+    (is (member :agentic (autopoiesis.integration:provider-supported-modes provider)))))
+
+(test test-inference-provider-always-alive
+  "Inference provider is always alive (no subprocess)."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key")))
+    (is (autopoiesis.integration:provider-alive-p provider))))
+
+(test test-inference-provider-invoke-with-mock
+  "Invoke inference provider with mocked API."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key"
+                   :api-format :anthropic)))
+    ;; Use the complete-function override for testing
+    (setf (autopoiesis.integration:provider-complete-function provider)
+          (lambda (client messages &key system tools)
+            (declare (ignore client messages system tools))
+            (make-mock-text-response "Provider response!")))
+    (let ((result (autopoiesis.integration:provider-invoke provider "Test prompt")))
+      (is (typep result 'autopoiesis.integration:provider-result))
+      (is (equal "Provider response!" (autopoiesis.integration:provider-result-text result)))
+      (is (= 0 (autopoiesis.integration:provider-result-exit-code result)))
+      (is (= 1 (autopoiesis.integration:provider-result-turns result))))))
+
+(test test-inference-provider-invoke-openai-with-mock
+  "Invoke OpenAI inference provider with mocked API."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key"
+                   :api-format :openai)))
+    (setf (autopoiesis.integration:provider-complete-function provider)
+          (lambda (client messages &key system tools)
+            (declare (ignore client messages system tools))
+            (make-mock-text-response "OpenAI mock response!")))
+    (let ((result (autopoiesis.integration:provider-invoke provider "Test prompt")))
+      (is (typep result 'autopoiesis.integration:provider-result))
+      (is (equal "OpenAI mock response!" (autopoiesis.integration:provider-result-text result))))))
+
+(test test-inference-provider-invoke-with-tools
+  "Invoke inference provider with tool use."
+  (let* ((echo-cap (make-test-echo-capability))
+         (provider (autopoiesis.integration:make-inference-provider
+                    :api-key "test-key"
+                    :api-format :anthropic
+                    :capabilities (list echo-cap))))
+    (setf (autopoiesis.integration:provider-complete-function provider)
+          (let ((call-count 0))
+            (lambda (client messages &key system tools)
+              (declare (ignore client messages system tools))
+              (prog1
+                  (if (zerop call-count)
+                      (make-mock-tool-response "echo_input" "toolu_prov"
+                                               '(("message" . "provider test")))
+                      (make-mock-text-response "Tool executed via provider."))
+                (incf call-count)))))
+    (let ((result (autopoiesis.integration:provider-invoke provider "Echo via provider")))
+      (is (equal "Tool executed via provider."
+                 (autopoiesis.integration:provider-result-text result)))
+      (is (= 2 (autopoiesis.integration:provider-result-turns result))))))
+
+(test test-inference-provider-invoke-error-handling
+  "Invoke inference provider handles errors gracefully."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key")))
+    (setf (autopoiesis.integration:provider-complete-function provider)
+          (lambda (client messages &key system tools)
+            (declare (ignore client messages system tools))
+            (error "Simulated API error")))
+    (let ((result (autopoiesis.integration:provider-invoke provider "Will fail")))
+      (is (typep result 'autopoiesis.integration:provider-result))
+      (is (= 1 (autopoiesis.integration:provider-result-exit-code result)))
+      (is (search "Error" (autopoiesis.integration:provider-result-text result))))))
+
+(test test-inference-provider-serialization
+  "Inference provider round-trips through S-expression serialization."
+  (let* ((provider (autopoiesis.integration:make-inference-provider
+                    :name "test-provider"
+                    :api-key "test-key"
+                    :api-format :anthropic
+                    :model "claude-sonnet-4-20250514"
+                    :system-prompt "Test system"
+                    :max-turns 15))
+         (sexpr (autopoiesis.integration:provider-to-sexpr provider)))
+    (is (listp sexpr))
+    (is (eq :provider (first sexpr)))
+    (let ((plist (rest sexpr)))
+      (is (eq 'autopoiesis.integration::inference-provider (getf plist :type)))
+      (is (equal "test-provider" (getf plist :name)))
+      (is (eq :anthropic (getf plist :api-format)))
+      (is (= 15 (getf plist :max-turns)))
+      (is (equal "Test system" (getf plist :system-prompt))))
+    ;; Deserialize
+    (let ((restored (autopoiesis.integration:sexpr-to-inference-provider sexpr)))
+      (is (typep restored 'autopoiesis.integration:inference-provider))
+      (is (equal "test-provider" (autopoiesis.integration:provider-name restored)))
+      (is (eq :anthropic (autopoiesis.integration:provider-api-format restored)))
+      (is (= 15 (autopoiesis.integration:provider-max-turns restored))))))
+
+(test test-inference-provider-openai-serialization
+  "OpenAI inference provider round-trips through serialization."
+  (let* ((provider (autopoiesis.integration:make-inference-provider
+                    :api-key "test-key"
+                    :api-format :openai
+                    :model "gpt-4o"
+                    :base-url "https://api.groq.com/openai/v1"
+                    :max-turns 10))
+         (sexpr (autopoiesis.integration:provider-to-sexpr provider)))
+    (let ((plist (rest sexpr)))
+      (is (eq :openai (getf plist :api-format)))
+      (is (equal "https://api.groq.com/openai/v1" (getf plist :base-url))))))
+
+(test test-inference-provider-format-tools-anthropic
+  "Anthropic provider passes tools through unchanged."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key"
+                   :api-format :anthropic))
+        (tools (list `(("name" . "read_file")
+                       ("description" . "Read a file")
+                       ("input_schema" . (("type" . "object")))))))
+    (let ((result (autopoiesis.integration:provider-format-tools provider tools)))
+      (is (equal tools result)))))
+
+(test test-inference-provider-format-tools-openai
+  "OpenAI provider converts tools to function calling format."
+  (let ((provider (autopoiesis.integration:make-inference-provider
+                   :api-key "test-key"
+                   :api-format :openai))
+        (tools (list `(("name" . "read_file")
+                       ("description" . "Read a file")
+                       ("input_schema" . (("type" . "object")))))))
+    (let ((result (autopoiesis.integration:provider-format-tools provider tools)))
+      (is (= 1 (length result)))
+      (is (equal "function" (cdr (assoc "type" (first result) :test #'string=)))))))
+
+;;; ===================================================================
+;;; Agentic Agent with Provider Tests
+;;; ===================================================================
+
+(def-suite agentic-agent-provider-tests
+  :description "Tests for agentic-agent with inference providers"
+  :in integration-tests)
+
+(in-suite agentic-agent-provider-tests)
+
+(test test-make-agentic-agent-with-provider
+  "Create an agentic agent with an inference provider."
+  (let* ((provider (autopoiesis.integration:make-inference-provider
+                    :api-key "test-key"
+                    :api-format :anthropic
+                    :system-prompt "Provider system prompt"))
+         (agent (autopoiesis.integration:make-agentic-agent
+                 :name "provider-agent"
+                 :provider provider
+                 :max-turns 10)))
+    (is (equal "provider-agent" (autopoiesis.agent:agent-name agent)))
+    (is (not (null (autopoiesis.integration:agent-inference-provider agent))))
+    (is (eq :anthropic
+            (autopoiesis.integration:provider-api-format
+             (autopoiesis.integration:agent-inference-provider agent))))
+    ;; System prompt should come from provider
+    (is (equal "Provider system prompt"
+               (autopoiesis.integration:agent-system-prompt agent)))
+    (is (= 10 (autopoiesis.integration:agent-max-turns agent)))))
+
+(test test-make-agentic-agent-backward-compatible
+  "Creating agentic agent without provider still works (backward compatible)."
+  (let ((agent (autopoiesis.integration:make-agentic-agent
+                :api-key "test-key"
+                :model "claude-sonnet-4-20250514"
+                :name "legacy-agent"
+                :system-prompt "Legacy prompt")))
+    (is (equal "legacy-agent" (autopoiesis.agent:agent-name agent)))
+    (is (null (autopoiesis.integration:agent-inference-provider agent)))
+    (is (not (null (autopoiesis.integration:agent-client agent))))
+    (is (equal "Legacy prompt" (autopoiesis.integration:agent-system-prompt agent)))))
+
+(test test-agentic-agent-with-provider-cognitive-cycle
+  "Run cognitive cycle with provider-backed agent."
+  (let* ((provider (autopoiesis.integration:make-inference-provider
+                    :api-key "test-key"
+                    :api-format :anthropic))
+         (agent (autopoiesis.integration:make-agentic-agent
+                 :name "cycle-provider"
+                 :provider provider)))
+    (autopoiesis.agent:start-agent agent)
+    ;; Mock through provider's complete function
+    (setf (autopoiesis.integration:provider-complete-function provider)
+          (lambda (client messages &key system tools)
+            (declare (ignore client messages system tools))
+            (make-mock-text-response "Provider cycle complete.")))
+    (let ((result (autopoiesis.agent:cognitive-cycle agent "Test with provider")))
+      (is (not (null result)))
+      (is (> (autopoiesis.core:stream-length
+              (autopoiesis.agent:agent-thought-stream agent))
+             0)))))
+
+(test test-agentic-agent-with-openai-provider-cycle
+  "Run cognitive cycle with OpenAI provider-backed agent."
+  (let* ((provider (autopoiesis.integration:make-inference-provider
+                    :api-key "test-key"
+                    :api-format :openai))
+         (agent (autopoiesis.integration:make-agentic-agent
+                 :name "openai-agent"
+                 :provider provider)))
+    (autopoiesis.agent:start-agent agent)
+    (setf (autopoiesis.integration:provider-complete-function provider)
+          (lambda (client messages &key system tools)
+            (declare (ignore client messages system tools))
+            (make-mock-text-response "OpenAI agent response.")))
+    (let ((result (autopoiesis.agent:cognitive-cycle agent "Test with OpenAI")))
+      (is (not (null result))))))
+
+(test test-agentic-agent-provider-serialization
+  "Serialize agentic agent with provider includes provider info."
+  (let* ((provider (autopoiesis.integration:make-inference-provider
+                    :name "test-prov"
+                    :api-key "test-key"
+                    :api-format :openai
+                    :model "gpt-4o"))
+         (agent (autopoiesis.integration:make-agentic-agent
+                 :name "serializable"
+                 :provider provider
+                 :max-turns 20)))
+    (let ((sexpr (autopoiesis.integration:agentic-agent-to-sexpr agent)))
+      (is (eq :agentic-agent (first sexpr)))
+      (let ((plist (rest sexpr)))
+        (is (equal "serializable" (getf plist :name)))
+        (is (= 20 (getf plist :max-turns)))
+        ;; Should have nested provider sexpr
+        (let ((provider-sexpr (getf plist :provider)))
+          (is (not (null provider-sexpr)))
+          (is (eq :provider (first provider-sexpr))))))))
+
+(test test-agentic-agent-legacy-serialization
+  "Serialize agentic agent without provider still has :model."
+  (let ((agent (autopoiesis.integration:make-agentic-agent
+                :api-key "test-key"
+                :model "claude-sonnet-4-20250514"
+                :name "legacy-serialize")))
+    (let* ((sexpr (autopoiesis.integration:agentic-agent-to-sexpr agent))
+           (plist (rest sexpr)))
+      (is (equal "claude-sonnet-4-20250514" (getf plist :model)))
+      ;; Should NOT have :provider key
+      (is (null (getf plist :provider))))))
+
+;;; ===================================================================
+;;; Tool Name Matching Bug Fix Tests
+;;; ===================================================================
+
+(def-suite tool-name-matching-tests
+  :description "Tests for execute-tool-call cross-package name matching"
+  :in integration-tests)
+
+(in-suite tool-name-matching-tests)
+
+(test test-execute-tool-call-keyword-match
+  "execute-tool-call matches capabilities by keyword name."
+  (let ((cap (autopoiesis.agent:make-capability
+              :test-tool
+              (lambda (&key x) (format nil "got ~a" x))
+              :description "Test"
+              :parameters '((x string :required t))))
+        (tool-call '(:id "toolu_123" :name "test_tool" :input (("x" . "hello")))))
+    (let ((result (autopoiesis.integration:execute-tool-call tool-call (list cap))))
+      (is (not (getf result :is-error)))
+      (is (search "got hello" (getf result :result))))))
+
+(test test-execute-tool-call-cross-package-list
+  "execute-tool-call matches capabilities across packages using string comparison."
+  ;; Simulate the defcapability situation: capability registered with package symbol
+  (let ((cap (autopoiesis.agent:make-capability
+              'autopoiesis.integration::some-tool
+              (lambda (&key value) (format nil "value=~a" value))
+              :description "Cross-package test"
+              :parameters '((value string :required t))))
+        (tool-call '(:id "toolu_456" :name "some_tool" :input (("value" . "42")))))
+    ;; tool-name-to-lisp-name converts "some_tool" -> :SOME-TOOL
+    ;; capability-name is autopoiesis.integration::some-tool
+    ;; These don't match with eql but should match with string=
+    (let ((result (autopoiesis.integration:execute-tool-call tool-call (list cap))))
+      (is (not (getf result :is-error)))
+      (is (search "value=42" (getf result :result))))))
+
+(test test-execute-tool-call-cross-package-hash
+  "execute-tool-call matches capabilities across packages in hash tables."
+  (let ((table (make-hash-table :test 'eq))
+        (cap (autopoiesis.agent:make-capability
+              'autopoiesis.integration::hash-tool
+              (lambda (&key msg) (format nil "hash: ~a" msg))
+              :description "Hash table cross-package test"
+              :parameters '((msg string :required t)))))
+    ;; Register under the package symbol (as defcapability does)
+    (setf (gethash 'autopoiesis.integration::hash-tool table) cap)
+    (let* ((tool-call '(:id "toolu_789" :name "hash_tool" :input (("msg" . "test"))))
+           (result (autopoiesis.integration:execute-tool-call tool-call table)))
+      (is (not (getf result :is-error)))
+      (is (search "hash: test" (getf result :result))))))
+

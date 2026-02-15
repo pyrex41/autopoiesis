@@ -99,7 +99,9 @@
        (:file "provider-opencode")
        (:file "provider-cursor")
        (:file "provider-agent")
-       (:file "agentic-agent")))
+       (:file "agentic-agent")
+       (:file "openai-bridge")
+       (:file "provider-inference")))
       (:module "viz"
        :serial t
        :depends-on ("core" "snapshot" "interface")

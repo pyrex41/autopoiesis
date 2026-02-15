@@ -231,11 +231,37 @@
    #:agentic-agent
    #:make-agentic-agent
    #:agent-client
+   #:agent-inference-provider
    #:agent-max-turns
    #:agent-conversation-history
    #:agent-tool-capabilities
    #:agentic-agent-prompt
    #:agentic-agent-to-sexpr
+
+   ;; OpenAI bridge
+   #:openai-client
+   #:make-openai-client
+   #:openai-client-api-key
+   #:openai-client-model
+   #:openai-client-base-url
+   #:openai-client-max-tokens
+   #:openai-complete
+   #:claude-messages-to-openai
+   #:claude-tools-to-openai
+   #:openai-response-to-claude-format
+
+   ;; Inference provider
+   #:inference-provider
+   #:make-inference-provider
+   #:make-anthropic-provider
+   #:make-openai-provider
+   #:make-ollama-provider
+   #:provider-api-client
+   #:provider-api-format
+   #:provider-complete-function
+   #:provider-capabilities
+   #:provider-system-prompt
+   #:sexpr-to-inference-provider
 
    ;; Integration events
    #:integration-event-type
