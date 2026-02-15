@@ -1,7 +1,7 @@
 ;;;; api-tests.lisp - Tests for the WebSocket API layer
 ;;;;
-;;;; Tests the serializers, message handlers, connection management,
-;;;; and event bridge without requiring actual WebSocket connections.
+;;;; Tests the wire format, serializers, message handlers, connection
+;;;; management, and event bridge without requiring actual WebSocket connections.
 
 (defpackage #:autopoiesis.api.test
   (:use #:cl #:fiveam #:autopoiesis.api)
@@ -38,6 +38,99 @@
      ,@body))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Wire Format Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite wire-format-tests
+  :in api-tests
+  :description "Tests for hybrid JSON/MessagePack wire format")
+
+(in-suite wire-format-tests)
+
+(test json-encode-decode-roundtrip
+  "JSON encode/decode preserves data."
+  (let* ((h (make-hash-table :test 'equal)))
+    (setf (gethash "type" h) "test"
+          (gethash "value" h) 42
+          (gethash "name" h) "hello")
+    (let* ((encoded (encode-json h))
+           (decoded (decode-json encoded)))
+      (is (stringp encoded))
+      (is (equal (gethash "type" decoded) "test"))
+      (is (= (gethash "value" decoded) 42))
+      (is (equal (gethash "name" decoded) "hello")))))
+
+(test msgpack-encode-decode-roundtrip
+  "MessagePack encode/decode preserves data."
+  (let* ((h (make-hash-table :test 'equal)))
+    (setf (gethash "type" h) "event"
+          (gethash "value" h) 99
+          (gethash "name" h) "stream-data")
+    (let* ((encoded (encode-msgpack h))
+           (decoded (decode-msgpack encoded)))
+      (is (typep encoded '(simple-array (unsigned-byte 8) (*)))
+          "MessagePack should encode to byte vector")
+      ;; decoded is alist from cl-messagepack
+      (is (equal (cdr (assoc "type" decoded :test #'equal)) "event"))
+      (is (= (cdr (assoc "value" decoded :test #'equal)) 99))
+      (is (equal (cdr (assoc "name" decoded :test #'equal)) "stream-data")))))
+
+(test msgpack-smaller-than-json
+  "MessagePack encoding is smaller than JSON for typical messages."
+  (let* ((h (make-hash-table :test 'equal)))
+    (setf (gethash "type" h) "thought_added"
+          (gethash "agentId" h) "abc-123-def-456"
+          (gethash "timestamp" h) 1234567890.123d0
+          (gethash "content" h) "observation data here"
+          (gethash "confidence" h) 0.95d0)
+    (let ((json-size (length (encode-json h)))
+          (msgpack-size (length (encode-msgpack h))))
+      (is (< msgpack-size json-size)
+          (format nil "MsgPack (~d bytes) should be smaller than JSON (~d bytes)"
+                  msgpack-size json-size)))))
+
+(test encode-control-produces-string
+  "encode-control always produces a string (JSON text frame)."
+  (let ((h (make-hash-table :test 'equal)))
+    (setf (gethash "type" h) "pong")
+    (is (stringp (encode-control h)))))
+
+(test encode-stream-produces-bytes
+  "encode-stream always produces a byte vector (MessagePack binary frame)."
+  (let ((h (make-hash-table :test 'equal)))
+    (setf (gethash "type" h) "event")
+    (is (typep (encode-stream h) '(simple-array (unsigned-byte 8) (*))))))
+
+(test stream-message-classification
+  "Stream message types are correctly classified."
+  (is (autopoiesis.api::stream-message-p "event"))
+  (is (autopoiesis.api::stream-message-p "thought_added"))
+  (is (autopoiesis.api::stream-message-p "agent_state_changed"))
+  (is (not (autopoiesis.api::stream-message-p "pong")))
+  (is (not (autopoiesis.api::stream-message-p "agents")))
+  (is (not (autopoiesis.api::stream-message-p "subscribed"))))
+
+(test encode-auto-selects-format
+  "encode-auto picks binary for streams, text for control."
+  (let ((stream-msg (make-hash-table :test 'equal))
+        (control-msg (make-hash-table :test 'equal)))
+    (setf (gethash "type" stream-msg) "event")
+    (setf (gethash "type" control-msg) "pong")
+
+    (multiple-value-bind (data frame-type) (encode-auto stream-msg)
+      (is (eq frame-type :binary))
+      (is (typep data '(simple-array (unsigned-byte 8) (*)))))
+
+    (multiple-value-bind (data frame-type) (encode-auto control-msg)
+      (is (eq frame-type :text))
+      (is (stringp data)))))
+
+(test decode-json-invalid-returns-nil
+  "Decoding invalid JSON returns NIL."
+  (is (null (decode-json "not valid json {")))
+  (is (null (decode-json ""))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Serializer Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -53,9 +146,6 @@
     (let* ((agent (make-test-agent :name "serializer-test"
                                    :capabilities '(:read-file :write-file)))
            (json (agent-to-json-plist agent)))
-      (is (stringp (getf json "id" nil))
-          "Agent should have string ID")
-      ;; plist with string keys - use position-based access
       (let ((id (second (member "id" json :test #'equal)))
             (name (second (member "name" json :test #'equal)))
             (state (second (member "state" json :test #'equal)))
@@ -124,35 +214,6 @@
     (autopoiesis.interface::unregister-blocking-request req)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Message Encoding/Decoding Tests
-;;; ═══════════════════════════════════════════════════════════════════
-
-(def-suite message-tests
-  :in api-tests
-  :description "Tests for message encoding and decoding")
-
-(in-suite message-tests)
-
-(test encode-decode-roundtrip
-  "Messages survive JSON encode/decode roundtrip."
-  (let* ((original (let ((h (make-hash-table :test 'equal)))
-                     (setf (gethash "type" h) "test"
-                           (gethash "data" h) "hello"
-                           (gethash "number" h) 42)
-                     h))
-         (json-str (encode-message original))
-         (decoded (decode-message json-str)))
-    (is (stringp json-str))
-    (is (equal (gethash "type" decoded) "test"))
-    (is (equal (gethash "data" decoded) "hello"))
-    (is (= (gethash "number" decoded) 42))))
-
-(test decode-invalid-json
-  "Decoding invalid JSON returns NIL."
-  (is (null (decode-message "not valid json {")))
-  (is (null (decode-message ""))))
-
-;;; ═══════════════════════════════════════════════════════════════════
 ;;; Handler Tests (using direct function calls, no WebSocket)
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -168,6 +229,9 @@
    (sent-messages :initarg :sent-messages :accessor mock-sent-messages :initform nil)
    (subscriptions :initarg :subscriptions :accessor connection-subscriptions
                   :initform (make-hash-table :test 'equal))
+   (preferred-stream-format :initarg :preferred-stream-format
+                            :accessor autopoiesis.api::connection-stream-format
+                            :initform :msgpack)
    (ws :initarg :ws :accessor connection-ws :initform nil)
    (metadata :initarg :metadata :accessor connection-metadata
              :initform (make-hash-table :test 'equal))))
@@ -185,14 +249,14 @@
 (test handler-ping
   "Ping handler returns pong."
   (let* ((conn (make-mock-connection))
-         (result (handle-ping (make-msg "type" "ping") conn)))
+         (result (autopoiesis.api::handle-ping (make-msg "type" "ping") conn)))
     (is (equal (gethash "type" result) "pong"))))
 
 (test handler-system-info
   "System info handler returns version and counts."
   (with-clean-state
     (let* ((conn (make-mock-connection))
-           (result (handle-system-info (make-msg "type" "system_info") conn)))
+           (result (autopoiesis.api::handle-system-info (make-msg "type" "system_info") conn)))
       (is (equal (gethash "type" result) "system_info"))
       (is (stringp (gethash "version" result))))))
 
@@ -200,7 +264,7 @@
   "List agents returns empty list when no agents."
   (with-clean-state
     (let* ((conn (make-mock-connection))
-           (result (handle-list-agents (make-msg "type" "list_agents") conn)))
+           (result (autopoiesis.api::handle-list-agents (make-msg "type" "list_agents") conn)))
       (is (equal (gethash "type" result) "agents"))
       (is (null (gethash "agents" result))))))
 
@@ -209,7 +273,7 @@
   (with-clean-state
     (let ((conn (make-mock-connection)))
       ;; Create
-      (let ((result (handle-create-agent
+      (let ((result (autopoiesis.api::handle-create-agent
                      (make-msg "type" "create_agent"
                                "name" "test-bot"
                                "capabilities" '("read-file"))
@@ -220,7 +284,7 @@
           (is (equal (second (member "name" agent-data :test #'equal)) "test-bot"))))
 
       ;; List
-      (let ((result (handle-list-agents (make-msg "type" "list_agents") conn)))
+      (let ((result (autopoiesis.api::handle-list-agents (make-msg "type" "list_agents") conn)))
         (is (= (length (gethash "agents" result)) 1))))))
 
 (test handler-agent-lifecycle
@@ -231,7 +295,7 @@
            (agent-id (autopoiesis.agent:agent-id agent)))
 
       ;; Start
-      (let ((result (handle-agent-action
+      (let ((result (autopoiesis.api::handle-agent-action
                      (make-msg "type" "agent_action"
                                "agentId" agent-id
                                "action" "start")
@@ -239,7 +303,7 @@
         (is (equal (gethash "state" result) "running")))
 
       ;; Pause
-      (let ((result (handle-agent-action
+      (let ((result (autopoiesis.api::handle-agent-action
                      (make-msg "type" "agent_action"
                                "agentId" agent-id
                                "action" "pause")
@@ -247,7 +311,7 @@
         (is (equal (gethash "state" result) "paused")))
 
       ;; Resume
-      (let ((result (handle-agent-action
+      (let ((result (autopoiesis.api::handle-agent-action
                      (make-msg "type" "agent_action"
                                "agentId" agent-id
                                "action" "resume")
@@ -255,7 +319,7 @@
         (is (equal (gethash "state" result) "running")))
 
       ;; Stop
-      (let ((result (handle-agent-action
+      (let ((result (autopoiesis.api::handle-agent-action
                      (make-msg "type" "agent_action"
                                "agentId" agent-id
                                "action" "stop")
@@ -266,7 +330,7 @@
   "Agent operations on missing ID return error."
   (with-clean-state
     (let ((conn (make-mock-connection)))
-      (let ((result (handle-get-agent
+      (let ((result (autopoiesis.api::handle-get-agent
                      (make-msg "type" "get_agent" "agentId" "nonexistent")
                      conn)))
         (is (equal (gethash "type" result) "error"))
@@ -280,7 +344,7 @@
            (agent-id (autopoiesis.agent:agent-id agent)))
 
       ;; Inject
-      (let ((result (handle-inject-thought
+      (let ((result (autopoiesis.api::handle-inject-thought
                      (make-msg "type" "inject_thought"
                                "agentId" agent-id
                                "content" "hello world"
@@ -289,7 +353,7 @@
         (is (equal (gethash "type" result) "thought_added")))
 
       ;; Inject another
-      (handle-inject-thought
+      (autopoiesis.api::handle-inject-thought
        (make-msg "type" "inject_thought"
                  "agentId" agent-id
                  "content" "second thought"
@@ -297,7 +361,7 @@
        conn)
 
       ;; Get
-      (let ((result (handle-get-thoughts
+      (let ((result (autopoiesis.api::handle-get-thoughts
                      (make-msg "type" "get_thoughts"
                                "agentId" agent-id
                                "limit" 10)
@@ -311,7 +375,7 @@
   (with-clean-state
     (let ((conn (make-mock-connection)))
       ;; Create branch
-      (let ((result (handle-create-branch
+      (let ((result (autopoiesis.api::handle-create-branch
                      (make-msg "type" "create_branch"
                                "name" "feature-x"
                                "fromSnapshot" "snap-001")
@@ -319,7 +383,7 @@
         (is (equal (gethash "type" result) "branch_created")))
 
       ;; List
-      (let ((result (handle-list-branches
+      (let ((result (autopoiesis.api::handle-list-branches
                      (make-msg "type" "list_branches") conn)))
         (is (equal (gethash "type" result) "branches"))
         (is (= (length (gethash "branches" result)) 1))))))
@@ -328,7 +392,7 @@
   "Subscribe and unsubscribe to channels."
   (let ((conn (make-mock-connection)))
     ;; Subscribe
-    (let ((result (handle-subscribe
+    (let ((result (autopoiesis.api::handle-subscribe
                    (make-msg "type" "subscribe" "channel" "events")
                    conn)))
       (is (equal (gethash "type" result) "subscribed"))
@@ -338,10 +402,36 @@
     (is (connection-subscribed-p conn "events"))
 
     ;; Unsubscribe
-    (handle-unsubscribe
+    (autopoiesis.api::handle-unsubscribe
      (make-msg "type" "unsubscribe" "channel" "events")
      conn)
     (is (not (connection-subscribed-p conn "events")))))
+
+(test handler-set-stream-format
+  "Client can switch between msgpack and json for data streams."
+  (let ((conn (make-mock-connection)))
+    ;; Default is msgpack
+    (is (eq (autopoiesis.api::connection-stream-format conn) :msgpack))
+
+    ;; Switch to json
+    (let ((result (autopoiesis.api::handle-set-stream-format
+                   (make-msg "type" "set_stream_format" "format" "json")
+                   conn)))
+      (is (equal (gethash "type" result) "stream_format_set"))
+      (is (equal (gethash "format" result) "json")))
+    (is (eq (autopoiesis.api::connection-stream-format conn) :json))
+
+    ;; Switch back to msgpack
+    (autopoiesis.api::handle-set-stream-format
+     (make-msg "type" "set_stream_format" "format" "msgpack")
+     conn)
+    (is (eq (autopoiesis.api::connection-stream-format conn) :msgpack))
+
+    ;; Invalid format returns error
+    (let ((result (autopoiesis.api::handle-set-stream-format
+                   (make-msg "type" "set_stream_format" "format" "xml")
+                   conn)))
+      (is (equal (gethash "type" result) "error")))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Message Dispatch Tests
@@ -357,7 +447,7 @@
   "Unknown message type returns error."
   (with-clean-state
     (let* ((conn (make-mock-connection))
-           (result (dispatch-message "totally_unknown" (make-msg) conn)))
+           (result (autopoiesis.api::dispatch-message "totally_unknown" (make-msg) conn)))
       (is (equal (gethash "type" result) "error"))
       (is (equal (gethash "code" result) "unknown_type")))))
 
@@ -410,12 +500,12 @@
                                :ws nil)))
       ;; Register
       (register-connection conn)
-      (is (= (connection-count) 1))
+      (is (= (autopoiesis.api::connection-count) 1))
       (is (not (null (find-connection (connection-id conn)))))
 
       ;; Unregister
       (unregister-connection conn)
-      (is (= (connection-count) 0))
+      (is (= (autopoiesis.api::connection-count) 0))
       (is (null (find-connection (connection-id conn)))))))
 
 (test connection-subscriptions
@@ -431,6 +521,11 @@
     (unsubscribe-connection conn "events")
     (is (not (connection-subscribed-p conn "events")))
     (is (connection-subscribed-p conn "thoughts:agent-1"))))
+
+(test connection-default-stream-format
+  "New connections default to msgpack stream format."
+  (let ((conn (make-instance 'api-connection :ws nil)))
+    (is (eq (autopoiesis.api::connection-stream-format conn) :msgpack))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Run All Tests

@@ -2,6 +2,9 @@
 ;;;;
 ;;;; Tracks connected clients, their subscriptions, and provides
 ;;;; broadcast/targeted message delivery.
+;;;;
+;;;; Supports hybrid wire format: text frames (JSON) for control
+;;;; messages, binary frames (MessagePack) for data streams.
 
 (in-package #:autopoiesis.api)
 
@@ -22,6 +25,12 @@
                   :initform (make-hash-table :test 'equal)
                   :documentation "What this connection is subscribed to.
 Hash table mapping subscription-type -> parameters.")
+   (preferred-stream-format :initarg :preferred-stream-format
+                            :accessor connection-stream-format
+                            :initform :msgpack
+                            :type wire-format
+                            :documentation "Wire format for data streams.
+:msgpack (default, compact binary) or :json (for debugging).")
    (created-at :initarg :created-at
                :accessor connection-created-at
                :initform (autopoiesis.core:get-precise-time)
@@ -101,31 +110,65 @@ Hash table mapping subscription-type -> parameters.")
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun send-to-connection (connection message-string)
-  "Send a JSON string to a specific connection."
+  "Send a JSON text frame to a specific connection (control messages)."
   (handler-case
-      (websocket-driver:send (connection-ws connection) message-string)
+      (ws-send-text (connection-ws connection) message-string)
     (error (e)
       (log:warn "Failed to send to connection ~a: ~a"
                 (connection-id connection) e)
-      ;; Connection is probably dead, clean it up
+      (unregister-connection connection))))
+
+(defun send-stream-to-connection (connection data)
+  "Send a data stream message to a connection using its preferred format.
+DATA is a hash-table or plist to be encoded."
+  (handler-case
+      (ecase (connection-stream-format connection)
+        (:msgpack (ws-send-binary (connection-ws connection)
+                                  (encode-stream data)))
+        (:json (ws-send-text (connection-ws connection)
+                             (encode-control data))))
+    (error (e)
+      (log:warn "Failed to send stream to connection ~a: ~a"
+                (connection-id connection) e)
       (unregister-connection connection))))
 
 (defun broadcast-message (message-string &key subscription-type)
-  "Send a message to all connections, optionally filtered by subscription.
-
-   MESSAGE-STRING: pre-encoded JSON string
-   SUBSCRIPTION-TYPE: if provided, only send to connections subscribed to this"
+  "Send a JSON text frame to all connections, optionally filtered by subscription."
   (bordeaux-threads:with-lock-held (*connections-lock*)
     (loop for conn being the hash-values of *connections*
           when (or (null subscription-type)
                    (connection-subscribed-p conn subscription-type))
             do (handler-case
-                   (websocket-driver:send (connection-ws conn) message-string)
+                   (ws-send-text (connection-ws conn) message-string)
                  (error (e)
                    (log:warn "Broadcast send failed for ~a: ~a"
                              (connection-id conn) e))))))
 
-(defun broadcast-to-agent-subscribers (agent-id message-string)
-  "Send a message to all connections subscribed to a specific agent's updates."
+(defun broadcast-stream (data &key subscription-type)
+  "Send a data stream to all subscribed connections using each one's preferred format.
+DATA is a hash-table or plist to be encoded per-connection."
+  (bordeaux-threads:with-lock-held (*connections-lock*)
+    ;; Pre-encode both formats so we don't re-encode per connection
+    (let ((msgpack-bytes nil)
+          (json-string nil))
+      (loop for conn being the hash-values of *connections*
+            when (or (null subscription-type)
+                     (connection-subscribed-p conn subscription-type))
+              do (handler-case
+                     (ecase (connection-stream-format conn)
+                       (:msgpack
+                        (unless msgpack-bytes
+                          (setf msgpack-bytes (encode-stream data)))
+                        (ws-send-binary (connection-ws conn) msgpack-bytes))
+                       (:json
+                        (unless json-string
+                          (setf json-string (encode-control data)))
+                        (ws-send-text (connection-ws conn) json-string)))
+                   (error (e)
+                     (log:warn "Stream broadcast failed for ~a: ~a"
+                               (connection-id conn) e)))))))
+
+(defun broadcast-to-agent-subscribers (agent-id data)
+  "Send a data stream to all connections subscribed to a specific agent's updates."
   (let ((sub-type (format nil "thoughts:~a" agent-id)))
-    (broadcast-message message-string :subscription-type sub-type)))
+    (broadcast-stream data :subscription-type sub-type)))

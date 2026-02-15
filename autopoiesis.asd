@@ -141,12 +141,14 @@
                #:lack                 ; Middleware composition
                #:woo                  ; Async HTTP server (event-driven)
                #:websocket-driver     ; WebSocket protocol
-               #:com.inuoe.jzon)     ; Fast, safe JSON
+               #:com.inuoe.jzon      ; Fast, safe JSON (control messages)
+               #:cl-messagepack)     ; Binary encoding (data streams)
   :components
   ((:module "src/api"
     :serial t
     :components
     ((:file "packages")
+     (:file "wire-format")
      (:file "serializers")
      (:file "connections")
      (:file "handlers")

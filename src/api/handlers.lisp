@@ -1,26 +1,27 @@
 ;;;; handlers.lisp - WebSocket message handlers
 ;;;;
 ;;;; Maps incoming JSON message types to autopoiesis operations.
-;;;; Each handler receives a decoded message plist and connection,
-;;;; and returns a response plist (or nil for no response).
+;;;; Each handler receives a decoded message hash-table and connection,
+;;;; and returns a response hash-table (or nil for no response).
+;;;;
+;;;; Client requests always arrive as JSON text frames.
+;;;; Direct responses always go back as JSON text frames.
+;;;; Push notifications (events, thought updates, state changes) go
+;;;; as binary (MessagePack) or JSON depending on connection preference.
 
 (in-package #:autopoiesis.api)
 
 ;;; ═══════════════════════════════════════════════════════════════════
-;;; Message Encoding/Decoding
+;;; Message Encoding/Decoding (for request/response - always JSON)
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun decode-message (json-string)
   "Decode a JSON message string to a hash table."
-  (handler-case
-      (com.inuoe.jzon:parse json-string)
-    (error (e)
-      (log:warn "Failed to decode message: ~a" e)
-      nil)))
+  (decode-json json-string))
 
-(defun encode-message (plist)
-  "Encode a plist as a JSON string."
-  (com.inuoe.jzon:stringify plist))
+(defun encode-message (data)
+  "Encode data as a JSON string (for control responses)."
+  (encode-control data))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Message Dispatch
@@ -127,11 +128,10 @@
                                (or (gethash "capabilities" msg) nil)))
          (agent (make-agent :name name :capabilities capabilities)))
     (register-agent agent)
-    ;; Broadcast to all connections subscribed to agent updates
-    (let ((notification (encode-message
-                         (ok-response "agent_created"
-                                      "agent" (agent-to-json-plist agent)))))
-      (broadcast-message notification :subscription-type "agents"))
+    ;; Broadcast to agent subscribers (binary stream)
+    (broadcast-stream (ok-response "agent_created"
+                                   "agent" (agent-to-json-plist agent))
+                      :subscription-type "agents")
     (ok-response "agent_created"
                  "agent" (agent-to-json-plist agent))))
 
@@ -153,13 +153,12 @@
                          (error-response "invalid_action"
                                          (format nil "Unknown action: ~a" action)))))))
       (declare (ignore result))
-      ;; Broadcast state change
-      (let ((notification (encode-message
-                           (ok-response "agent_state_changed"
-                                        "agentId" agent-id
-                                        "state" (string-downcase
-                                                 (symbol-name (agent-state agent)))))))
-        (broadcast-message notification :subscription-type "agents"))
+      ;; Broadcast state change (binary stream)
+      (broadcast-stream (ok-response "agent_state_changed"
+                                     "agentId" agent-id
+                                     "state" (string-downcase
+                                              (symbol-name (agent-state agent))))
+                        :subscription-type "agents")
       (ok-response "agent_state_changed"
                    "agentId" agent-id
                    "state" (string-downcase
@@ -217,12 +216,12 @@
            (_ (stream-append (agent-thought-stream agent) thought))
            (thought-json (thought-to-json-plist thought)))
       (declare (ignore _))
-      ;; Push to thought subscribers
-      (let ((notification (encode-message
-                           (ok-response "thought_added"
-                                        "agentId" agent-id
-                                        "thought" thought-json))))
-        (broadcast-to-agent-subscribers agent-id notification))
+      ;; Push to thought subscribers (binary stream)
+      (broadcast-to-agent-subscribers
+       agent-id
+       (ok-response "thought_added"
+                    "agentId" agent-id
+                    "thought" thought-json))
       (ok-response "thought_added"
                    "agentId" agent-id
                    "thought" thought-json))))
@@ -331,6 +330,21 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Subscription Handlers
 ;;; ═══════════════════════════════════════════════════════════════════
+
+(define-handler handle-set-stream-format "set_stream_format" (msg conn)
+  "Let a client switch between :msgpack (compact) and :json (debug-friendly)
+for data stream messages. Control messages are always JSON."
+  (let ((format (gethash "format" msg)))
+    (cond
+      ((equal format "msgpack")
+       (setf (connection-stream-format conn) :msgpack)
+       (ok-response "stream_format_set" "format" "msgpack"))
+      ((equal format "json")
+       (setf (connection-stream-format conn) :json)
+       (ok-response "stream_format_set" "format" "json"))
+      (t
+       (error-response "invalid_format"
+                       "format must be \"msgpack\" or \"json\"")))))
 
 (define-handler handle-subscribe "subscribe" (msg conn)
   (let ((channel (gethash "channel" msg)))

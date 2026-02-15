@@ -2,7 +2,7 @@
 ;;;;
 ;;;; Bridges the integration event bus to connected WebSocket clients.
 ;;;; When a frontend subscribes to "events" or "events:TYPE", it receives
-;;;; real-time push notifications of system activity.
+;;;; real-time push notifications as MessagePack binary frames (compact).
 
 (in-package #:autopoiesis.api)
 
@@ -32,22 +32,20 @@ Stored so we can unsubscribe it on shutdown.")
     (log:info "API event bridge stopped")))
 
 (defun forward-event-to-subscribers (event)
-  "Forward an integration event to all subscribed WebSocket clients."
+  "Forward an integration event to all subscribed WebSocket clients.
+Uses binary (MessagePack) frames for compact delivery."
   (let* ((event-type (string-downcase
                       (symbol-name (integration-event-kind event))))
          (agent-id (integration-event-agent-id event))
-         (message (encode-message
-                   (ok-response "event"
-                                "event" (event-to-json-plist event)))))
-    ;; Send to connections subscribed to all events
-    (broadcast-message message :subscription-type "events")
-    ;; Send to connections subscribed to this specific event type
-    (broadcast-message message
-                       :subscription-type (format nil "events:~a" event-type))
-    ;; Send to connections subscribed to this agent's events
+         (data (ok-response "event"
+                            "event" (event-to-json-plist event))))
+    ;; Send as data stream (binary) to subscribed connections
+    (broadcast-stream data :subscription-type "events")
+    (broadcast-stream data
+                      :subscription-type (format nil "events:~a" event-type))
     (when agent-id
-      (broadcast-message message
-                         :subscription-type (format nil "agent:~a" agent-id)))))
+      (broadcast-stream data
+                        :subscription-type (format nil "agent:~a" agent-id)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Blocking Request Notifications
@@ -92,11 +90,10 @@ and pushes them to all connected clients."
       (let ((id (blocking-request-id req)))
         (unless (gethash id *known-blocking-ids*)
           (setf (gethash id *known-blocking-ids*) t)
-          ;; Push to all connected clients
-          (let ((message (encode-message
-                          (ok-response "blocking_request"
-                                       "request" (blocking-request-to-json-plist req)))))
-            (broadcast-message message))))))
+          ;; Push as binary stream to all clients
+          (broadcast-stream
+           (ok-response "blocking_request"
+                        "request" (blocking-request-to-json-plist req)))))))
   ;; Clean up known IDs for requests that are no longer pending
   (let ((pending-ids (mapcar #'blocking-request-id
                              (list-pending-blocking-requests))))

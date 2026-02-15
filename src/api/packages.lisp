@@ -3,6 +3,9 @@
 ;;;; Defines the package for the WebSocket API server built on
 ;;;; Clack/Lack/Woo that exposes autopoiesis functionality to
 ;;;; external frontends (3D holodeck, VR clients, terminals, etc.)
+;;;;
+;;;; Wire format: JSON text frames for control, MessagePack binary
+;;;; frames for data streams.
 
 (in-package #:cl-user)
 
@@ -22,15 +25,29 @@
    #:*api-port*
    #:*api-host*
 
+   ;; Wire format
+   #:wire-format
+   #:*stream-format*
+   #:encode-control
+   #:encode-stream
+   #:encode-auto
+   #:decode-json
+   #:decode-msgpack
+   #:encode-json
+   #:encode-msgpack
+
    ;; Connection management
    #:api-connection
    #:connection-id
    #:connection-ws
    #:connection-subscriptions
+   #:connection-stream-format
    #:list-connections
    #:find-connection
    #:broadcast-message
+   #:broadcast-stream
    #:send-to-connection
+   #:send-stream-to-connection
 
    ;; Message protocol
    #:handle-message
