@@ -219,9 +219,18 @@
          (input (getf tool-call :input))
          (cap-name (tool-name-to-lisp-name tool-name))
          (capability (if (hash-table-p capabilities)
-                         (gethash cap-name capabilities)
+                         (or (gethash cap-name capabilities)
+                             ;; Fallback: search by string= for cross-package matches
+                             ;; (defcapability registers package-qualified symbols,
+                             ;; but tool dispatch converts to keywords)
+                             (loop for k being the hash-keys of capabilities
+                                     using (hash-value v)
+                                   when (string= (string k) (string cap-name))
+                                     return v))
                          (find cap-name capabilities
-                               :key #'capability-name))))
+                               :key #'capability-name
+                               :test (lambda (name cap-name)
+                                       (string= (string name) (string cap-name)))))))
     (if capability
         (handler-case
             (let ((result (apply-capability-with-input capability input)))
