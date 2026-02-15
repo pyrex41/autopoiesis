@@ -1,22 +1,24 @@
 ;;;; packages.lisp - API layer package definitions
 ;;;;
-;;;; Defines the package for the WebSocket API server built on
-;;;; Clack/Lack/Woo that exposes autopoiesis functionality to
-;;;; external frontends (3D holodeck, VR clients, terminals, etc.)
+;;;; Defines the package for the autopoiesis API layer, including:
+;;;; - WebSocket server (Clack/Lack/Woo) for real-time frontend connectivity
+;;;; - REST server (Hunchentoot) for external agent system integration
+;;;; - MCP server for Model Context Protocol support
 ;;;;
 ;;;; Wire format: JSON text frames for control, MessagePack binary
-;;;; frames for data streams.
+;;;; frames for data streams (WebSocket), JSON over HTTP (REST).
 
 (in-package #:cl-user)
 
 (defpackage #:autopoiesis.api
-  (:use #:cl
+  (:use #:cl #:alexandria
         #:autopoiesis.core
         #:autopoiesis.agent
         #:autopoiesis.snapshot
         #:autopoiesis.interface
         #:autopoiesis.integration)
   (:export
+   ;; === WebSocket Server (Clack/Woo) ===
    ;; Server lifecycle
    #:start-api-server
    #:stop-api-server
@@ -54,10 +56,41 @@
    #:encode-message
    #:decode-message
 
-   ;; Serialization helpers
+   ;; Serialization helpers (WebSocket - string-keyed plists)
    #:agent-to-json-plist
    #:thought-to-json-plist
    #:snapshot-to-json-plist
    #:branch-to-json-plist
    #:event-to-json-plist
-   #:blocking-request-to-json-plist))
+   #:blocking-request-to-json-plist
+
+   ;; === REST Server (Hunchentoot) ===
+   ;; Server lifecycle
+   #:*rest-server*
+   #:*rest-port*
+   #:start-rest-server
+   #:stop-rest-server
+   #:rest-server-running-p
+
+   ;; Authentication
+   #:register-api-key
+   #:revoke-api-key
+   #:validate-api-key
+
+   ;; SSE event streaming
+   #:*sse-clients*
+   #:sse-broadcast
+
+   ;; Serialization helpers (REST - alists for cl-json)
+   #:agent-to-json-alist
+   #:snapshot-to-json-alist
+   #:branch-to-json-alist
+   #:capability-to-json-alist
+   #:blocking-request-to-json-alist
+   #:thought-to-json-alist
+   #:event-to-json-alist
+
+   ;; MCP server
+   #:mcp-tool-definitions
+   #:handle-mcp-endpoint
+   #:*mcp-sessions*))

@@ -124,8 +124,19 @@
       :components
       ((:file "packages")
        (:file "endpoints")))
+     (:module "api"
+      :serial t
+      :depends-on ("core" "agent" "snapshot" "interface" "integration")
+      :components
+      ((:file "packages")
+       (:file "auth")
+       (:file "serialization")
+       (:file "sse")
+       (:file "routes")
+       (:file "mcp-server")
+       (:file "rest-server")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security" "monitoring")))))
+     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security" "monitoring" "api")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; WebSocket API server (Clack/Lack/Woo)
@@ -229,6 +240,7 @@
      (:file "security-tests")
      (:file "monitoring-tests")
      (:file "provider-tests")
+     (:file "rest-api-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))

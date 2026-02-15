@@ -19,4 +19,5 @@
    #:e2e-tests
    #:security-tests
    #:monitoring-tests
-   #:provider-tests))
+   #:provider-tests
+   #:api-tests))
