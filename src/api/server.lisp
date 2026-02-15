@@ -58,7 +58,7 @@ If NIL, no static files are served.")
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; WebSocket Handler
-;;; ═══════════════════════════════════════════════════════════════════
+;;; ═══════════════════════════════════════════════════════════════════ b374f5a (Add MCP server, Go client SDK, and PicoClaw Skill integration)
 
 (defun make-websocket-handler (env)
   "Create a WebSocket connection handler for the given request ENV."
