@@ -9,13 +9,15 @@
           (cancel 1) (queue-event 1) (status 0))
   ;; Exported for testing
   (export (classify-event 1) (compute-next-run 1)
-          (schedule-infra-watcher 0)))
+          (schedule-infra-watcher 0)
+          (find-pending-request 2) (remove-pending-request 2)))
 
 ;; State record — replaces plain maps
 (defrecord state
-  timer-heap     ; gb_trees with #(monotonic-time unique-ref) keys
-  event-queue    ; list of event maps
-  metrics)       ; map of metric counters
+  timer-heap        ; gb_trees with #(monotonic-time unique-ref) keys
+  event-queue       ; list of event maps
+  metrics           ; map of metric counters
+  pending-requests) ; list of blocking-request maps (Phase 4.5)
 
 ;;; ============================================================
 ;;; Client API
@@ -67,7 +69,8 @@
                               timers-cancelled 0
                               tasks-completed 0
                               consecutive-failures 0
-                              last-failure-time 0))))
+                              last-failure-time 0)
+                   pending-requests '())))
     `#(ok ,initial)))
 
 (defun handle_call
@@ -127,6 +130,26 @@
        (_
         (logger:info "Task ~s status: ~p" (list task-id task-status))
         `#(noreply ,(set-state-metrics state new-metrics))))))
+
+  ;; Phase 4.5: Store blocking request from agent worker
+  ((`#(blocking-request ,request) state)
+   (logger:notice "Agent blocking request: ~p" (list (maps:get 'request-id request 'unknown)))
+   (let ((pending (state-pending-requests state)))
+     `#(noreply ,(set-state-pending-requests state (cons request pending)))))
+
+  ;; Phase 4.5: Resolve blocking request from external handler
+  ((`#(resolve-request ,request-id ,response) state)
+   (let ((pending (state-pending-requests state)))
+     (case (find-pending-request request-id pending)
+       ('false
+        (logger:warning "No pending request ~p" (list request-id))
+        `#(noreply ,state))
+       (request
+        (let ((worker-pid (maps:get 'worker-pid request)))
+          ;; Send response back to CL via agent-worker
+          (gen_server:cast worker-pid `#(resolve-blocking ,request-id ,response)))
+        `#(noreply ,(set-state-pending-requests state
+                      (remove-pending-request request-id pending)))))))
 
   ((_msg state)
    `#(noreply ,state)))
@@ -195,6 +218,9 @@
              (logger:info "Skipping ~p — already running" (list task-type)))
             ('false
              (spawn-claude-for-work action)))))
+       ('agentic
+        ;; Phase 4.4: Dispatch to CL agentic agent
+        (dispatch-agentic-agent action))
        (_
         (spawn-agent-for-work action)))
      state)
@@ -462,4 +488,76 @@
         timers-scheduled ,(maps:get 'timers-scheduled metrics 0)
         timers-cancelled ,(maps:get 'timers-cancelled metrics 0)
         tasks-completed ,(maps:get 'tasks-completed metrics 0)
-        consecutive-failures ,(maps:get 'consecutive-failures metrics 0))))
+        consecutive-failures ,(maps:get 'consecutive-failures metrics 0)
+        pending-requests ,(length (state-pending-requests state)))))
+
+;;; ============================================================
+;;; Phase 4.4: Agentic agent dispatch
+;;; ============================================================
+
+(defun dispatch-agentic-agent (action)
+  "Spawn a CL agent and run an agentic prompt on it.
+   Runs asynchronously to avoid blocking the conductor tick loop."
+  (let* ((agent-id (list_to_atom
+                    (++ "agentic-" (integer_to_list (erlang:unique_integer '(positive))))))
+         (prompt (maps:get 'prompt action ""))
+         (capabilities (maps:get 'capabilities action '()))
+         (max-turns (maps:get 'max-turns action 25))
+         (config `#M(agent-id ,agent-id
+                     name ,(maps:get 'name action "agentic-worker"))))
+    (spawn
+     (lambda ()
+       (case (catch (agent-sup:spawn-agent config))
+         (`#(ok ,pid)
+          (logger:info "Agentic agent ~p spawned as ~p" (list agent-id pid))
+          (case (catch (agent-worker:agentic-prompt pid prompt
+                  `#M(capabilities ,capabilities max-turns ,max-turns)))
+            (`#(ok ,result)
+             (gen_server:cast 'conductor
+               `#(task-result #M(task-id ,agent-id
+                                 status complete
+                                 result ,result))))
+            (`#(error ,reason)
+             (gen_server:cast 'conductor
+               `#(task-result #M(task-id ,agent-id
+                                 status failed
+                                 error ,reason))))
+            (`#(EXIT ,reason)
+             (gen_server:cast 'conductor
+               `#(task-result #M(task-id ,agent-id
+                                 status failed
+                                 error ,reason))))))
+         (`#(error ,reason)
+          (logger:warning "Failed to spawn agentic agent ~p: ~p"
+                          (list agent-id reason))
+          (gen_server:cast 'conductor
+            `#(task-result #M(task-id ,agent-id
+                              status failed
+                              error ,reason))))
+         (`#(EXIT ,reason)
+          (logger:warning "Failed to spawn agentic agent ~p: ~p"
+                          (list agent-id reason))
+          (gen_server:cast 'conductor
+            `#(task-result #M(task-id ,agent-id
+                              status failed
+                              error ,reason)))))))))
+
+;;; ============================================================
+;;; Phase 4.5: Pending request helpers
+;;; ============================================================
+
+(defun find-pending-request (request-id pending)
+  "Find a pending request by its ID. Returns the request map or false."
+  (case pending
+    ('() 'false)
+    ((cons req rest)
+     (if (=:= (maps:get 'request-id req 'undefined) request-id)
+       req
+       (find-pending-request request-id rest)))))
+
+(defun remove-pending-request (request-id pending)
+  "Remove a pending request by its ID."
+  (lists:filter
+    (lambda (req)
+      (/= (maps:get 'request-id req 'undefined) request-id))
+    pending))

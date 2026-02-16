@@ -245,6 +245,7 @@
      (:file "provider-tests")
      (:file "rest-api-tests")
      (:file "agentic-tests")
+     (:file "bridge-protocol-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))

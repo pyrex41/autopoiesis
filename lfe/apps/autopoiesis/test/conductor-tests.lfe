@@ -285,6 +285,123 @@
      (error `#(setup-failed ,reason)))))
 
 ;;; ============================================================
+;;; Section 3b: Phase 4 tests
+;;; ============================================================
+
+;; Phase 4.4: classify-event with agentic action type
+(defun classify_event_agentic_test ()
+  "Agentic events (unknown type) go to slow path."
+  (let ((result (conductor:classify-event #M(type agentic-loop-needed))))
+    (assert-equal 'true (maps:get 'requires-llm result))
+    (assert-equal 'agentic-loop-needed (maps:get 'type result))))
+
+;; Phase 4.5: blocking-request handling
+(defun blocking_request_storage_test ()
+  "Blocking request cast should store in conductor pending-requests."
+  (with-conductor
+    (lambda ()
+      ;; Send a blocking request
+      (gen_server:cast 'conductor
+        `#(blocking-request #M(agent-id test-agent
+                                request-id "req-1"
+                                request-type input
+                                prompt "choose an option"
+                                worker-pid ,(self))))
+      (timer:sleep 50)
+      ;; Check status shows 1 pending request
+      (let ((status (conductor:status)))
+        (assert-truthy (is_map status))
+        (assert-equal 1 (maps:get 'pending-requests status))))))
+
+(defun blocking_request_resolve_test ()
+  "Resolving a blocking request should forward response and remove from pending."
+  (with-conductor
+    (lambda ()
+      (let ((test-pid (self)))
+        ;; Store a request with ourselves as worker
+        (gen_server:cast 'conductor
+          `#(blocking-request #M(agent-id test-agent
+                                  request-id "req-2"
+                                  request-type input
+                                  prompt "choose"
+                                  worker-pid ,test-pid)))
+        (timer:sleep 50)
+        ;; Resolve it
+        (gen_server:cast 'conductor
+          `#(resolve-request "req-2" "option-a"))
+        (timer:sleep 50)
+        ;; We should receive the resolve-blocking cast
+        (receive
+          (`#($gen_cast #(resolve-blocking "req-2" "option-a")) 'ok)
+          (after 500
+            (error 'did-not-receive-resolution)))
+        ;; Pending count should be 0
+        (let ((status (conductor:status)))
+          (assert-equal 0 (maps:get 'pending-requests status)))))))
+
+(defun blocking_request_resolve_unknown_test ()
+  "Resolving unknown request-id should not crash conductor."
+  (with-conductor
+    (lambda ()
+      (gen_server:cast 'conductor
+        `#(resolve-request "nonexistent-req" "whatever"))
+      (timer:sleep 50)
+      ;; Conductor should still be alive
+      (let ((status (conductor:status)))
+        (assert-truthy (is_map status))))))
+
+;; Phase 4.4: agentic dispatch in execute-timer-action
+(defun agentic_action_type_test ()
+  "Timer action with action-type=agentic dispatches without crash."
+  (with-conductor
+    (lambda ()
+      ;; Schedule an agentic action with immediate fire
+      (conductor:schedule
+        `#M(id agentic-test
+            interval 0
+            recurring false
+            requires-llm true
+            action-type agentic
+            prompt "test prompt"
+            capabilities ()
+            max-turns 5))
+      ;; Wait for tick to fire it
+      (timer:sleep 200)
+      ;; Conductor should still be alive (spawn runs async)
+      (let ((status (conductor:status)))
+        (assert-truthy (is_map status))
+        (assert-truthy (>= (maps:get 'timers-fired status) 1))))))
+
+;; Phase 4.5: find/remove pending request helpers
+(defun find_pending_request_test ()
+  "find-pending-request finds correct request by ID."
+  (let* ((reqs (list #M(request-id "a" prompt "one")
+                     #M(request-id "b" prompt "two")))
+         (found (conductor:find-pending-request "b" reqs)))
+    (assert-equal "two" (maps:get 'prompt found))))
+
+(defun find_pending_request_missing_test ()
+  "find-pending-request returns false for unknown ID."
+  (let ((reqs (list #M(request-id "a" prompt "one"))))
+    (assert-equal 'false (conductor:find-pending-request "z" reqs))))
+
+(defun remove_pending_request_test ()
+  "remove-pending-request filters out matching request."
+  (let* ((reqs (list #M(request-id "a" prompt "one")
+                     #M(request-id "b" prompt "two")))
+         (result (conductor:remove-pending-request "a" reqs)))
+    (assert-equal 1 (length result))
+    (assert-equal "b" (maps:get 'request-id (car result)))))
+
+(defun pending_requests_status_test ()
+  "Status should include pending-requests count."
+  (with-conductor
+    (lambda ()
+      (let ((status (conductor:status)))
+        (assert-truthy (maps:is_key 'pending-requests status))
+        (assert-equal 0 (maps:get 'pending-requests status))))))
+
+;;; ============================================================
 ;;; Section 4: Helpers
 ;;; ============================================================
 

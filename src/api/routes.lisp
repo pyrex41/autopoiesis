@@ -461,8 +461,8 @@
 
 (defun handle-agent-pending (agent-id)
   "GET /api/agents/:id/pending - List pending human input requests."
-  (require-permission :read)
   (declare (ignore agent-id))
+  (require-permission :read)
   ;; The blocking request system is global, not per-agent.
   ;; Return all pending requests.
   (let ((requests (autopoiesis.interface:list-pending-blocking-requests)))

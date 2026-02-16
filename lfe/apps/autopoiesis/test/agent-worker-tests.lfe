@@ -198,6 +198,109 @@
       (other (error `#(expected-boolean-data ,other))))))
 
 ;;; ============================================================
+;;; Phase 4: parse-cl-response tests for new message types
+;;; ============================================================
+
+(defun parse_cl_response_thought_test ()
+  "Parses :thought tagged response (streaming during agentic loop)."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:thought :type :llm-response :content \"hello\" :turn 1)"))))
+    (case result
+      (`#(ok (:thought . ,_rest)) 'ok)
+      (other (error `#(expected-thought-match ,other))))))
+
+(defun parse_cl_response_agentic_complete_test ()
+  "Parses :ok :type :agentic-complete response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :agentic-complete :result \"done\" :turns 3 :snapshot-id \"abc\")"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-agentic-complete ,other))))))
+
+(defun parse_cl_response_thoughts_query_test ()
+  "Parses :ok :type :thoughts response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :thoughts :count 2 :thoughts ((:type :observation :content \"hi\")))"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-thoughts-query ,other))))))
+
+(defun parse_cl_response_capabilities_test ()
+  "Parses :ok :type :capabilities response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :capabilities :count 0 :capabilities ())"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-capabilities ,other))))))
+
+(defun parse_cl_response_branches_test ()
+  "Parses :ok :type :branches response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :branches :count 1 :branches ((:name main :head snap-1)))"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-branches ,other))))))
+
+(defun parse_cl_response_checked_out_test ()
+  "Parses :ok :type :checked-out response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :checked-out :snapshot-id \"abc123\")"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-checked-out ,other))))))
+
+(defun parse_cl_response_diff_test ()
+  "Parses :ok :type :diff response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :diff :from \"a\" :to \"b\" :edit-count 0 :edits ())"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-diff ,other))))))
+
+(defun parse_cl_response_branch_created_test ()
+  "Parses :ok :type :branch-created response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :branch-created :name experiment :from snap-1)"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-branch-created ,other))))))
+
+(defun parse_cl_response_branch_switched_test ()
+  "Parses :ok :type :branch-switched response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :branch-switched :name main :head snap-1)"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-branch-switched ,other))))))
+
+(defun parse_cl_response_capability_result_test ()
+  "Parses :ok :type :capability-result response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :capability-result :name :test-cap :result \"42\")"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-capability-result ,other))))))
+
+(defun parse_cl_response_snapshot_not_found_test ()
+  "Parses :error :type :snapshot-not-found response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:error :type :snapshot-not-found :snapshot-id \"bogus\")"))))
+    (case result
+      (`#(error ,_reason) 'ok)
+      (other (error `#(expected-snapshot-not-found ,other))))))
+
+;;; ============================================================
 ;;; Helpers
 ;;; ============================================================
 
