@@ -23,6 +23,7 @@
   (run! 'security-tests)
   (run! 'monitoring-tests)
   (run! 'provider-tests)
+  (run! 'rest-api-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -65,3 +66,7 @@
 (defun test-provider ()
   "Run only provider tests."
   (run! 'provider-tests))
+
+(defun test-rest-api ()
+  "Run only REST API tests."
+  (run! 'rest-api-tests))

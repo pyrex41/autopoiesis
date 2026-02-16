@@ -14,6 +14,7 @@
   (:use #:autopoiesis.viz)
   (:use #:autopoiesis.security)
   (:use #:autopoiesis.monitoring)
+  (:use #:autopoiesis.api)
 
   ;; Reexport core
   (:export
@@ -94,6 +95,15 @@
    #:monitoring-server-running-p
    #:record-metric #:get-metric #:get-all-metrics
    #:increment-counter #:set-gauge #:observe-histogram)
+
+  ;; Reexport REST control API
+  (:export
+   #:start-rest-server #:stop-rest-server #:rest-server-running-p
+   #:register-api-key #:revoke-api-key)
+
+  ;; Reexport WebSocket API
+  (:export
+   #:start-api-server #:stop-api-server #:api-server-running-p)
 
   ;; System utilities
   (:export
