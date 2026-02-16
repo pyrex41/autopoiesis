@@ -80,9 +80,16 @@ Converts hash-tables to alists for cl-messagepack compatibility."
         (log:warn "MessagePack decode error: ~a" e)
         nil))))
 
+(defun string-keyed-plist-p (list)
+  "Return T if LIST looks like a string-keyed plist (alternating string keys and values)."
+  (and (consp list)
+       (evenp (length list))
+       (loop for (k v) on list by #'cddr
+             always (stringp k))))
+
 (defun prepare-for-msgpack (data)
-  "Recursively convert hash-tables to alists for MessagePack encoding.
-cl-messagepack works best with alists."
+  "Recursively convert hash-tables and string-keyed plists to alists for MessagePack encoding.
+cl-messagepack encodes alists as maps when *encode-alist-as-map* is T."
   (typecase data
     (hash-table
      (let ((alist nil))
@@ -90,8 +97,15 @@ cl-messagepack works best with alists."
                   (push (cons k (prepare-for-msgpack v)) alist))
                 data)
        (nreverse alist)))
+    (null nil)  ; CL NIL -> MessagePack nil, not empty array
     (list
-     (mapcar #'prepare-for-msgpack data))
+     (if (string-keyed-plist-p data)
+         ;; Convert string-keyed plist to alist for map encoding
+         (loop for (k v) on data by #'cddr
+               collect (cons k (prepare-for-msgpack v)))
+         ;; Regular list -> array
+         (mapcar #'prepare-for-msgpack data)))
+    (symbol (string-downcase (symbol-name data)))  ; safety net for stray keywords
     (t data)))
 
 ;;; ═══════════════════════════════════════════════════════════════════

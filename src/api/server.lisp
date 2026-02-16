@@ -82,6 +82,12 @@ If NIL, no static files are served.")
           (when response
             (websocket-driver:send ws response)))))
 
+    ;; On error: log and clean up
+    (websocket-driver:on :error ws
+      (lambda (error)
+        (log:warn "WebSocket error for ~a: ~a" (connection-id connection) error)
+        (unregister-connection connection)))
+
     ;; On close: unregister connection
     (websocket-driver:on :close ws
       (lambda (&key code reason)
@@ -149,10 +155,12 @@ If NIL, no static files are served.")
 (defun make-app ()
   "Build the Clack application with middleware stack."
   (let ((base-app (lambda (env)
-                    (let ((path (getf env :path-info))
-                          (upgrade (gethash "upgrade"
-                                            (getf env :headers)
-                                            nil)))
+                    (let* ((path (getf env :path-info))
+                           (headers (getf env :headers))
+                           (upgrade (typecase headers
+                                      (hash-table (gethash "upgrade" headers))
+                                      (list (getf headers :upgrade))
+                                      (t nil))))
                       ;; Check for WebSocket upgrade on /ws
                       (if (and (equal path "/ws")
                                upgrade
@@ -165,19 +173,22 @@ If NIL, no static files are served.")
       (when *api-static-path*
         (setf app
               (let ((inner app)
-                    (static-path *api-static-path*))
+                    (static-path (truename *api-static-path*)))
                 (lambda (env)
                   (let ((path (getf env :path-info)))
                     ;; Serve static files for /static/ prefix
                     (if (and (>= (length path) 8)
                              (string= "/static/" (subseq path 0 8)))
                         (let* ((file-path (subseq path 8))
-                               (full-path (merge-pathnames file-path static-path)))
-                          (if (probe-file full-path)
+                               (full-path (merge-pathnames file-path static-path))
+                               (resolved (ignore-errors (truename full-path))))
+                          ;; Validate resolved path is under static-path (prevent traversal)
+                          (if (and resolved
+                                   (uiop:subpathp resolved static-path))
                               (list 200
                                     (list :content-type
                                           (guess-content-type file-path))
-                                    full-path)
+                                    resolved)
                               (funcall inner env)))
                         (funcall inner env)))))))
       app)))

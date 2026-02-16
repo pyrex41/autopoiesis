@@ -134,39 +134,56 @@ DATA is a hash-table or plist to be encoded."
 
 (defun broadcast-message (message-string &key subscription-type)
   "Send a JSON text frame to all connections, optionally filtered by subscription."
-  (bordeaux-threads:with-lock-held (*connections-lock*)
-    (loop for conn being the hash-values of *connections*
-          when (or (null subscription-type)
-                   (connection-subscribed-p conn subscription-type))
-            do (handler-case
-                   (ws-send-text (connection-ws conn) message-string)
-                 (error (e)
-                   (log:warn "Broadcast send failed for ~a: ~a"
-                             (connection-id conn) e))))))
+  ;; Snapshot connections under lock, then send outside lock to avoid blocking
+  (let ((targets (bordeaux-threads:with-lock-held (*connections-lock*)
+                   (loop for conn being the hash-values of *connections*
+                         when (or (null subscription-type)
+                                  (connection-subscribed-p conn subscription-type))
+                           collect conn)))
+        (dead nil))
+    (dolist (conn targets)
+      (handler-case
+          (ws-send-text (connection-ws conn) message-string)
+        (error (e)
+          (log:warn "Broadcast send failed for ~a: ~a"
+                    (connection-id conn) e)
+          (push conn dead))))
+    ;; Clean up dead connections
+    (dolist (conn dead)
+      (unregister-connection conn))))
 
 (defun broadcast-stream (data &key subscription-type)
   "Send a data stream to all subscribed connections using each one's preferred format.
 DATA is a hash-table or plist to be encoded per-connection."
-  (bordeaux-threads:with-lock-held (*connections-lock*)
-    ;; Pre-encode both formats so we don't re-encode per connection
-    (let ((msgpack-bytes nil)
-          (json-string nil))
-      (loop for conn being the hash-values of *connections*
-            when (or (null subscription-type)
-                     (connection-subscribed-p conn subscription-type))
-              do (handler-case
-                     (ecase (connection-stream-format conn)
-                       (:msgpack
-                        (unless msgpack-bytes
-                          (setf msgpack-bytes (encode-stream data)))
-                        (ws-send-binary (connection-ws conn) msgpack-bytes))
-                       (:json
-                        (unless json-string
-                          (setf json-string (encode-control data)))
-                        (ws-send-text (connection-ws conn) json-string)))
-                   (error (e)
-                     (log:warn "Stream broadcast failed for ~a: ~a"
-                               (connection-id conn) e)))))))
+  ;; Snapshot connections under lock, then encode and send outside lock
+  (let ((targets (bordeaux-threads:with-lock-held (*connections-lock*)
+                   (loop for conn being the hash-values of *connections*
+                         when (or (null subscription-type)
+                                  (connection-subscribed-p conn subscription-type))
+                           collect conn)))
+        (dead nil))
+    (when targets
+      ;; Pre-encode both formats lazily so we don't re-encode per connection
+      (let ((msgpack-bytes nil)
+            (json-string nil))
+        (dolist (conn targets)
+          (handler-case
+              (ecase (connection-stream-format conn)
+                (:msgpack
+                 (unless msgpack-bytes
+                   (setf msgpack-bytes (encode-stream data)))
+                 (ws-send-binary (connection-ws conn) msgpack-bytes))
+                (:json
+                 (unless json-string
+                   (setf json-string (encode-control data)))
+                 (ws-send-text (connection-ws conn) json-string)))
+            (error (e)
+              (log:warn "Stream broadcast failed for ~a: ~a"
+                        (connection-id conn) e)
+              (push conn dead))))))
+    ;; Clean up dead connections
+    (dolist (conn dead)
+      (unregister-connection conn))))
 
 (defun broadcast-to-agent-subscribers (agent-id data)
   "Send a data stream to all connections subscribed to a specific agent's updates."

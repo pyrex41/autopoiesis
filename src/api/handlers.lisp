@@ -56,7 +56,7 @@
         (error (e)
           (log:error "Handler error for ~a: ~a" msg-type e)
           (encode-message (error-response "internal_error"
-                                          (format nil "~a" e)
+                                          "An internal error occurred"
                                           :request-id request-id)))))))
 
 (defun dispatch-message (msg-type msg connection)
@@ -113,18 +113,24 @@
 
 (define-handler handle-get-agent "get_agent" (msg conn)
   (declare (ignore conn))
-  (let* ((agent-id (gethash "agentId" msg))
-         (agent (find-agent agent-id)))
-    (if agent
-        (ok-response "agent" "agent" (agent-to-json-plist agent))
-        (error-response "not_found"
-                        (format nil "Agent not found: ~a" agent-id)))))
+  (let ((agent-id (gethash "agentId" msg)))
+    (unless agent-id
+      (return-from handle-get-agent
+        (error-response "missing_field" "get_agent requires 'agentId'")))
+    (let ((agent (find-agent agent-id)))
+      (if agent
+          (ok-response "agent" "agent" (agent-to-json-plist agent))
+          (error-response "not_found"
+                          (format nil "Agent not found: ~a" agent-id))))))
 
 (define-handler handle-create-agent "create_agent" (msg conn)
   (declare (ignore conn))
   (let* ((name (or (gethash "name" msg) "unnamed"))
          (capabilities (mapcar (lambda (c)
-                                 (intern (string-upcase c) :keyword))
+                                 (or (find-symbol (string-upcase c) :keyword)
+                                     (return-from handle-create-agent
+                                       (error-response "invalid_capability"
+                                                        (format nil "Unknown capability: ~a" c)))))
                                (or (gethash "capabilities" msg) nil)))
          (agent (make-agent :name name :capabilities capabilities)))
     (register-agent agent)
@@ -138,45 +144,54 @@
 (define-handler handle-agent-action "agent_action" (msg conn)
   (declare (ignore conn))
   (let* ((agent-id (gethash "agentId" msg))
-         (action (gethash "action" msg))
-         (agent (find-agent agent-id)))
-    (unless agent
+         (action (gethash "action" msg)))
+    (unless agent-id
       (return-from handle-agent-action
-        (error-response "not_found"
-                        (format nil "Agent not found: ~a" agent-id))))
-    (let ((result (cond
-                    ((equal action "start") (start-agent agent))
-                    ((equal action "stop") (stop-agent agent))
-                    ((equal action "pause") (pause-agent agent))
-                    ((equal action "resume") (resume-agent agent))
-                    (t (return-from handle-agent-action
-                         (error-response "invalid_action"
-                                         (format nil "Unknown action: ~a" action)))))))
-      (declare (ignore result))
-      ;; Broadcast state change (binary stream)
-      (broadcast-stream (ok-response "agent_state_changed"
-                                     "agentId" agent-id
-                                     "state" (string-downcase
-                                              (symbol-name (agent-state agent))))
-                        :subscription-type "agents")
-      (ok-response "agent_state_changed"
-                   "agentId" agent-id
-                   "state" (string-downcase
-                            (symbol-name (agent-state agent)))))))
+        (error-response "missing_field" "agent_action requires 'agentId'")))
+    (unless action
+      (return-from handle-agent-action
+        (error-response "missing_field" "agent_action requires 'action'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-agent-action
+          (error-response "not_found"
+                          (format nil "Agent not found: ~a" agent-id))))
+      (let ((result (cond
+                      ((equal action "start") (start-agent agent))
+                      ((equal action "stop") (stop-agent agent))
+                      ((equal action "pause") (pause-agent agent))
+                      ((equal action "resume") (resume-agent agent))
+                      (t (return-from handle-agent-action
+                           (error-response "invalid_action"
+                                           (format nil "Unknown action: ~a" action)))))))
+        (declare (ignore result))
+        ;; Broadcast state change (binary stream)
+        (broadcast-stream (ok-response "agent_state_changed"
+                                       "agentId" agent-id
+                                       "state" (string-downcase
+                                                (symbol-name (agent-state agent))))
+                          :subscription-type "agents")
+        (ok-response "agent_state_changed"
+                     "agentId" agent-id
+                     "state" (string-downcase
+                              (symbol-name (agent-state agent))))))))
 
 (define-handler handle-step-agent "step_agent" (msg conn)
   (declare (ignore conn))
-  (let* ((agent-id (gethash "agentId" msg))
-         (agent (find-agent agent-id)))
-    (unless agent
+  (let* ((agent-id (gethash "agentId" msg)))
+    (unless agent-id
       (return-from handle-step-agent
-        (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
-    ;; Execute one cognitive cycle
-    (let ((env (or (gethash "environment" msg) nil)))
-      (cognitive-cycle agent env)
-      (ok-response "step_complete"
-                   "agentId" agent-id
-                   "thoughtCount" (stream-length (agent-thought-stream agent))))))
+        (error-response "missing_field" "step_agent requires 'agentId'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-step-agent
+          (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
+      ;; Execute one cognitive cycle
+      (let ((env (or (gethash "environment" msg) nil)))
+        (cognitive-cycle agent env)
+        (ok-response "step_complete"
+                     "agentId" agent-id
+                     "thoughtCount" (stream-length (agent-thought-stream agent)))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Thought Handlers
@@ -185,46 +200,59 @@
 (define-handler handle-get-thoughts "get_thoughts" (msg conn)
   (declare (ignore conn))
   (let* ((agent-id (gethash "agentId" msg))
-         (limit (or (gethash "limit" msg) 50))
-         (agent (find-agent agent-id)))
-    (unless agent
+         (limit (min (or (gethash "limit" msg) 50) 1000)))
+    (unless agent-id
       (return-from handle-get-thoughts
-        (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
-    (let ((thoughts (stream-last (agent-thought-stream agent) limit)))
-      (ok-response "thoughts"
-                   "agentId" agent-id
-                   "thoughts" (mapcar #'thought-to-json-plist thoughts)
-                   "total" (stream-length (agent-thought-stream agent))))))
+        (error-response "missing_field" "get_thoughts requires 'agentId'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-get-thoughts
+          (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
+      (let ((thoughts (stream-last (agent-thought-stream agent) limit)))
+        (ok-response "thoughts"
+                     "agentId" agent-id
+                     "thoughts" (mapcar #'thought-to-json-plist thoughts)
+                     "total" (stream-length (agent-thought-stream agent)))))))
 
 (define-handler handle-inject-thought "inject_thought" (msg conn)
   (declare (ignore conn))
   (let* ((agent-id (gethash "agentId" msg))
          (content (gethash "content" msg))
-         (thought-type (or (gethash "thoughtType" msg) "observation"))
-         (agent (find-agent agent-id)))
-    (unless agent
+         (thought-type (or (gethash "thoughtType" msg) "observation")))
+    (unless agent-id
       (return-from handle-inject-thought
-        (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
-    (let* ((thought (cond
-                      ((equal thought-type "observation")
-                       (make-observation content :source :api))
-                      ((equal thought-type "reflection")
-                       (make-reflection nil content))
-                      (t
-                       (make-thought content
-                                     :type (intern (string-upcase thought-type) :keyword)))))
-           (_ (stream-append (agent-thought-stream agent) thought))
-           (thought-json (thought-to-json-plist thought)))
-      (declare (ignore _))
-      ;; Push to thought subscribers (binary stream)
-      (broadcast-to-agent-subscribers
-       agent-id
-       (ok-response "thought_added"
-                    "agentId" agent-id
-                    "thought" thought-json))
-      (ok-response "thought_added"
-                   "agentId" agent-id
-                   "thought" thought-json))))
+        (error-response "missing_field" "inject_thought requires 'agentId'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-inject-thought
+          (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
+      (unless content
+        (return-from handle-inject-thought
+          (error-response "missing_field" "inject_thought requires 'content'")))
+      (let* ((thought (cond
+                        ((equal thought-type "observation")
+                         (make-observation content :source :api))
+                        ((equal thought-type "reflection")
+                         (make-reflection nil content))
+                        ((member thought-type '("decision" "action") :test #'equal)
+                         (make-thought content
+                                       :type (find-symbol (string-upcase thought-type) :keyword)))
+                        (t
+                         (return-from handle-inject-thought
+                           (error-response "invalid_type"
+                                           (format nil "Unknown thought type: ~a. Valid: observation, reflection, decision, action" thought-type)))))))
+             (_ (stream-append (agent-thought-stream agent) thought))
+             (thought-json (thought-to-json-plist thought)))
+        (declare (ignore _))
+        ;; Push to thought subscribers (binary stream)
+        (broadcast-to-agent-subscribers
+         agent-id
+         (ok-response "thought_added"
+                      "agentId" agent-id
+                      "thought" thought-json))
+        (ok-response "thought_added"
+                     "agentId" agent-id
+                     "thought" thought-json)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Snapshot Handlers
@@ -260,23 +288,26 @@
 (define-handler handle-create-snapshot "create_snapshot" (msg conn)
   (declare (ignore conn))
   (let* ((agent-id (gethash "agentId" msg))
-         (label (gethash "label" msg))
-         (agent (find-agent agent-id)))
-    (unless agent
+         (label (gethash "label" msg)))
+    (unless agent-id
       (return-from handle-create-snapshot
-        (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
-    ;; Serialize agent state and create snapshot
-    (let* ((state (list :agent-id (agent-id agent)
-                        :agent-name (agent-name agent)
-                        :agent-state (agent-state agent)
-                        :thought-count (stream-length (agent-thought-stream agent))
-                        :capabilities (agent-capabilities agent)))
-           (metadata (when label (list :label label)))
-           (snapshot (make-snapshot state :metadata metadata)))
-      (when *snapshot-store*
-        (save-snapshot snapshot *snapshot-store*))
-      (ok-response "snapshot_created"
-                   "snapshot" (snapshot-to-json-plist snapshot)))))
+        (error-response "missing_field" "create_snapshot requires 'agentId'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-create-snapshot
+          (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
+      ;; Serialize agent state and create snapshot
+      (let* ((state (list :agent-id (agent-id agent)
+                          :agent-name (agent-name agent)
+                          :agent-state (agent-state agent)
+                          :thought-count (stream-length (agent-thought-stream agent))
+                          :capabilities (agent-capabilities agent)))
+             (metadata (when label (list :label label)))
+             (snapshot (make-snapshot state :metadata metadata)))
+        (when *snapshot-store*
+          (save-snapshot snapshot *snapshot-store*))
+        (ok-response "snapshot_created"
+                     "snapshot" (snapshot-to-json-plist snapshot))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Branch Handlers
@@ -292,17 +323,23 @@
 (define-handler handle-create-branch "create_branch" (msg conn)
   (declare (ignore conn))
   (let* ((name (gethash "name" msg))
-         (from-snapshot (gethash "fromSnapshot" msg))
-         (branch (create-branch name :from-snapshot from-snapshot)))
-    (ok-response "branch_created"
-                 "branch" (branch-to-json-plist branch))))
+         (from-snapshot (gethash "fromSnapshot" msg)))
+    (unless name
+      (return-from handle-create-branch
+        (error-response "missing_field" "create_branch requires 'name'")))
+    (let ((branch (create-branch name :from-snapshot from-snapshot)))
+      (ok-response "branch_created"
+                   "branch" (branch-to-json-plist branch)))))
 
 (define-handler handle-switch-branch "switch_branch" (msg conn)
   (declare (ignore conn))
-  (let* ((name (gethash "name" msg))
-         (branch (switch-branch name)))
-    (ok-response "branch_switched"
-                 "branch" (branch-to-json-plist branch))))
+  (let* ((name (gethash "name" msg)))
+    (unless name
+      (return-from handle-switch-branch
+        (error-response "missing_field" "switch_branch requires 'name'")))
+    (let ((branch (switch-branch name)))
+      (ok-response "branch_switched"
+                   "branch" (branch-to-json-plist branch)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Blocking Request Handlers
@@ -316,16 +353,22 @@
 
 (define-handler handle-respond-blocking "respond_blocking" (msg conn)
   (declare (ignore conn))
-  (let* ((request-id (gethash "requestId" msg))
+  ;; Use "blockingRequestId" to avoid collision with the protocol-level "requestId"
+  (let* ((blocking-id (or (gethash "blockingRequestId" msg)
+                          (gethash "requestId" msg)))  ; fallback for backwards compat
          (response (gethash "response" msg)))
+    (unless blocking-id
+      (return-from handle-respond-blocking
+        (error-response "missing_field" "respond_blocking requires 'blockingRequestId'")))
     (multiple-value-bind (ok request)
-        (respond-to-request request-id response)
+        (respond-to-request blocking-id response)
+      (declare (ignore request))
       (if ok
           (ok-response "blocking_responded"
-                       "requestId" request-id
+                       "blockingRequestId" blocking-id
                        "status" "responded")
           (error-response "not_found"
-                          (format nil "Blocking request not found: ~a" request-id))))))
+                          (format nil "Blocking request not found: ~a" blocking-id))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Subscription Handlers
@@ -368,9 +411,14 @@ for data stream messages. Control messages are always JSON."
 
 (define-handler handle-get-events "get_events" (msg conn)
   (declare (ignore conn))
-  (let* ((limit (or (gethash "limit" msg) 50))
+  (let* ((limit (min (or (gethash "limit" msg) 50) 1000))
          (event-type (when (gethash "eventType" msg)
-                       (intern (string-upcase (gethash "eventType" msg)) :keyword)))
+                       (let ((sym (find-symbol (string-upcase (gethash "eventType" msg)) :keyword)))
+                         (unless sym
+                           (return-from handle-get-events
+                             (error-response "invalid_type"
+                                             (format nil "Unknown event type: ~a" (gethash "eventType" msg)))))
+                         sym)))
          (agent-id (gethash "agentId" msg))
          (events (get-event-history :limit limit
                                     :type event-type

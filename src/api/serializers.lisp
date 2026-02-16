@@ -103,11 +103,11 @@
         "timestamp" (integration-event-timestamp event)))
 
 (defun format-event-data (data)
-  "Convert event data plist to a JSON-friendly alist."
+  "Convert event data keyword plist to a string-keyed plist for JSON encoding."
   (when data
     (loop for (key val) on data by #'cddr
-          collect (list (string-downcase (symbol-name key))
-                        (format nil "~A" val)))))
+          collect (string-downcase (symbol-name key))
+          collect (format nil "~A" val))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Blocking Request Serialization
