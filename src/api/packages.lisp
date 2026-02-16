@@ -73,6 +73,7 @@
    #:rest-server-running-p
 
    ;; Authentication
+   #:*api-require-auth*
    #:register-api-key
    #:revoke-api-key
    #:validate-api-key

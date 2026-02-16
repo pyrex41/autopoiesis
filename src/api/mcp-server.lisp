@@ -302,10 +302,16 @@
       (list `(("type" . "text")
               ("text" . ,(format nil "Error: ~a" e)))))))
 
+(defun mcp-arg (key arguments)
+  "Look up KEY in cl-json decoded ARGUMENTS alist.
+   Handles cl-json's underscore-to-double-hyphen convention:
+   'agent_id' becomes :AGENT--ID in the alist."
+  (cdr (assoc key arguments)))
+
 (defun mcp-execute-tool (tool-name arguments)
   "Execute an MCP tool and return the result as an alist."
-  (let ((agent-id (cdr (assoc :agent--id arguments)))
-        (snapshot-id (cdr (assoc :snapshot--id arguments))))
+  (let ((agent-id (mcp-arg :agent--id arguments))
+        (snapshot-id (mcp-arg :snapshot--id arguments)))
     (cond
       ;; --- Agent Lifecycle ---
       ((string= tool-name "list_agents")
@@ -378,12 +384,15 @@
          (unless agent (error "Agent not found: ~a" agent-id))
          (let* ((cap-name (cdr (assoc :capability arguments)))
                 (cap-args (cdr (assoc :arguments arguments)))
-                (cap-keyword (intern (string-upcase cap-name) :keyword))
+                (cap-keyword (or (find-symbol (string-upcase cap-name) :keyword)
+                                 (error "Unknown capability: ~a" cap-name)))
                 (result (apply #'autopoiesis.agent:invoke-capability
                                cap-keyword
                                (when (listp cap-args)
                                  (loop for (k . v) in cap-args
-                                       collect (intern (string-upcase (string k)) :keyword)
+                                       for kw = (or (find-symbol (string-upcase (string k)) :keyword)
+                                                    (error "Unknown argument: ~a" k))
+                                       collect kw
                                        collect v)))))
            `((:result . ,(prin1-to-string result))))))
 
@@ -404,8 +413,8 @@
            (snapshot-to-json-alist snapshot))))
 
       ((string= tool-name "list_snapshots")
-       (let* ((parent-id (cdr (assoc :parent--id arguments)))
-              (root-only (cdr (assoc :root--only arguments)))
+       (let* ((parent-id (mcp-arg :parent--id arguments))
+              (root-only (mcp-arg :root--only arguments))
               (ids (autopoiesis.snapshot:list-snapshots
                     :parent-id parent-id
                     :root-only root-only)))
@@ -414,14 +423,14 @@
                when snap collect (snapshot-summary-alist snap))))
 
       ((string= tool-name "get_snapshot")
-       (let ((sid (or snapshot-id (cdr (assoc :snapshot--id arguments)))))
+       (let ((sid (or snapshot-id (mcp-arg :snapshot--id arguments))))
          (let ((snapshot (autopoiesis.snapshot:load-snapshot sid)))
            (unless snapshot (error "Snapshot not found: ~a" sid))
            (snapshot-to-json-alist snapshot))))
 
       ((string= tool-name "diff_snapshots")
-       (let* ((from-id (cdr (assoc :from--id arguments)))
-              (to-id (cdr (assoc :to--id arguments)))
+       (let* ((from-id (mcp-arg :from--id arguments))
+              (to-id (mcp-arg :to--id arguments))
               (snap-a (autopoiesis.snapshot:load-snapshot from-id))
               (snap-b (autopoiesis.snapshot:load-snapshot to-id)))
          (unless snap-a (error "Snapshot not found: ~a" from-id))
@@ -437,7 +446,7 @@
 
       ((string= tool-name "create_branch")
        (let* ((name (cdr (assoc :name arguments)))
-              (from-snap (cdr (assoc :from--snapshot arguments)))
+              (from-snap (mcp-arg :from--snapshot arguments))
               (branch (autopoiesis.snapshot:create-branch
                        name :from-snapshot from-snap)))
          (branch-to-json-alist branch)))
@@ -453,7 +462,7 @@
                (autopoiesis.interface:list-pending-blocking-requests)))
 
       ((string= tool-name "respond_to_request")
-       (let* ((req-id (cdr (assoc :request--id arguments)))
+       (let* ((req-id (mcp-arg :request--id arguments))
               (response (cdr (assoc :response arguments))))
          (multiple-value-bind (success req)
              (autopoiesis.interface:respond-to-request req-id response)
@@ -593,11 +602,23 @@
 
 (defun handle-mcp-post (request)
   "Handle POST /mcp - process JSON-RPC message from client."
+  (declare (ignore request))
   ;; Get or create session
   (let ((session-id (hunchentoot:header-in* :mcp-session-id)))
     (handler-case
         (let* ((body (hunchentoot:raw-post-data :force-text t))
-               (message (cl-json:decode-json-from-string body)))
+               (message (cl-json:decode-json-from-string body))
+               (method (cdr (assoc :method message))))
+          ;; Validate session: if session-id header is provided, it must be valid
+          ;; (exception: initialize doesn't need an existing session)
+          (when (and session-id
+                     (not (string= method "initialize"))
+                     (not (find-mcp-session session-id)))
+            (setf (hunchentoot:return-code*) 404)
+            (setf (hunchentoot:content-type*) "application/json")
+            (return-from handle-mcp-post
+              (cl-json:encode-json-to-string
+               '(("error" . "Session not found or expired")))))
           ;; Handle single message (not batching for now)
           (multiple-value-bind (response new-session-id)
               (handle-mcp-jsonrpc-message message session-id)
@@ -613,11 +634,11 @@
                   (setf (hunchentoot:return-code*) 202)
                   ""))))
       (error (e)
+        (declare (ignore e))
         (setf (hunchentoot:content-type*) "application/json")
         (setf (hunchentoot:return-code*) 400)
         (cl-json:encode-json-to-string
-         (make-jsonrpc-error nil -32700
-           (format nil "Parse error: ~a" e)))))))
+         (make-jsonrpc-error nil -32700 "Parse error"))))))
 
 (defun handle-mcp-sse-stream (request)
   "Handle GET /mcp - open SSE stream for server-initiated messages."

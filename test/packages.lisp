@@ -20,4 +20,4 @@
    #:security-tests
    #:monitoring-tests
    #:provider-tests
-   #:api-tests))
+   #:rest-api-tests))

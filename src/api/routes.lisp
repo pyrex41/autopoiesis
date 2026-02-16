@@ -197,8 +197,9 @@
            (result (handler-case
                        (autopoiesis.agent:cognitive-cycle agent env-data)
                      (error (e)
+                       (declare (ignore e))
                        (return-from handle-agent-cycle
-                         (json-error (format nil "Cognitive cycle error: ~a" e)
+                         (json-error "Cognitive cycle failed"
                                      :status 500 :error-type "Internal Error"))))))
       (sse-broadcast "cycle_complete"
                      `((:agent--id . ,agent-id)
@@ -249,14 +250,19 @@
       (unless cap-name
         (return-from handle-invoke-capability
           (json-error "Missing 'capability' field")))
-      (let ((cap-keyword (intern (string-upcase cap-name) :keyword)))
+      (let ((cap-keyword (or (find-symbol (string-upcase cap-name) :keyword)
+                             (return-from handle-invoke-capability
+                               (json-error (format nil "Unknown capability: ~a" cap-name))))))
         (handler-case
             (let ((result (apply #'autopoiesis.agent:invoke-capability
                                  cap-keyword
                                  (when (listp args)
                                    (loop for pair in args
-                                         collect (intern (string-upcase (string (car pair)))
-                                                         :keyword)
+                                         for k = (find-symbol (string-upcase (string (car pair)))
+                                                              :keyword)
+                                         unless k do (return-from handle-invoke-capability
+                                                       (json-error (format nil "Unknown argument: ~a" (car pair))))
+                                         collect k
                                          collect (cdr pair))))))
               (sse-broadcast "capability_invoked"
                              `((:agent--id . ,agent-id)
@@ -264,7 +270,8 @@
               (json-ok `((:result . ,(prin1-to-string result))
                          (:capability . ,cap-name))))
           (error (e)
-            (json-error (format nil "Capability error: ~a" e)
+            (declare (ignore e))
+            (json-error "Capability invocation failed"
                         :status 500 :error-type "Internal Error")))))))
 
 ;;; ===================================================================
@@ -559,7 +566,9 @@
                     50))
          (event-type (let ((t-param (hunchentoot:get-parameter "type")))
                        (when t-param
-                         (intern (string-upcase t-param) :keyword))))
+                         (or (find-symbol (string-upcase t-param) :keyword)
+                             (return-from handle-event-history
+                               (json-error (format nil "Unknown event type: ~a" t-param)))))))
          (events (autopoiesis.integration:get-event-history
                   :limit limit :type event-type)))
     (json-ok (mapcar #'event-to-json-alist events))))
@@ -595,32 +604,36 @@
       (when qpos (setf uri (subseq uri 0 qpos))))
     (handler-case
         (cond
-          ;; /api/system
+          ;; /api/system (exact match)
           ((string= uri "/api/system")
            (handle-system-info))
-          ;; /api/agents...
-          ((and (>= (length uri) 11)
-                (string= "/api/agents" (subseq uri 0 11)))
+          ;; /api/agents or /api/agents/...
+          ((or (string= uri "/api/agents")
+               (and (> (length uri) 12)
+                    (string= "/api/agents/" (subseq uri 0 12))))
            (handle-agents request))
-          ;; /api/snapshots...
-          ((and (>= (length uri) 14)
-                (string= "/api/snapshots" (subseq uri 0 14)))
+          ;; /api/snapshots or /api/snapshots/...
+          ((or (string= uri "/api/snapshots")
+               (and (> (length uri) 15)
+                    (string= "/api/snapshots/" (subseq uri 0 15))))
            (handle-snapshots request))
-          ;; /api/branches...
-          ((and (>= (length uri) 13)
-                (string= "/api/branches" (subseq uri 0 13)))
+          ;; /api/branches or /api/branches/...
+          ((or (string= uri "/api/branches")
+               (and (> (length uri) 14)
+                    (string= "/api/branches/" (subseq uri 0 14))))
            (handle-branches request))
-          ;; /api/pending...
-          ((and (>= (length uri) 12)
-                (string= "/api/pending" (subseq uri 0 12)))
+          ;; /api/pending or /api/pending/...
+          ((or (string= uri "/api/pending")
+               (and (> (length uri) 13)
+                    (string= "/api/pending/" (subseq uri 0 13))))
            (handle-pending-requests request))
-          ;; /api/events...
-          ((and (>= (length uri) 11)
-                (string= "/api/events" (subseq uri 0 11)))
+          ;; /api/events (exact match)
+          ((string= uri "/api/events")
            (handle-events request))
           ;; Unknown API route
           (t
            (json-not-found "API route" uri)))
       (error (e)
-        (json-error (format nil "Internal server error: ~a" e)
+        (declare (ignore e))
+        (json-error "An internal error occurred"
                     :status 500 :error-type "Internal Error")))))

@@ -1,4 +1,4 @@
-;;;; api-tests.lisp - Tests for the Control API layer
+;;;; rest-api-tests.lisp - Tests for the REST Control API layer
 ;;;;
 ;;;; Tests authentication, serialization, routing logic, and SSE.
 ;;;; These tests exercise the API functions directly without requiring
@@ -6,10 +6,10 @@
 
 (in-package #:autopoiesis.test)
 
-(def-suite api-tests
-  :description "Tests for the Control API layer")
+(def-suite rest-api-tests
+  :description "Tests for the REST Control API layer")
 
-(in-suite api-tests)
+(in-suite rest-api-tests)
 
 ;;; ===================================================================
 ;;; Authentication Tests
