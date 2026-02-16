@@ -15,6 +15,9 @@
     (checkout-snapshot 2) (diff-snapshots 3)
     (create-branch 2) (create-branch 3)
     (list-branches 1) (switch-branch 2)
+    ;; Client API (Phase 5)
+    (spawn-sub-agent 2) (query-sub-agent 2)
+    (save-session 2) (resume-session 2)
     ;; Internal — exported for testing
     (build-cl-command 1) (parse-cl-response 1)))
 
@@ -92,6 +95,27 @@
 (defun switch-branch (pid name)
   "Switch to a branch."
   (gen_server:call pid `#(switch-branch ,name) 10000))
+
+;;; ============================================================
+;;; Client API (Phase 5: Meta-Agent)
+;;; ============================================================
+
+(defun spawn-sub-agent (pid agent-config)
+  "Request the worker to spawn a sub-agent via LFE supervision.
+   Returns #(ok response) or #(error reason)."
+  (gen_server:call pid `#(spawn-sub-agent ,agent-config) 30000))
+
+(defun query-sub-agent (pid agent-id)
+  "Query the status of a sub-agent spawned by this worker."
+  (gen_server:call pid `#(query-sub-agent ,agent-id) 5000))
+
+(defun save-session (pid name)
+  "Save the current session state for later resumption."
+  (gen_server:call pid `#(save-session ,name) 10000))
+
+(defun resume-session (pid name)
+  "Resume a previously saved session."
+  (gen_server:call pid `#(resume-session ,name) 10000))
 
 ;;; ============================================================
 ;;; gen_server callbacks
@@ -295,6 +319,48 @@
        ('timeout
         `#(reply #(error timeout) ,state)))))
 
+  ;; Phase 5: Spawn sub-agent
+  ((`#(spawn-sub-agent ,config) _from state)
+   (let* ((port (maps:get 'port state))
+          (msg `(:spawn-sub-agent
+                 :agent-id ,(maps:get 'agent-id config "")
+                 :name ,(maps:get 'name config "sub-agent")
+                 :task ,(maps:get 'task config "")
+                 :capabilities ,(maps:get 'capabilities config '())
+                 :max-turns ,(maps:get 'max-turns config 25))))
+     (port-send port msg)
+     (case (port-receive port 10000)
+       (`#(ok ,response) `#(reply #(ok ,response) ,state))
+       (`#(error ,reason) `#(reply #(error ,reason) ,state))
+       ('timeout `#(reply #(error timeout) ,state)))))
+
+  ;; Phase 5: Query sub-agent
+  ((`#(query-sub-agent ,agent-id) _from state)
+   (let ((port (maps:get 'port state)))
+     (port-send port `(:query-sub-agent :agent-id ,agent-id))
+     (case (port-receive port 5000)
+       (`#(ok ,response) `#(reply #(ok ,response) ,state))
+       (`#(error ,reason) `#(reply #(error ,reason) ,state))
+       ('timeout `#(reply #(error timeout) ,state)))))
+
+  ;; Phase 5: Save session
+  ((`#(save-session ,name) _from state)
+   (let ((port (maps:get 'port state)))
+     (port-send port `(:save-session :name ,name))
+     (case (port-receive port 10000)
+       (`#(ok ,response) `#(reply #(ok ,response) ,state))
+       (`#(error ,reason) `#(reply #(error ,reason) ,state))
+       ('timeout `#(reply #(error timeout) ,state)))))
+
+  ;; Phase 5: Resume session
+  ((`#(resume-session ,name) _from state)
+   (let ((port (maps:get 'port state)))
+     (port-send port `(:resume-session :name ,name))
+     (case (port-receive port 10000)
+       (`#(ok ,response) `#(reply #(ok ,response) ,state))
+       (`#(error ,reason) `#(reply #(error ,reason) ,state))
+       ('timeout `#(reply #(error timeout) ,state)))))
+
   ;; Unknown
   ((msg _from state)
    `#(reply #(error #(unknown-call ,msg)) ,state)))
@@ -305,6 +371,23 @@
    (let ((port (maps:get 'port state)))
      (port-send port `(:blocking-response :id ,request-id :response ,response)))
    `#(noreply ,state))
+
+  ;; Phase 5: Sub-agent completed — forward result to CL worker
+  ((`#(sub-agent-complete ,result-map) state)
+   (let* ((agent-id (maps:get 'agent-id result-map 'undefined))
+          (status (maps:get 'status result-map 'unknown))
+          (result (maps:get 'result result-map 'undefined))
+          (error-val (maps:get 'error result-map 'undefined))
+          (result-str (lists:flatten
+                        (io_lib:format "~p" (list (if (=:= status 'complete)
+                                                     result error-val))))))
+     (logger:info "Sub-agent ~p completed with status ~p" (list agent-id status))
+     (port-send (maps:get 'port state)
+       `(:sub-agent-result :agent-id ,agent-id
+                           :status ,status
+                           :result ,result-str
+                           :error ,(if (=:= status 'failed) result-str 'nil)))
+     `#(noreply ,state)))
 
   (('stop state)
    `#(stop normal ,state))
@@ -473,6 +556,31 @@
                                 request-type ,request-type
                                 prompt ,prompt
                                 worker-pid ,(self))))
+       state))
+
+    ;; Phase 5: Spawn request from CL tool during agentic loop
+    (`#(ok (:spawn-request . ,details))
+     (let* ((agent-id (proplists:get_value 'agent-id details))
+            (name (proplists:get_value 'name details "sub-agent"))
+            (task (proplists:get_value 'task details ""))
+            (capabilities (proplists:get_value 'capabilities details '()))
+            (max-turns (proplists:get_value 'max-turns details 25)))
+       (logger:info "Spawn request from CL: ~p (~p)" (list name agent-id))
+       (gen_server:cast 'conductor
+         `#(spawn-sub-agent ,(maps:from_list
+                               (list `#(agent-id ,agent-id)
+                                     `#(name ,name)
+                                     `#(task ,task)
+                                     `#(capabilities ,capabilities)
+                                     `#(max-turns ,max-turns)
+                                     `#(parent-worker ,(self))))))
+       state))
+
+    ;; Phase 5: Sub-agent result notification (unsolicited)
+    (`#(ok (:sub-agent-result . ,details))
+     (let* ((agent-id (proplists:get_value 'agent-id details))
+            (status (proplists:get_value 'status details)))
+       (logger:info "Sub-agent ~p result: ~p" (list agent-id status))
        state))
 
     (`#(error ,reason)

@@ -301,6 +301,55 @@
       (other (error `#(expected-snapshot-not-found ,other))))))
 
 ;;; ============================================================
+;;; Phase 5: parse-cl-response tests for meta-agent message types
+;;; ============================================================
+
+(defun parse_cl_response_spawn_ok_test ()
+  "Parses :ok :type :spawn-sub-agent response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :spawn-sub-agent :agent-id \"sub-42\")"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-spawn-ok ,other))))))
+
+(defun parse_cl_response_sub_agent_result_test ()
+  "Parses :ok :type :sub-agent-result response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :sub-agent-result :agent-id \"sub-42\" :status :complete)"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-sub-agent-result ,other))))))
+
+(defun parse_cl_response_save_session_test ()
+  "Parses :ok :type :session-saved response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :session-saved :name \"my-session\" :snapshot-id \"snap-1\")"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-session-saved ,other))))))
+
+(defun parse_cl_response_resume_session_test ()
+  "Parses :ok :type :session-resumed response."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:ok :type :session-resumed :name \"my-session\")"))))
+    (case result
+      (`#(ok (:ok . ,_rest)) 'ok)
+      (other (error `#(expected-session-resumed ,other))))))
+
+(defun parse_cl_response_spawn_request_test ()
+  "Parses :spawn-request unsolicited message."
+  (let ((result (agent-worker:parse-cl-response
+                  (unicode:characters_to_binary
+                    "(:spawn-request :agent-id \"sub-1\" :name \"worker\" :task \"do stuff\")"))))
+    (case result
+      (`#(ok (:spawn-request . ,_rest)) 'ok)
+      (other (error `#(expected-spawn-request ,other))))))
+
+;;; ============================================================
 ;;; Helpers
 ;;; ============================================================
 

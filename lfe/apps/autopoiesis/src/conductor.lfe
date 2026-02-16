@@ -10,7 +10,8 @@
   ;; Exported for testing
   (export (classify-event 1) (compute-next-run 1)
           (schedule-infra-watcher 0)
-          (find-pending-request 2) (remove-pending-request 2)))
+          (find-pending-request 2) (remove-pending-request 2)
+          (dispatch-sub-agent 2)))
 
 ;; State record — replaces plain maps
 (defrecord state
@@ -150,6 +151,16 @@
           (gen_server:cast worker-pid `#(resolve-blocking ,request-id ,response)))
         `#(noreply ,(set-state-pending-requests state
                       (remove-pending-request request-id pending)))))))
+
+  ;; Phase 5: Spawn a sub-agent on behalf of a parent CL worker
+  ((`#(spawn-sub-agent ,config) state)
+   (let ((parent-pid (maps:get 'parent-pid config 'undefined))
+         (sub-agent-id (maps:get 'agent-id config
+                         (make-agent-id))))
+     (logger:info "Conductor dispatching sub-agent ~p for parent ~p"
+                   (list sub-agent-id parent-pid))
+     (dispatch-sub-agent config parent-pid)
+     `#(noreply ,state)))
 
   ((_msg state)
    `#(noreply ,state)))
@@ -541,6 +552,65 @@
             `#(task-result #M(task-id ,agent-id
                               status failed
                               error ,reason)))))))))
+
+;;; ============================================================
+;;; Phase 5: Sub-agent dispatch
+;;; ============================================================
+
+(defun dispatch-sub-agent (config parent-pid)
+  "Spawn a CL agent worker as a sub-agent and run its task.
+   When complete, sends #(sub-agent-complete result) to parent-pid.
+   Modeled after dispatch-agentic-agent but with parent notification."
+  (let* ((agent-id (maps:get 'agent-id config
+                     (list_to_atom
+                       (++ "sub-" (integer_to_list
+                                    (erlang:unique_integer '(positive)))))))
+         (prompt (maps:get 'task config ""))
+         (system-prompt (maps:get 'system-prompt config ""))
+         (capabilities (maps:get 'capabilities config '()))
+         (max-turns (maps:get 'max-turns config 25))
+         (worker-config `#M(agent-id ,agent-id
+                            name ,(maps:get 'name config "sub-agent"))))
+    (spawn
+      (lambda ()
+        (case (catch (agent-sup:spawn-agent worker-config))
+          (`#(ok ,pid)
+           (logger:info "Sub-agent ~p spawned as ~p for parent ~p"
+                         (list agent-id pid parent-pid))
+           (let ((result
+                   (case (catch (agent-worker:agentic-prompt pid prompt
+                           `#M(capabilities ,capabilities max-turns ,max-turns)))
+                     (`#(ok ,r) `#M(status complete result ,r))
+                     (`#(error ,reason) `#M(status failed error ,reason))
+                     (`#(EXIT ,reason) `#M(status failed error ,reason)))))
+             ;; Notify parent worker that sub-agent is done
+             (if (is_pid parent-pid)
+               (gen_server:cast parent-pid
+                 `#(sub-agent-complete ,(maps:put 'agent-id agent-id result)))
+               (logger:warning "Sub-agent ~p has no valid parent pid" (list agent-id)))
+             ;; Also report to conductor metrics
+             (gen_server:cast 'conductor
+               `#(task-result #M(task-id ,agent-id
+                                  status ,(maps:get 'status result 'unknown)
+                                  result ,result)))))
+          (`#(error ,reason)
+           (logger:warning "Failed to spawn sub-agent ~p: ~p"
+                           (list agent-id reason))
+           (if (is_pid parent-pid)
+             (gen_server:cast parent-pid
+               `#(sub-agent-complete #M(agent-id ,agent-id
+                                        status failed
+                                        error ,reason)))
+             'ok))
+          (`#(EXIT ,reason)
+           (logger:warning "Failed to spawn sub-agent ~p: ~p"
+                           (list agent-id reason))
+           (if (is_pid parent-pid)
+             (gen_server:cast parent-pid
+               `#(sub-agent-complete #M(agent-id ,agent-id
+                                        status failed
+                                        error ,reason)))
+             'ok)))))))
 
 ;;; ============================================================
 ;;; Phase 4.5: Pending request helpers

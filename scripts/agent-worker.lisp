@@ -219,6 +219,9 @@ On error, sends a :cycle-failed response instead of crashing."
                             :on-thought on-thought)
             ;; Update agent conversation history
             (setf (agent-conversation-history *agent*) all-messages)
+            ;; Drain and send orchestration requests queued by tools
+            (dolist (req (drain-orchestration-requests))
+              (send-response req))
             ;; Auto-snapshot after agentic loop
             (handler-case
                 (let* ((snapshot (make-snapshot (agent-to-sexpr *agent*)))
@@ -408,6 +411,109 @@ On error, sends a :cycle-failed response instead of crashing."
     (send-response `(:ok :type :blocking-response-received :id ,id))))
 
 ;;; ===================================================================
+;;; Phase 5: Meta-Agent orchestration handlers
+;;; ===================================================================
+
+(defun handle-spawn-sub-agent (msg)
+  "Handle request to spawn a sub-agent via LFE.
+   Message: (:spawn-sub-agent :agent-id <id> :name <name> :task <task>
+             :capabilities (:cap1 :cap2) :max-turns 25)
+   Sends spawn request upstream to LFE for supervised spawning."
+  (handler-case
+      (let* ((agent-id (getf (cdr msg) :agent-id))
+             (name (getf (cdr msg) :name "sub-agent"))
+             (task (getf (cdr msg) :task))
+             (capabilities (getf (cdr msg) :capabilities))
+             (max-turns (or (getf (cdr msg) :max-turns) 25)))
+        (update-sub-agent agent-id
+                          :status :spawning
+                          :name name
+                          :task task)
+        (send-response `(:spawn-request
+                         :agent-id ,agent-id
+                         :name ,name
+                         :task ,task
+                         :capabilities ,capabilities
+                         :max-turns ,max-turns))
+        (send-response `(:ok :type :sub-agent-spawned :agent-id ,agent-id)))
+    (error (e)
+      (send-response `(:error :type :spawn-failed
+                              :message ,(princ-to-string e))))))
+
+(defun handle-sub-agent-result (msg)
+  "Handle result from a completed sub-agent.
+   Message: (:sub-agent-result :agent-id <id> :status <status> :result <text>)
+   Updates the sub-agent registry so query-agent and await-agent can see it."
+  (let ((agent-id (getf (cdr msg) :agent-id))
+        (status (getf (cdr msg) :status))
+        (result (getf (cdr msg) :result))
+        (error-msg (getf (cdr msg) :error)))
+    (update-sub-agent agent-id
+                      :status status
+                      :result result
+                      :error error-msg
+                      :completed (get-universal-time))
+    (send-response `(:ok :type :sub-agent-result-received :agent-id ,agent-id))))
+
+(defun handle-save-session (msg)
+  "Save session state to a file.
+   Message: (:save-session :name <name>)
+   Response: (:ok :type :session-saved :session-id <id> :snapshot-id <id>)"
+  (handler-case
+      (let* ((name (or (getf (cdr msg) :name)
+                       (format nil "session-~A" (autopoiesis.core:make-uuid))))
+             (dir (ensure-session-directory))
+             (snapshot (make-snapshot (agent-to-sexpr *agent*)
+                                      :metadata `(:session-name ,name
+                                                  :saved-at ,(get-universal-time))))
+             (saved (save-snapshot snapshot))
+             (session-data `(:session
+                             :id ,name
+                             :snapshot-id ,(snapshot-id snapshot)
+                             :agent-id ,(agent-id *agent*)
+                             :saved-at ,(get-universal-time)))
+             (path (merge-pathnames (format nil "~A.session" name) dir)))
+        (declare (ignore saved))
+        (ensure-directories-exist path)
+        (with-open-file (out path :direction :output
+                                  :if-exists :supersede
+                                  :if-does-not-exist :create)
+          (prin1 session-data out))
+        (send-response `(:ok :type :session-saved
+                             :session-id ,name
+                             :snapshot-id ,(snapshot-id snapshot))))
+    (error (e)
+      (send-response `(:error :type :session-save-failed
+                              :message ,(princ-to-string e))))))
+
+(defun handle-resume-session (msg)
+  "Resume a previously saved session.
+   Message: (:resume-session :name <name>)
+   Response: (:ok :type :session-resumed :session-id <id> :agent-id <id>)"
+  (handler-case
+      (let* ((name (getf (cdr msg) :name))
+             (dir (ensure-session-directory))
+             (path (merge-pathnames (format nil "~A.session" name) dir)))
+        (if (not (probe-file path))
+            (send-response `(:error :type :session-not-found :name ,name))
+            (let* ((session-data (with-open-file (in path :direction :input)
+                                   (read in)))
+                   (snapshot-id (getf (cdr session-data) :snapshot-id))
+                   (snapshot (load-snapshot snapshot-id)))
+              (if (not snapshot)
+                  (send-response `(:error :type :snapshot-not-found
+                                          :snapshot-id ,snapshot-id))
+                  (let ((restored (sexpr-to-agent (snapshot-agent-state snapshot))))
+                    (start-agent restored)
+                    (setf *agent* restored)
+                    (send-response `(:ok :type :session-resumed
+                                         :session-id ,name
+                                         :agent-id ,(agent-id restored))))))))
+    (error (e)
+      (send-response `(:error :type :session-resume-failed
+                              :message ,(princ-to-string e))))))
+
+;;; ===================================================================
 ;;; Command dispatch
 ;;; ===================================================================
 
@@ -431,6 +537,11 @@ On error, sends a :cycle-failed response instead of crashing."
     (:list-branches (handle-list-branches command))
     (:switch-branch (handle-switch-branch command))
     (:blocking-response (handle-blocking-response command))
+    ;; Phase 5 handlers
+    (:spawn-sub-agent (handle-spawn-sub-agent command))
+    (:sub-agent-result (handle-sub-agent-result command))
+    (:save-session (handle-save-session command))
+    (:resume-session (handle-resume-session command))
     (otherwise (send-response `(:error :type :unknown-command
                                        :command ,(car command))))))
 

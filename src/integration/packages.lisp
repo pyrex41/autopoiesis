@@ -135,6 +135,23 @@
    ;; Introspection tools
    #:list-capabilities-tool
    #:inspect-thoughts
+   ;; Orchestration tools (Phase 5)
+   #:spawn-agent
+   #:query-agent
+   #:await-agent
+   #:*sub-agents*
+   #:*orchestration-requests*
+   #:queue-orchestration-request
+   #:drain-orchestration-requests
+   #:update-sub-agent
+   ;; Cognitive branching tools (Phase 5)
+   #:fork-branch
+   #:compare-branches
+   ;; Session management tools (Phase 5)
+   #:save-session
+   #:resume-session
+   #:*session-directory*
+   #:ensure-session-directory
 
    ;; Provider protocol
    #:provider

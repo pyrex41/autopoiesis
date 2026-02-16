@@ -8,6 +8,17 @@
 
 (in-package #:autopoiesis.integration)
 
+;;; Phase 5: Orchestration state
+(defvar *sub-agents* (make-hash-table :test 'equal)
+  "Registry of spawned sub-agents. Maps agent-id to status plist.")
+
+(defvar *orchestration-requests* nil
+  "Queue of orchestration requests for the bridge.
+   Drained by the agent-worker after each agentic turn.")
+
+(defvar *session-directory* nil
+  "Directory for persisting sessions. Set by agent-worker on init.")
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; File System Tools
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -426,6 +437,184 @@
     (format nil "inspect-thoughts: This tool provides thought stream introspection.~%To inspect thoughts, the agent should use its own thought-stream via the cognitive loop.~%Requested last ~a thoughts." n)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Orchestration Tools (Phase 5: Meta-Agent)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun queue-orchestration-request (request)
+  "Add an orchestration request to the pending queue."
+  (push request *orchestration-requests*))
+
+(defun drain-orchestration-requests ()
+  "Return and clear all pending orchestration requests."
+  (prog1 (nreverse *orchestration-requests*)
+    (setf *orchestration-requests* nil)))
+
+(defun update-sub-agent (agent-id &rest plist)
+  "Update a sub-agent's status in the registry."
+  (let ((existing (or (gethash agent-id *sub-agents*) nil)))
+    (loop for (k v) on plist by #'cddr
+          do (setf (getf existing k) v))
+    (setf (gethash agent-id *sub-agents*) existing)))
+
+(autopoiesis.agent:defcapability spawn-agent (&key name task capabilities system-prompt max-turns)
+  "Spawn a new agent to work on TASK under LFE supervision.
+   NAME - Human-readable name for the agent.
+   TASK - Description of the work to perform.
+   CAPABILITIES - List of capability keywords the sub-agent can use.
+   SYSTEM-PROMPT - Override the default system prompt.
+   MAX-TURNS - Limit agentic loop iterations (default 25).
+   Returns an agent-id for monitoring via query_agent and await_agent."
+  :permissions (:orchestration)
+  :body
+  (declare (ignore system-prompt))
+  (let ((agent-id (format nil "sub-~A-~A"
+                          (or name "agent")
+                          (autopoiesis.core:make-uuid))))
+    (update-sub-agent agent-id
+                      :status :spawning
+                      :task task
+                      :name (or name "sub-agent")
+                      :started (get-universal-time))
+    (queue-orchestration-request
+     (list :type :spawn-agent
+           :agent-id agent-id
+           :name (or name "sub-agent")
+           :task (or task "")
+           :capabilities capabilities
+           :max-turns (or max-turns 25)))
+    (format nil "Spawning agent '~A' with ID ~A to work on: ~A~%Use query_agent with agent-id \"~A\" to check status."
+            (or name "sub-agent") agent-id (or task "(no task)") agent-id)))
+
+(autopoiesis.agent:defcapability query-agent (&key agent-id)
+  "Check status of a spawned sub-agent.
+   AGENT-ID - The ID returned by spawn_agent.
+   Returns status, task, elapsed time, and result if complete."
+  :permissions (:orchestration)
+  :body
+  (let ((info (gethash agent-id *sub-agents*)))
+    (if (not info)
+        (format nil "Error: Agent ~A not found in registry" agent-id)
+        (let ((status (getf info :status))
+              (task (getf info :task))
+              (started (getf info :started))
+              (result (getf info :result)))
+          (format nil "Agent: ~A~%Status: ~A~%Task: ~A~%Elapsed: ~As~@[~%Result: ~A~]"
+                  agent-id status task
+                  (if started (- (get-universal-time) started) 0)
+                  result)))))
+
+(autopoiesis.agent:defcapability await-agent (&key agent-id timeout)
+  "Wait for a spawned agent to complete its task.
+   AGENT-ID - The ID returned by spawn_agent.
+   TIMEOUT - Seconds to wait (default 300).
+   Returns the agent's result when complete."
+  :permissions (:orchestration)
+  :body
+  (let ((max-wait (or timeout 300))
+        (info (gethash agent-id *sub-agents*)))
+    (cond
+      ((not info)
+       (format nil "Error: Agent ~A not found" agent-id))
+      ((member (getf info :status) '(:complete :failed))
+       (format nil "Agent ~A ~(~A~): ~A" agent-id (getf info :status)
+               (or (getf info :result) (getf info :error) "(no details)")))
+      (t
+       (loop for elapsed from 0 by 2
+             while (< elapsed max-wait)
+             do (sleep 2)
+                (let ((current (gethash agent-id *sub-agents*)))
+                  (when (and current (member (getf current :status) '(:complete :failed)))
+                    (return (format nil "Agent ~A ~(~A~): ~A" agent-id
+                                    (getf current :status)
+                                    (or (getf current :result) (getf current :error))))))
+             finally (return (format nil "Timeout: agent ~A still ~(~A~) after ~As"
+                                     agent-id (getf info :status) max-wait)))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Cognitive Branching Tools (Phase 5: Meta-Agent)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(autopoiesis.agent:defcapability fork-branch (&key name from-snapshot)
+  "Create a cognitive branch.
+   NAME - Name for the new branch.
+   FROM-SNAPSHOT - Optional snapshot ID to branch from.
+   Returns branch creation info."
+  :permissions ()
+  :body
+  (handler-case
+      (progn
+        (autopoiesis.snapshot:create-branch name :from-snapshot from-snapshot)
+        (format nil "Branch '~A' created~@[ from snapshot ~A~]" name from-snapshot))
+    (error (e)
+      (format nil "Error creating branch: ~A" e))))
+
+(autopoiesis.agent:defcapability compare-branches (&key branch-a branch-b)
+  "Compare two cognitive branches to see how they diverged.
+   BRANCH-A - Name of the first branch.
+   BRANCH-B - Name of the second branch.
+   Returns a diff of the two branch heads."
+  :permissions ()
+  :body
+  (handler-case
+      (let* ((branches (autopoiesis.snapshot:list-branches))
+             (a (find branch-a branches :key #'autopoiesis.snapshot:branch-name :test #'string=))
+             (b (find branch-b branches :key #'autopoiesis.snapshot:branch-name :test #'string=)))
+        (cond
+          ((not a) (format nil "Error: Branch ~A not found" branch-a))
+          ((not b) (format nil "Error: Branch ~A not found" branch-b))
+          ((not (autopoiesis.snapshot:branch-head a))
+           (format nil "Error: Branch ~A has no snapshots" branch-a))
+          ((not (autopoiesis.snapshot:branch-head b))
+           (format nil "Error: Branch ~A has no snapshots" branch-b))
+          (t
+           (let* ((snap-a (autopoiesis.snapshot:load-snapshot (autopoiesis.snapshot:branch-head a)))
+                  (snap-b (autopoiesis.snapshot:load-snapshot (autopoiesis.snapshot:branch-head b)))
+                  (edits (autopoiesis.core:sexpr-diff
+                          (autopoiesis.snapshot:snapshot-agent-state snap-a)
+                          (autopoiesis.snapshot:snapshot-agent-state snap-b))))
+             (format nil "Comparing ~A (head: ~A) vs ~A (head: ~A):~%~A edit~:P~%~{  ~A~^~%~}"
+                     branch-a (autopoiesis.snapshot:branch-head a)
+                     branch-b (autopoiesis.snapshot:branch-head b)
+                     (length edits)
+                     (mapcar #'princ-to-string edits))))))
+    (error (e)
+      (format nil "Error comparing branches: ~A" e))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Session Management Tools (Phase 5: Meta-Agent)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun ensure-session-directory ()
+  "Ensure session directory exists and return it."
+  (let ((dir (or *session-directory*
+                 (merge-pathnames "autopoiesis-sessions/"
+                                  (uiop:temporary-directory)))))
+    (ensure-directories-exist dir)
+    dir))
+
+(autopoiesis.agent:defcapability save-session (&key name)
+  "Save the current session state for later resumption.
+   NAME - A human-readable name for this session.
+   Sends a save request through the bridge protocol.
+   Returns the session name for use with resume_session."
+  :permissions ()
+  :body
+  (let ((session-id (or name (format nil "session-~A" (autopoiesis.core:make-uuid)))))
+    (queue-orchestration-request
+     (list :type :save-session :name session-id))
+    (format nil "Session save requested as '~A'" session-id)))
+
+(autopoiesis.agent:defcapability resume-session (&key name)
+  "Resume a previously saved session.
+   NAME - The session name/ID from save_session.
+   Sends a resume request through the bridge protocol."
+  :permissions ()
+  :body
+  (queue-orchestration-request
+   (list :type :resume-session :name name))
+  (format nil "Session resume requested for '~A'" name))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Tool Registration
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -443,7 +632,13 @@
     ;; Self-extension tools
     define-capability-tool test-capability-tool promote-capability-tool
     ;; Introspection tools
-    list-capabilities-tool inspect-thoughts))
+    list-capabilities-tool inspect-thoughts
+    ;; Orchestration tools (Phase 5)
+    spawn-agent query-agent await-agent
+    ;; Cognitive branching tools (Phase 5)
+    fork-branch compare-branches
+    ;; Session management tools (Phase 5)
+    save-session resume-session))
 
 (defun register-builtin-tools (&key (registry autopoiesis.agent:*capability-registry*))
   "Register all built-in tools in the capability registry.

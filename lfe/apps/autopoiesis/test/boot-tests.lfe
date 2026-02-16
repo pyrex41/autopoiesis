@@ -281,6 +281,58 @@
       (error-val (error `#(app-load-failed ,error-val))))))
 
 ;;; ============================================================
+;;; Phase 5: boot.lfe parse-args tests
+;;; ============================================================
+
+(defun parse_args_empty_test ()
+  "Empty args returns help."
+  (assert-equal 'help (boot:parse-args '())))
+
+(defun parse_args_help_flag_test ()
+  "--help returns help."
+  (assert-equal 'help (boot:parse-args '("--help"))))
+
+(defun parse_args_h_flag_test ()
+  "-h returns help."
+  (assert-equal 'help (boot:parse-args '("-h"))))
+
+(defun parse_args_status_test ()
+  "--status returns status."
+  (assert-equal 'status (boot:parse-args '("--status"))))
+
+(defun parse_args_resume_default_test ()
+  "--resume without name defaults to 'default'."
+  (case (boot:parse-args '("--resume"))
+    (`#(resume "default") 'ok)
+    (other (error `#(expected-resume-default ,other)))))
+
+(defun parse_args_resume_named_test ()
+  "--resume NAME returns resume with name."
+  (case (boot:parse-args '("--resume" "my-session"))
+    (`#(resume "my-session") 'ok)
+    (other (error `#(expected-resume-named ,other)))))
+
+(defun parse_args_branch_with_prompt_test ()
+  "--branch NAME PROMPT returns branch tuple."
+  (case (boot:parse-args '("--branch" "experiment" "try" "this"))
+    (`#(branch "experiment" ,prompt)
+     (assert-truthy (/= 'nomatch (string:find prompt "try"))))
+    (other (error `#(expected-branch ,other)))))
+
+(defun parse_args_branch_no_prompt_test ()
+  "--branch NAME without prompt returns error."
+  (case (boot:parse-args '("--branch" "experiment"))
+    (`#(error ,_msg) 'ok)
+    (other (error `#(expected-error ,other)))))
+
+(defun parse_args_prompt_test ()
+  "Regular args are treated as prompt."
+  (case (boot:parse-args '("deploy" "the" "new" "feature"))
+    (`#(prompt ,prompt)
+     (assert-truthy (/= 'nomatch (string:find prompt "deploy"))))
+    (other (error `#(expected-prompt ,other)))))
+
+;;; ============================================================
 ;;; Boot edge cases and error handling
 ;;; ============================================================
 

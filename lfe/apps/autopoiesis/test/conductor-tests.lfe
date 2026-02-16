@@ -402,6 +402,51 @@
         (assert-equal 0 (maps:get 'pending-requests status))))))
 
 ;;; ============================================================
+;;; Section 3c: Phase 5 tests
+;;; ============================================================
+
+;; Phase 5: spawn-sub-agent cast handling
+(defun spawn_sub_agent_cast_test ()
+  "spawn-sub-agent cast should be handled without crashing conductor."
+  (with-conductor
+    (lambda ()
+      ;; Send a spawn-sub-agent cast
+      (gen_server:cast 'conductor
+        `#(spawn-sub-agent #M(agent-id "sub-test-1"
+                               name "test-sub"
+                               task "analyze something"
+                               parent-pid ,(self))))
+      (timer:sleep 100)
+      ;; Conductor should still be alive
+      (let ((status (conductor:status)))
+        (assert-truthy (is_map status))))))
+
+(defun spawn_sub_agent_no_parent_test ()
+  "spawn-sub-agent with undefined parent should not crash."
+  (with-conductor
+    (lambda ()
+      (gen_server:cast 'conductor
+        `#(spawn-sub-agent #M(agent-id "sub-test-2"
+                               name "orphan-sub"
+                               task "test")))
+      (timer:sleep 100)
+      (let ((status (conductor:status)))
+        (assert-truthy (is_map status))))))
+
+(defun spawn_sub_agent_default_id_test ()
+  "spawn-sub-agent without explicit agent-id should generate one."
+  (with-conductor
+    (lambda ()
+      (gen_server:cast 'conductor
+        `#(spawn-sub-agent #M(name "auto-id-sub"
+                               task "test"
+                               parent-pid ,(self))))
+      (timer:sleep 100)
+      ;; Conductor should still be alive
+      (let ((status (conductor:status)))
+        (assert-truthy (is_map status))))))
+
+;;; ============================================================
 ;;; Section 4: Helpers
 ;;; ============================================================
 
