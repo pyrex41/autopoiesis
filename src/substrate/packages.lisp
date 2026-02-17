@@ -62,6 +62,9 @@
    #:define-index
    ;; Linda operations
    #:take!
+   ;; Datalog queries
+   #:query
+   #:compile-query
    ;; Value index (backward compat accessor)
    #:*value-index*
    ;; Programming model (Phase 1.5)

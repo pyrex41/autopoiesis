@@ -814,3 +814,71 @@
     ;; scan-index should return at least one entry
     (let ((results (autopoiesis.substrate:scan-index :eavt)))
       (is (> (length results) 0) "EAVT index should have entries"))))
+
+;;; ===================================================================
+;;; Datalog query tests
+;;; ===================================================================
+
+(test datalog-single-clause
+  "Single clause query finds matching entities."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a2 :agent/status :stopped)
+           (autopoiesis.substrate:make-datom :a3 :agent/status :running)))
+    (let ((results (autopoiesis.substrate:query
+                    '((?e :agent/status :running)))))
+      (is (= 2 (length results)) "Should find 2 running agents")
+      ;; Each result should have :?E bound
+      (dolist (r results)
+        (is (not (null (cdr (assoc :?e r)))) "Should have ?e binding")))))
+
+(test datalog-two-clause-join
+  "Two clause join binds variables across clauses."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :stopped)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")))
+    (let ((results (autopoiesis.substrate:query
+                    '((?e :agent/status :running)
+                      (?e :agent/name ?name)))))
+      (is (= 1 (length results)) "Should find 1 running agent with name")
+      (let ((r (first results)))
+        (is (equal "alice" (cdr (assoc :?name r))))))))
+
+(test datalog-negation
+  "Negation excludes matching entities."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a2 :agent/error "crash")))
+    (let ((results (autopoiesis.substrate:query
+                    '((?e :agent/status :running)
+                      (?e :agent/name ?name)
+                      (not (?e :agent/error ?err))))))
+      ;; Only alice should remain (bob has an error)
+      (is (= 1 (length results)) "Should find 1 agent without errors")
+      (is (equal "alice" (cdr (assoc :?name (first results))))))))
+
+(test datalog-compiled-equals-interpreted
+  "compile-query produces same results as interpreted query."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")))
+    (autopoiesis.substrate:compile-query test-query
+      ((?e :agent/status :running) (?e :agent/name ?name)))
+    (let ((compiled-results (test-query))
+          (interp-results (autopoiesis.substrate:query
+                           '((?e :agent/status :running)
+                             (?e :agent/name ?name)))))
+      (is (= (length compiled-results) (length interp-results))
+          "Compiled and interpreted should return same count")
+      ;; Both should find alice
+      (is (equal "alice" (cdr (assoc :?name (first compiled-results)))))
+      (is (equal "alice" (cdr (assoc :?name (first interp-results))))))))

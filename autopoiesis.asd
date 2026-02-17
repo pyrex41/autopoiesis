@@ -51,6 +51,7 @@
        (:file "query")
        (:file "store")
        (:file "linda")
+       (:file "datalog")
        (:file "entity-type")
        (:file "system")
        (:file "builtin-types")
