@@ -144,13 +144,10 @@ interface. Uses the agentic loop for multi-turn tool use."))
   (let* ((messages (list `(("role" . "user") ("content" . ,prompt))))
          (capabilities (provider-capabilities provider))
          (system (provider-system-prompt provider))
-         (complete-fn (or (provider-complete-function provider)
-                          (ecase (provider-api-format provider)
-                            (:anthropic #'claude-complete)
-                            (:openai #'openai-complete))))
          (start-time (get-internal-real-time)))
     (handler-case
-        (let ((*claude-complete-function* complete-fn))
+        ;; Only override if provider has a test mock; llm-complete dispatches via CLOS
+        (let ((*claude-complete-function* (provider-complete-function provider)))
           (multiple-value-bind (final-response all-messages turn-count)
               (agentic-loop (provider-api-client provider) messages capabilities
                             :system system

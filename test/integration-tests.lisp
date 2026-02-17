@@ -527,41 +527,46 @@
   "Execute BODY with HTTP calls mocked.
 
    RESPONSE - The response body to return (alist that will be JSON-encoded)
-   STATUS - The HTTP status code to return (default 200)"
+   STATUS - The HTTP status code to return (default 200)
+
+   Mocks both llm-http-post (used by llm-complete protocol) and
+   send-api-request (legacy path) so all API calls are intercepted."
   `(let ((*mock-http-response* ,response)
          (*mock-http-status* (or ,status 200))
          (*captured-http-requests* nil))
-     (flet ((mock-dex-post (url &key headers content)
-              (push (list :url url :headers headers :content content)
-                    *captured-http-requests*)
-              (values (cl-json:encode-json-to-string *mock-http-response*)
-                      *mock-http-status*
-                      nil)))
-       ;; Temporarily replace the send-api-request internals
-       ;; We use a closure to capture the mock behavior
-       (let ((original-fn (symbol-function 'autopoiesis.integration::send-api-request)))
-         (unwind-protect
-              (progn
-                (setf (symbol-function 'autopoiesis.integration::send-api-request)
-                      (lambda (client endpoint body)
-                        (unless (autopoiesis.integration:client-api-key client)
-                          (error 'autopoiesis.core:autopoiesis-error
-                                 :message "No API key configured"))
-                        (let* ((url (format nil "~a~a"
-                                            (autopoiesis.integration:client-base-url client)
-                                            endpoint))
-                               (headers (autopoiesis.integration::make-api-headers client))
-                               (json-body (cl-json:encode-json-to-string body)))
-                          (push (list :url url :headers headers :content json-body)
-                                *captured-http-requests*)
-                          (if (and (>= *mock-http-status* 200)
-                                   (< *mock-http-status* 300))
-                              *mock-http-response*
-                              (error 'autopoiesis.core:autopoiesis-error
-                                     :message (format nil "API error (~a)" *mock-http-status*))))))
-                ,@body)
-           (setf (symbol-function 'autopoiesis.integration::send-api-request)
-                 original-fn))))))
+     ;; Mock llm-http-post (the shared transport used by llm-complete)
+     (let ((original-llm-fn (symbol-function 'autopoiesis.integration::llm-http-post))
+           (original-send-fn (symbol-function 'autopoiesis.integration::send-api-request)))
+       (unwind-protect
+            (progn
+              (setf (symbol-function 'autopoiesis.integration::llm-http-post)
+                    (lambda (client url body)
+                      (declare (ignore client))
+                      (let ((json-body (cl-json:encode-json-to-string body)))
+                        (push (list :url url :headers nil :content json-body)
+                              *captured-http-requests*)
+                        (if (and (>= *mock-http-status* 200)
+                                 (< *mock-http-status* 300))
+                            *mock-http-response*
+                            (error 'autopoiesis.core:autopoiesis-error
+                                   :message (format nil "API error (~a)" *mock-http-status*))))))
+              ;; Also mock send-api-request for any legacy callers
+              (setf (symbol-function 'autopoiesis.integration::send-api-request)
+                    (lambda (client endpoint body)
+                      (declare (ignore client))
+                      (let* ((json-body (cl-json:encode-json-to-string body)))
+                        (push (list :url endpoint :headers nil :content json-body)
+                              *captured-http-requests*)
+                        (if (and (>= *mock-http-status* 200)
+                                 (< *mock-http-status* 300))
+                            *mock-http-response*
+                            (error 'autopoiesis.core:autopoiesis-error
+                                   :message (format nil "API error (~a)" *mock-http-status*))))))
+              ,@body)
+         (setf (symbol-function 'autopoiesis.integration::llm-http-post)
+               original-llm-fn)
+         (setf (symbol-function 'autopoiesis.integration::send-api-request)
+               original-send-fn)))))
 
 (test mocked-claude-complete-simple
   "Test claude-complete with mocked HTTP response"

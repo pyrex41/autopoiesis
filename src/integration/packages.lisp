@@ -237,6 +237,19 @@
    #:agent-system-prompt
    #:agent-invocation-mode
 
+   ;; LLM client protocol
+   #:llm-complete
+   #:llm-auth-headers
+   #:llm-http-post
+   #:llm-response
+   #:make-llm-response
+   #:llm-response-content
+   #:llm-response-tool-calls
+   #:llm-response-stop-reason
+   #:llm-response-usage
+   #:llm-response-raw
+   #:response-to-llm-response
+
    ;; Agentic loop
    #:agentic-loop
    #:agentic-complete

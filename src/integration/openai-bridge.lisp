@@ -152,33 +152,32 @@
             headers))
     headers))
 
+;;; --- LLM Protocol Implementation ---
+
+(defmethod llm-auth-headers ((client openai-client))
+  "Return OpenAI API authentication headers."
+  (when (openai-client-api-key client)
+    `(("authorization" . ,(format nil "Bearer ~a" (openai-client-api-key client))))))
+
+(defmethod llm-complete ((client openai-client) messages &key tools system)
+  "Send completion to OpenAI-compatible API via unified protocol.
+   Converts Claude-format messages/tools to OpenAI format, sends request,
+   and normalizes the response back to Claude format."
+  (let* ((openai-messages (claude-messages-to-openai messages :system system))
+         (openai-tools (when tools (claude-tools-to-openai tools)))
+         (body (openai-build-request-body client openai-messages :tools openai-tools))
+         (raw-response (llm-http-post client
+                                      (format nil "~a/chat/completions"
+                                              (openai-client-base-url client))
+                                      body)))
+    (openai-response-to-claude-format raw-response)))
+
 (defun openai-send-request (client endpoint body)
-  "Send a request to the OpenAI API and return the parsed response."
-  (let* ((url (format nil "~a~a" (openai-client-base-url client) endpoint))
-         (json-body (cl-json:encode-json-to-string body))
-         (headers (openai-make-headers client)))
-    (handler-case
-        (multiple-value-bind (response-body status-code response-headers)
-            (dex:post url
-                      :headers headers
-                      :content json-body)
-          (declare (ignore response-headers))
-          (let ((parsed (cl-json:decode-json-from-string
-                         (if (stringp response-body)
-                             response-body
-                             (babel:octets-to-string response-body :encoding :utf-8)))))
-            (if (and (>= status-code 200) (< status-code 300))
-                parsed
-                (error 'autopoiesis.core:autopoiesis-error
-                       :message (format nil "OpenAI API error (~a): ~a"
-                                        status-code
-                                        (cdr (assoc :message (cdr (assoc :error parsed)))))))))
-      (dex:http-request-failed (e)
-        (error 'autopoiesis.core:autopoiesis-error
-               :message (format nil "HTTP request failed: ~a" e)))
-      (error (e)
-        (error 'autopoiesis.core:autopoiesis-error
-               :message (format nil "Error communicating with OpenAI API: ~a" e))))))
+  "Send a request to the OpenAI API and return the parsed response.
+   Delegates to llm-http-post for shared HTTP transport."
+  (llm-http-post client
+                 (format nil "~a~a" (openai-client-base-url client) endpoint)
+                 body))
 
 ;;; ===================================================================
 ;;; API Operations
@@ -186,20 +185,8 @@
 
 (defun openai-complete (client messages &key system tools)
   "Send a completion request to an OpenAI-compatible API.
-
-   CLIENT - An openai-client instance
-   MESSAGES - List of message alists in Claude format (auto-converted)
-   SYSTEM - Optional system prompt string
-   TOOLS - Optional list of tool definitions in Claude format (auto-converted)
-
-   Returns the parsed API response, normalized to Claude-like format for
-   consumption by the agentic loop."
-  (let* ((openai-messages (claude-messages-to-openai messages :system system))
-         (openai-tools (when tools (claude-tools-to-openai tools)))
-         (body (openai-build-request-body client openai-messages :tools openai-tools))
-         (raw-response (openai-send-request client "/chat/completions" body)))
-    ;; Normalize OpenAI response to Claude-like format
-    (openai-response-to-claude-format raw-response)))
+   Thin wrapper around llm-complete for backward compatibility."
+  (llm-complete client messages :system system :tools tools))
 
 ;;; ===================================================================
 ;;; Response Format Normalization

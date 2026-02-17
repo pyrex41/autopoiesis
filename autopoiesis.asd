@@ -121,6 +121,7 @@
       :components
       ((:file "packages")
        (:file "events")
+       (:file "llm-client")
        (:file "claude-bridge")
        (:file "message-format")
        (:file "tool-mapping")

@@ -187,13 +187,10 @@ claude-client directly."))
                     (record-turn-if-context agent :tool (format nil "~a" data)))))
                ;; Delegate to the original on-thought callback
                (funcall on-thought type data))))
+      ;; Only override if provider has a test mock; llm-complete dispatches via CLOS
       (let ((*claude-complete-function*
               (or *claude-complete-function*
-                  (when provider
-                    (or (provider-complete-function provider)
-                        (ecase (provider-api-format provider)
-                          (:anthropic nil)  ; use default claude-complete
-                          (:openai #'openai-complete)))))))
+                  (when provider (provider-complete-function provider)))))
         (multiple-value-bind (final-response all-messages turn-count)
             (agentic-loop (agent-client agent) messages capabilities
                           :system system

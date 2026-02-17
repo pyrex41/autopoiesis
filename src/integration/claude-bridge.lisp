@@ -59,36 +59,32 @@
     ("anthropic-version" . ,(client-api-version client))
     ("content-type" . "application/json")))
 
-(defun send-api-request (client endpoint body)
-  "Send a request to the Claude API and return the parsed response."
+;;; --- LLM Protocol Implementation ---
+
+(defmethod llm-auth-headers ((client claude-client))
+  "Return Claude API authentication headers."
+  `(("x-api-key" . ,(client-api-key client))
+    ("anthropic-version" . ,(client-api-version client))))
+
+(defmethod llm-complete ((client claude-client) messages &key tools system)
+  "Send completion to Claude API via unified protocol."
   (unless (client-api-key client)
     (error 'autopoiesis.core:autopoiesis-error
            :message "No API key configured. Set ANTHROPIC_API_KEY or provide :api-key"))
-  (let* ((url (format nil "~a~a" (client-base-url client) endpoint))
-         (json-body (cl-json:encode-json-to-string body))
-         (headers (make-api-headers client)))
-    (handler-case
-        (multiple-value-bind (response-body status-code response-headers)
-            (dex:post url
-                      :headers headers
-                      :content json-body)
-          (declare (ignore response-headers))
-          (let ((parsed (cl-json:decode-json-from-string
-                         (if (stringp response-body)
-                             response-body
-                             (babel:octets-to-string response-body :encoding :utf-8)))))
-            (if (and (>= status-code 200) (< status-code 300))
-                parsed
-                (error 'autopoiesis.core:autopoiesis-error
-                       :message (format nil "Claude API error (~a): ~a"
-                                        status-code
-                                        (cdr (assoc :message (cdr (assoc :error parsed)))))))))
-      (dex:http-request-failed (e)
-        (error 'autopoiesis.core:autopoiesis-error
-               :message (format nil "HTTP request failed: ~a" e)))
-      (error (e)
-        (error 'autopoiesis.core:autopoiesis-error
-               :message (format nil "Error communicating with Claude API: ~a" e))))))
+  (let ((body (build-request-body client messages :system system :tools tools)))
+    (llm-http-post client
+                   (format nil "~a/messages" (client-base-url client))
+                   body)))
+
+(defun send-api-request (client endpoint body)
+  "Send a request to the Claude API and return the parsed response.
+   Delegates to llm-http-post for shared HTTP transport."
+  (unless (client-api-key client)
+    (error 'autopoiesis.core:autopoiesis-error
+           :message "No API key configured. Set ANTHROPIC_API_KEY or provide :api-key"))
+  (llm-http-post client
+                 (format nil "~a~a" (client-base-url client) endpoint)
+                 body))
 
 ;;; ===================================================================
 ;;; API Operations
@@ -96,15 +92,8 @@
 
 (defun claude-complete (client messages &key system tools)
   "Send a completion request to Claude.
-
-   CLIENT - A claude-client instance
-   MESSAGES - List of message alists with 'role' and 'content' keys
-   SYSTEM - Optional system prompt string
-   TOOLS - Optional list of tool definitions in Claude format
-
-   Returns the parsed API response as an alist."
-  (let ((body (build-request-body client messages :system system :tools tools)))
-    (send-api-request client "/messages" body)))
+   Thin wrapper around llm-complete for backward compatibility."
+  (llm-complete client messages :system system :tools tools))
 
 (defun claude-stream (client messages callback &key system tools)
   "Stream a completion from Claude, calling CALLBACK for each chunk.
@@ -167,7 +156,7 @@
 ;;; ===================================================================
 
 (defvar *claude-complete-function* nil
-  "When non-nil, agentic-loop calls this instead of claude-complete.
+  "When non-nil, agentic-loop calls this instead of llm-complete.
    Signature: (funcall fn client messages :system system :tools tools)
    Used for testing without real API calls.")
 
@@ -189,7 +178,7 @@
   (let ((tools (capabilities-to-claude-tools capabilities))
         (turn-count 0)
         (response nil)
-        (complete-fn (or *claude-complete-function* #'claude-complete)))
+        (complete-fn (or *claude-complete-function* #'llm-complete)))
     (handler-case
         (loop
           (let ((resp (funcall complete-fn client messages :system system :tools tools)))
