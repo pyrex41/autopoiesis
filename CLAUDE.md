@@ -11,11 +11,11 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 ## Build & Development Commands
 
 ```bash
-# Run all tests
-./scripts/test.sh
+# Run all tests (from repo root)
+./platform/scripts/test.sh
 
 # Build/load the system
-./scripts/build.sh
+./platform/scripts/build.sh
 ```
 
 ```lisp
@@ -37,17 +37,17 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 
 Eleven-layer architecture (bottom to top):
 
-1. **Substrate Layer** (`src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types, value indexing, interning, LMDB persistence, blob store
-2. **Core Layer** (`src/core/`) - S-expression utilities, cognitive primitives, extension compiler, recovery, profiling, config
-3. **Agent Layer** (`src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner
-4. **Snapshot Layer** (`src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
-5. **Conversation Layer** (`src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
-6. **Human Interface Layer** (`src/interface/`) - Navigator, viewport, annotator, blocking input, CLI session
-7. **Visualization Layer** (`src/viz/`) - 2D terminal timeline with ANSI rendering and interactive navigation
-8. **Holodeck Layer** (`src/holodeck/`) - 3D ECS visualization with shaders, meshes, dual camera, HUD, ray picking
-9. **Integration Layer** (`src/integration/`) - Claude bridge, MCP servers, tool mapping, built-in tools, event bus, multi-provider agentic loops
-10. **Orchestration Layer** (`src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue and worker tracking
-11. **Cross-cutting** (`src/security/`, `src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
+1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types, value indexing, interning, LMDB persistence, blob store
+2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, extension compiler, recovery, profiling, config
+3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner
+4. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
+5. **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
+6. **Human Interface Layer** (`platform/src/interface/`) - Navigator, viewport, annotator, blocking input, CLI session
+7. **Visualization Layer** (`platform/src/viz/`) - 2D terminal timeline with ANSI rendering and interactive navigation
+8. **Holodeck Layer** (`platform/src/holodeck/`) - 3D ECS visualization with shaders, meshes, dual camera, HUD, ray picking
+9. **Integration Layer** (`platform/src/integration/`) - Claude bridge, MCP servers, tool mapping, built-in tools, event bus, multi-provider agentic loops
+10. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue and worker tracking
+11. **Cross-cutting** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
 
 ## Implementation Status
 
@@ -104,18 +104,18 @@ Eleven-layer architecture (bottom to top):
 
 ## Specification Documents
 
-- `docs/specs/00-overview.md` - Vision, architecture overview, key differentiators
-- `docs/specs/01-core-architecture.md` - Core layer design, packages, S-expression foundation
-- `docs/specs/02-cognitive-model.md` - Agent architecture, thought representation, cognitive loop
-- `docs/specs/03-snapshot-system.md` - Snapshot DAG model, branching, diffing
-- `docs/specs/04-human-interface.md` - Human-in-the-loop protocol, entry points
-- `docs/specs/05-visualization.md` - ECS architecture, 3D holodeck design
-- `docs/specs/06-integration.md` - Claude bridge, MCP integration
-- `docs/specs/07-implementation-roadmap.md` - Phased implementation plan
-- `docs/specs/08-specification-addendum.md` - Event sourcing, security architecture, resource management
-- `docs/specs/08-remaining-phases.md` - Phase 7-10 detailed specifications
-- `docs/user-stories.md` - 15 practical user stories with examples
-- `docs/DEPLOYMENT.md` - Docker deployment documentation
+- `platform/docs/specs/00-overview.md` - Vision, architecture overview, key differentiators
+- `platform/docs/specs/01-core-architecture.md` - Core layer design, packages, S-expression foundation
+- `platform/docs/specs/02-cognitive-model.md` - Agent architecture, thought representation, cognitive loop
+- `platform/docs/specs/03-snapshot-system.md` - Snapshot DAG model, branching, diffing
+- `platform/docs/specs/04-human-interface.md` - Human-in-the-loop protocol, entry points
+- `platform/docs/specs/05-visualization.md` - ECS architecture, 3D holodeck design
+- `platform/docs/specs/06-integration.md` - Claude bridge, MCP integration
+- `platform/docs/specs/07-implementation-roadmap.md` - Phased implementation plan
+- `platform/docs/specs/08-specification-addendum.md` - Event sourcing, security architecture, resource management
+- `platform/docs/specs/08-remaining-phases.md` - Phase 7-10 detailed specifications
+- `platform/docs/user-stories.md` - 15 practical user stories with examples
+- `platform/docs/DEPLOYMENT.md` - Docker deployment documentation
 
 ## Code Conventions
 
@@ -184,8 +184,8 @@ Eleven-layer architecture (bottom to top):
 
 ## Development Notes
 
-- The `ralph/` directory contains automation tooling for implementation
-- See `ralph/IMPLEMENTATION_PLAN.md` for current task status
+- The `platform/ralph/` directory contains automation tooling for implementation
+- See `platform/ralph/IMPLEMENTATION_PLAN.md` for current task status
 - Research documents are in `thoughts/shared/research/`
 - The LFE layer has been removed; all orchestration is now in pure Common Lisp
 - Substrate special variables (`*intern-table*`, `*resolve-table*`, etc.) are NOT exported — use `autopoiesis.substrate::*intern-table*` when capturing bindings for child threads

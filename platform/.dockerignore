@@ -4,8 +4,6 @@
 
 # Documentation (not needed at runtime)
 docs/
-thoughts/
-ralph/
 *.md
 !README.md
 

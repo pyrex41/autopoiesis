@@ -26,12 +26,33 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 - [SBCL](http://www.sbcl.org/) (Steel Bank Common Lisp)
 - [Quicklisp](https://www.quicklisp.org/beta/)
 
+### Repository Layout
+
+```
+ap/
+├── platform/          # Common Lisp agent platform
+│   ├── autopoiesis.asd
+│   ├── substrate.asd
+│   ├── src/
+│   ├── test/
+│   ├── scripts/
+│   ├── docs/
+│   └── Dockerfile
+├── holodeck/          # Bevy/Rust 3D visualization frontend
+│   ├── Cargo.toml
+│   └── src/
+├── sdk/               # Client SDKs
+│   └── go/            # Go SDK
+├── thoughts/          # Research & planning docs
+└── CLAUDE.md
+```
+
 ### Install and Test
 
 ```bash
 git clone <repo-url> autopoiesis
 cd autopoiesis
-./scripts/test.sh
+./platform/scripts/test.sh
 ```
 
 ### Hello World
@@ -248,39 +269,39 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Core Layer (`src/core/`)
+### Core Layer (`platform/src/core/`)
 
 The homoiconic foundation. S-expression diff/patch/hash, five cognitive primitives (Thought, Decision, Action, Observation, Reflection), append-only thought streams, a sandboxed extension compiler for agent-written code, condition/restart error recovery with graceful degradation, and nanosecond profiling.
 
-### Agent Layer (`src/agent/`)
+### Agent Layer (`platform/src/agent/`)
 
 Autonomous runtime. Five-phase cognitive loop (perceive → reason → decide → act → reflect). Capability system with `defcapability` macro. Priority-queue context window for working memory (default 100K tokens). Learning system that extracts patterns from experience into heuristics. Parent-child agent spawning with mailbox messaging.
 
-### Snapshot Layer (`src/snapshot/`)
+### Snapshot Layer (`platform/src/snapshot/`)
 
 Content-addressable DAG persistence. SHA256 hashing for deduplication. LRU-cached filesystem storage. Lightweight branches as named pointers. Structural diffing via S-expression edit operations. Time-travel with common ancestor finding, path discovery, and DAG traversal. Lazy loading with batch iterators. Consistency checking with repair. Full and incremental backups.
 
-### Interface Layer (`src/interface/`)
+### Interface Layer (`platform/src/interface/`)
 
 Human-in-the-loop infrastructure. Thread-safe blocking requests using Bordeaux threads condition variables. CLI REPL session with 15 commands. Navigator with history stack. Viewport with focus path, filter predicates, and detail levels. Annotator for human commentary. Human override/approve/reject of agent decisions.
 
-### Visualization Layer (`src/viz/`)
+### Visualization Layer (`platform/src/viz/`)
 
 ANSI terminal timeline explorer. 256-color rendering with Unicode box drawing and node glyphs. Chronological snapshot layout with branch connections. Detail panel with word-aware line breaking. hjkl navigation, Tab for branch cycling, / for search. Help overlay. Automatic terminal resize.
 
-### Holodeck Layer (`src/holodeck/`)
+### Holodeck Layer (`platform/src/holodeck/`)
 
 3D ECS visualization using `cl-fast-ecs`. Three mesh generators (sphere, octahedron, branching-node) at 4 LOD levels. Shader system with Fresnel glow, animated scanlines, energy beam flow — plus CPU-side simulation for headless testing. Orbit and fly cameras with 7 easing functions and smooth transitions. HUD with 4 panels and timeline scrubber. Ray picking via screen-to-world unprojection. 32 key bindings across 5 categories. 60fps main loop with live agent sync.
 
-### Integration Layer (`src/integration/`)
+### Integration Layer (`platform/src/integration/`)
 
 Claude API client via Dexador. MCP client speaking JSON-RPC over stdio. Bidirectional tool mapping: kebab-case Lisp capabilities ↔ snake_case Claude tools, Lisp types ↔ JSON Schema types. Built-in tools for filesystem, web, and shell. Pub/sub event bus with 1000-event history.
 
-### Security (`src/security/`)
+### Security (`platform/src/security/`)
 
 Permission system with resource × action matrix. Audit logging with thread-safe 10MB rotation. Input validation framework with 17 types and combinators (`:and`, `:or`, `:not`, `:nullable`). HTML sanitization.
 
-### Monitoring (`src/monitoring/`)
+### Monitoring (`platform/src/monitoring/`)
 
 Prometheus-compatible `/metrics` endpoint. Kubernetes-style probes: `/healthz`, `/readyz`, `/health`. Thread-safe counters, gauges, histograms. Hunchentoot HTTP server.
 
@@ -342,19 +363,19 @@ The holodeck is a separate ASDF system (`autopoiesis/holodeck`) to avoid requiri
 
 ## Documentation
 
-- **[User Stories](docs/user-stories.md)** — 15 practical examples with code
-- **[Specifications](docs/specs/)** — Detailed architecture documents
-  - [00 Overview](docs/specs/00-overview.md) — Vision and key differentiators
-  - [01 Core Architecture](docs/specs/01-core-architecture.md) — S-expression foundation
-  - [02 Cognitive Model](docs/specs/02-cognitive-model.md) — Agent architecture and thought representation
-  - [03 Snapshot System](docs/specs/03-snapshot-system.md) — DAG model, branching, diffing
-  - [04 Human Interface](docs/specs/04-human-interface.md) — Human-in-the-loop protocol
-  - [05 Visualization](docs/specs/05-visualization.md) — ECS architecture, holodeck design
-  - [06 Integration](docs/specs/06-integration.md) — Claude bridge, MCP integration
-  - [07 Implementation Roadmap](docs/specs/07-implementation-roadmap.md) — Phased plan
-  - [08 Addendum](docs/specs/08-specification-addendum.md) — Event sourcing, security, resources
-  - [08 Remaining Phases](docs/specs/08-remaining-phases.md) — Phase 7–10 specifications
-- **[Deployment](docs/DEPLOYMENT.md)** — Docker deployment
+- **[User Stories](platform/docs/user-stories.md)** — 15 practical examples with code
+- **[Specifications](platform/docs/specs/)** — Detailed architecture documents
+  - [00 Overview](platform/docs/specs/00-overview.md) — Vision and key differentiators
+  - [01 Core Architecture](platform/docs/specs/01-core-architecture.md) — S-expression foundation
+  - [02 Cognitive Model](platform/docs/specs/02-cognitive-model.md) — Agent architecture and thought representation
+  - [03 Snapshot System](platform/docs/specs/03-snapshot-system.md) — DAG model, branching, diffing
+  - [04 Human Interface](platform/docs/specs/04-human-interface.md) — Human-in-the-loop protocol
+  - [05 Visualization](platform/docs/specs/05-visualization.md) — ECS architecture, holodeck design
+  - [06 Integration](platform/docs/specs/06-integration.md) — Claude bridge, MCP integration
+  - [07 Implementation Roadmap](platform/docs/specs/07-implementation-roadmap.md) — Phased plan
+  - [08 Addendum](platform/docs/specs/08-specification-addendum.md) — Event sourcing, security, resources
+  - [08 Remaining Phases](platform/docs/specs/08-remaining-phases.md) — Phase 7–10 specifications
+- **[Deployment](platform/docs/DEPLOYMENT.md)** — Docker deployment
 - **[CLAUDE.md](CLAUDE.md)** — Development guidelines and code conventions
 
 ## Code Conventions
