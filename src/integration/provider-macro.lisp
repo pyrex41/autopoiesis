@@ -26,7 +26,9 @@
                  (handler-case
                      (let ((json (cl-json:decode-json-from-string raw-output)))
                        (make-provider-result
-                        ,@(loop for (slot . json-field) in field-mappings
+                        ,@(loop for mapping in field-mappings
+                                for slot = (first mapping)
+                                for json-field = (second mapping)
                                 ;; cl-json:camel-case-to-lisp is what the
                                 ;; decoder uses: cost_usd -> "COST--USD"
                                 for primary-key = (intern
@@ -120,9 +122,9 @@
      (:documentation \"...\")      - Class documentation string
 
    Parser specifications for :parse-output:
-     :json-object (result-kw . \"json_field\") ...
+     :json-object (result-kw \"json_field\") ...
        Parses single JSON object, maps fields to make-provider-result keywords.
-       E.g. (:text . \"result\") (:cost . \"cost_usd\")
+       E.g. (:text \"result\") (:cost \"cost_usd\")
      :jsonl-events (\"event_type\" body...) ...
        Parses newline-delimited JSON, dispatches on type field.
        Body has access to bindings: json, text-parts, tool-calls, total-cost, turns.

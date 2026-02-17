@@ -131,6 +131,7 @@
        (:file "config")
        (:file "provider")
        (:file "provider-result")
+       (:file "provider-macro")
        (:file "provider-claude-code")
        (:file "provider-codex")
        (:file "provider-opencode")
