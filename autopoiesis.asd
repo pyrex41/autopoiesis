@@ -158,6 +158,8 @@
        (:file "auth")
        (:file "serialization")
        (:file "sse")
+       (:file "operations")
+       (:file "op-definitions")
        (:file "routes")
        (:file "mcp-server")
        (:file "rest-server")))
