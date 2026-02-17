@@ -510,3 +510,95 @@
        (list (autopoiesis.substrate:make-datom :e1 :a/alpha 1)))
       (is (not (null sys1-fired)))
       (is (null sys2-fired)))))
+
+;;; ===================================================================
+;;; Phase 2: Blob Store (in-memory mode)
+;;; ===================================================================
+
+(test blob-store-roundtrip
+  "store-blob / load-blob round-trip for string content."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-memory-blobs)
+    (let ((hash (autopoiesis.substrate:store-blob "hello world")))
+      (is (stringp hash))
+      (is (= 64 (length hash)))  ; SHA-256 hex = 64 chars
+      (is (equal "hello world"
+                 (autopoiesis.substrate:load-blob hash :as-string t))))))
+
+(test blob-exists-p
+  "blob-exists-p returns t for stored, nil for missing."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-memory-blobs)
+    (let ((hash (autopoiesis.substrate:store-blob "test content")))
+      (is (autopoiesis.substrate:blob-exists-p hash))
+      (is (not (autopoiesis.substrate:blob-exists-p "nonexistent-hash"))))))
+
+(test blob-content-addressed-dedup
+  "Same content produces same hash (deduplication)."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-memory-blobs)
+    (let ((hash1 (autopoiesis.substrate:store-blob "identical content"))
+          (hash2 (autopoiesis.substrate:store-blob "identical content")))
+      (is (equal hash1 hash2)))))
+
+(test blob-different-content-different-hash
+  "Different content produces different hashes."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-memory-blobs)
+    (let ((hash1 (autopoiesis.substrate:store-blob "content A"))
+          (hash2 (autopoiesis.substrate:store-blob "content B")))
+      (is (not (equal hash1 hash2))))))
+
+(test blob-load-bytes
+  "load-blob returns bytes when as-string is nil."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-memory-blobs)
+    (let* ((hash (autopoiesis.substrate:store-blob "byte test"))
+           (bytes (autopoiesis.substrate:load-blob hash)))
+      (is (typep bytes '(vector (unsigned-byte 8))))
+      (is (equal "byte test"
+                 (babel:octets-to-string bytes :encoding :utf-8))))))
+
+(test blob-load-missing-returns-nil
+  "load-blob returns nil for missing hash."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-memory-blobs)
+    (is (null (autopoiesis.substrate:load-blob "nonexistent")))))
+
+;;; ===================================================================
+;;; Phase 2: LMDB Backend
+;;; ===================================================================
+
+(test lmdb-store-lifecycle
+  "open-lmdb-store and close lifecycle works."
+  (let ((path (format nil "/tmp/ap-test-~A/" (get-universal-time))))
+    (unwind-protect
+         (let ((store (autopoiesis.substrate:open-store :path path)))
+           ;; Store should exist but be in-memory (no LMDB path wired in open-store yet)
+           (is (not (null store)))
+           (autopoiesis.substrate:close-store :store store))
+      (uiop:delete-directory-tree (pathname path) :validate t :if-does-not-exist :ignore))))
+
+(test lmdb-serialization-roundtrip
+  "serialize-value / deserialize-value round-trip."
+  (let ((test-values (list "hello" 42 :keyword '(1 2 3) t nil)))
+    (dolist (val test-values)
+      (let ((bytes (autopoiesis.substrate::serialize-value val)))
+        (is (equalp val (autopoiesis.substrate::deserialize-value bytes))
+            "Round-trip failed for ~A" val)))))
+
+(test decode-encode-u64-roundtrip
+  "encode-u64-be / decode-u64-be round-trip."
+  (let ((buf (make-array 8 :element-type '(unsigned-byte 8))))
+    (dolist (val (list 0 1 255 256 65535 (expt 2 32) (1- (expt 2 63))))
+      (autopoiesis.substrate::encode-u64-be buf 0 val)
+      (is (= val (autopoiesis.substrate::decode-u64-be buf 0))
+          "Round-trip failed for ~A" val))))
+
+(test decode-encode-u32-roundtrip
+  "encode-u32-be / decode-u32-be round-trip."
+  (let ((buf (make-array 4 :element-type '(unsigned-byte 8))))
+    (dolist (val (list 0 1 255 256 65535 (1- (expt 2 32))))
+      (autopoiesis.substrate::encode-u32-be buf 0 val)
+      (is (= val (autopoiesis.substrate::decode-u32-be buf 0))
+          "Round-trip failed for ~A" val))))

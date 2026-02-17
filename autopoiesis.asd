@@ -20,7 +20,8 @@
                #:babel           ; For UTF-8 encoding
                #:dexador         ; For HTTP client
                #:cl-charms       ; For ncurses terminal UI
-               #:hunchentoot)    ; For HTTP server (monitoring endpoints)
+               #:hunchentoot     ; For HTTP server (monitoring endpoints)
+               #:lmdb)           ; For LMDB persistent storage (substrate)
   :components
   ((:module "src"
     :components
@@ -51,7 +52,10 @@
        (:file "linda")
        (:file "entity-type")
        (:file "system")
-       (:file "builtin-types")))
+       (:file "builtin-types")
+       (:file "lmdb-backend")
+       (:file "blob")
+       (:file "migration")))
      (:module "agent"
       :serial t
       :depends-on ("core")

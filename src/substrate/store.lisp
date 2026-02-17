@@ -91,19 +91,22 @@
 ;;; ===================================================================
 
 (defun write-to-index (store index-name key-fn datom)
-  "Write a datom to a named index (in-memory)."
+  "Write a datom to a named index. Uses LMDB when available, in-memory otherwise."
   (let* ((index-entry (assoc index-name (store-indexes store)))
          (strategy (getf (cdr index-entry) :strategy))
-         (key (funcall key-fn datom))
-         (mem-table (gethash index-name (store-memory-indexes store))))
-    (when mem-table
-      (ecase strategy
-        (:append
-         ;; Append: accumulate all datom values under this key
-         (push (d-value datom) (gethash key mem-table)))
-        (:replace
-         ;; Replace: only keep latest
-         (setf (gethash key mem-table) (d-value datom)))))))
+         (db (getf (cdr index-entry) :db))
+         (key (funcall key-fn datom)))
+    (if db
+        ;; LMDB path (handled in lmdb-transact!)
+        nil
+        ;; In-memory fallback
+        (let ((mem-table (gethash index-name (store-memory-indexes store))))
+          (when mem-table
+            (ecase strategy
+              (:append
+               (push (d-value datom) (gethash key mem-table)))
+              (:replace
+               (setf (gethash key mem-table) (d-value datom)))))))))
 
 ;;; ===================================================================
 ;;; The one function that matters: transact!
@@ -144,6 +147,10 @@
         (dolist (datom datoms)
           (update-entity-cache store datom)
           (update-value-index datom))
+        ;; Write to LMDB if available (inside lock for atomicity)
+        (when (store-lmdb-env store)
+          (lmdb-transact! datoms store)
+          (persist-tx-counter store tx-id))
         ;; Snapshot datoms and hooks for firing outside lock
         (setf committed-datoms (copy-list datoms))
         (setf hooks-snapshot (copy-list (store-hooks store))))
@@ -180,8 +187,8 @@
   "Close the substrate store."
   (when store
     (when (store-lmdb-env store)
-      ;; Phase 2: close LMDB
-      nil)
+      (close-lmdb-store :store store)
+      (return-from close-store))
     (setf *store* nil)))
 
 (defmacro with-store ((&key path) &body body)
