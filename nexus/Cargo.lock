@@ -991,6 +991,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "nexus-protocol"
 version = "0.1.0"
 dependencies = [

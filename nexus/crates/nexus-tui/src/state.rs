@@ -6,6 +6,14 @@ use crate::notifications::{Notification, NotificationLevel};
 use crate::widgets::chat::ChatMessage;
 use std::cmp::Ordering;
 
+#[derive(Debug, Clone, Default)]
+pub struct McpServerStatus {
+    pub name: String,
+    pub connected: bool,
+    pub tool_count: usize,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ConnectionStatus {
     #[default]
@@ -55,6 +63,9 @@ pub struct AppState {
     pub show_snapshot_panel: bool,
     pub snapshot_scroll_offset: usize,
     pub diff_scroll_offset: usize,
+    // MCP fields:
+    pub mcp_servers: Vec<McpServerStatus>,
+    pub selected_mcp_server_idx: usize,
 }
 
 impl Default for AppState {
@@ -89,6 +100,8 @@ impl Default for AppState {
             show_snapshot_panel: false,
             snapshot_scroll_offset: 0,
             diff_scroll_offset: 0,
+            mcp_servers: Vec::new(),
+            selected_mcp_server_idx: 0,
         }
     }
 }
@@ -180,6 +193,46 @@ impl AppState {
                 self.snapshots.len() - 1
             } else {
                 self.selected_snapshot_idx - 1
+            };
+        }
+    }
+
+    // MCP methods:
+
+    pub fn update_mcp_server(
+        &mut self,
+        name: &str,
+        connected: bool,
+        tool_count: usize,
+        error: Option<String>,
+    ) {
+        if let Some(server) = self.mcp_servers.iter_mut().find(|s| s.name == name) {
+            server.connected = connected;
+            server.tool_count = tool_count;
+            server.error = error;
+        } else {
+            self.mcp_servers.push(McpServerStatus {
+                name: name.to_string(),
+                connected,
+                tool_count,
+                error,
+            });
+        }
+    }
+
+    pub fn select_next_mcp_server(&mut self) {
+        if !self.mcp_servers.is_empty() {
+            self.selected_mcp_server_idx =
+                (self.selected_mcp_server_idx + 1) % self.mcp_servers.len();
+        }
+    }
+
+    pub fn select_prev_mcp_server(&mut self) {
+        if !self.mcp_servers.is_empty() {
+            self.selected_mcp_server_idx = if self.selected_mcp_server_idx == 0 {
+                self.mcp_servers.len() - 1
+            } else {
+                self.selected_mcp_server_idx - 1
             };
         }
     }
@@ -478,4 +531,68 @@ mod tests {
         assert_eq!(state.selected_snapshot_idx, 0);
     }
 
+    // === MCP tests ===
+
+    #[test]
+    fn test_default_mcp_fields() {
+        let state = AppState::default();
+        assert!(state.mcp_servers.is_empty());
+        assert_eq!(state.selected_mcp_server_idx, 0);
+    }
+
+    #[test]
+    fn test_update_mcp_server_insert() {
+        let mut state = AppState::default();
+        state.update_mcp_server("cortex", true, 15, None);
+        assert_eq!(state.mcp_servers.len(), 1);
+        assert_eq!(state.mcp_servers[0].name, "cortex");
+        assert!(state.mcp_servers[0].connected);
+        assert_eq!(state.mcp_servers[0].tool_count, 15);
+        assert!(state.mcp_servers[0].error.is_none());
+    }
+
+    #[test]
+    fn test_update_mcp_server_update() {
+        let mut state = AppState::default();
+        state.update_mcp_server("cortex", true, 15, None);
+        state.update_mcp_server("cortex", false, 0, Some("timeout".to_string()));
+        assert_eq!(state.mcp_servers.len(), 1);
+        assert!(!state.mcp_servers[0].connected);
+        assert_eq!(state.mcp_servers[0].tool_count, 0);
+        assert_eq!(state.mcp_servers[0].error, Some("timeout".to_string()));
+    }
+
+    #[test]
+    fn test_select_next_mcp_server_wraps() {
+        let mut state = AppState::default();
+        state.update_mcp_server("a", true, 1, None);
+        state.update_mcp_server("b", true, 2, None);
+        assert_eq!(state.selected_mcp_server_idx, 0);
+
+        state.select_next_mcp_server();
+        assert_eq!(state.selected_mcp_server_idx, 1);
+        state.select_next_mcp_server();
+        assert_eq!(state.selected_mcp_server_idx, 0); // wraps
+    }
+
+    #[test]
+    fn test_select_prev_mcp_server_wraps() {
+        let mut state = AppState::default();
+        state.update_mcp_server("a", true, 1, None);
+        state.update_mcp_server("b", true, 2, None);
+        assert_eq!(state.selected_mcp_server_idx, 0);
+
+        state.select_prev_mcp_server();
+        assert_eq!(state.selected_mcp_server_idx, 1); // wraps to end
+        state.select_prev_mcp_server();
+        assert_eq!(state.selected_mcp_server_idx, 0);
+    }
+
+    #[test]
+    fn test_select_mcp_server_on_empty() {
+        let mut state = AppState::default();
+        state.select_next_mcp_server(); // no panic
+        state.select_prev_mcp_server(); // no panic
+        assert_eq!(state.selected_mcp_server_idx, 0);
+    }
 }

@@ -164,12 +164,23 @@ impl App {
             );
         }
 
-        // Snapshot DAG in secondary panel
+        // Secondary panel: MCP panel or Snapshot DAG
         if let Some(snap_area) = layout.secondary_panel {
-            if !self.state.snapshots.is_empty() {
+            if self.state.focused_pane == FocusedPane::McpPanel {
+                use crate::widgets::mcp_panel::McpPanel;
+                frame.render_widget(
+                    McpPanel::new(
+                        &self.state.mcp_servers,
+                        self.state.selected_mcp_server_idx,
+                        true,
+                    ),
+                    snap_area,
+                );
+            } else {
+                use crate::widgets::snapshot_dag::SnapshotDag;
                 let is_focused = self.state.focused_pane == FocusedPane::SnapshotDag;
                 frame.render_widget(
-                    crate::widgets::snapshot_dag::SnapshotDag::new(
+                    SnapshotDag::new(
                         &self.state.snapshots,
                         &self.state.branches,
                         self.state.current_branch.as_deref(),
@@ -206,6 +217,17 @@ impl App {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => self.state.select_next_snapshot(),
                 KeyCode::Char('k') | KeyCode::Up => self.state.select_prev_snapshot(),
+                KeyCode::Esc => self.state.focused_pane = FocusedPane::AgentList,
+                _ => {}
+            }
+            return;
+        }
+
+        // Handle MCP panel focus
+        if self.state.focused_pane == FocusedPane::McpPanel {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => self.state.select_next_mcp_server(),
+                KeyCode::Char('k') | KeyCode::Up => self.state.select_prev_mcp_server(),
                 KeyCode::Esc => self.state.focused_pane = FocusedPane::AgentList,
                 _ => {}
             }
