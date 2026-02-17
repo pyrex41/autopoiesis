@@ -53,6 +53,11 @@ impl App {
         }
     }
 
+    pub fn with_history(mut self, history: Vec<String>) -> Self {
+        self.state.command_history = history;
+        self
+    }
+
     pub fn with_ws(mut self, handle: WsHandle, rx: broadcast::Receiver<ServerMessage>) -> Self {
         self.ws_handle = Some(handle);
         self.ws_rx = Some(rx);
@@ -197,9 +202,31 @@ impl App {
             NotificationStack::new(&self.state.notifications),
             layout.notification_area,
         );
+
+        // Help overlay (renders on top of everything else)
+        if self.state.show_help {
+            use crate::widgets::help_overlay::HelpOverlay;
+            use ratatui::widgets::Widget;
+            HelpOverlay::new().render(frame.area(), frame.buffer_mut());
+        }
     }
 
     fn handle_input(&mut self, key: crossterm::event::KeyEvent) {
+        // Help overlay consumes all keys when shown
+        if self.state.show_help {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+                self.state.show_help = false;
+            }
+            return;
+        }
+
+        // Ctrl+L force redraw — consumed, next render tick handles it
+        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('l')
+        {
+            return;
+        }
+
         // Handle blocking prompt focus
         if self.state.focused_pane == FocusedPane::BlockingPrompt {
             self.handle_blocking_input(key);
@@ -1102,13 +1129,34 @@ mod tests {
         let mut app = App::new();
         assert!(!app.state.show_help);
 
+        // Space h opens help
         app.handle_input(key(KeyCode::Char(' ')));
         app.handle_input(key(KeyCode::Char('h')));
         assert!(app.state.show_help);
 
-        app.handle_input(key(KeyCode::Char(' ')));
-        app.handle_input(key(KeyCode::Char('h')));
+        // ? closes help (help overlay consumes all keys, so Space h won't work)
+        app.handle_input(key(KeyCode::Char('?')));
         assert!(!app.state.show_help);
+    }
+
+    #[test]
+    fn test_help_overlay_esc_closes() {
+        let mut app = App::new();
+        app.state.show_help = true;
+
+        app.handle_input(key(KeyCode::Esc));
+        assert!(!app.state.show_help);
+    }
+
+    #[test]
+    fn test_help_overlay_consumes_other_keys() {
+        let mut app = App::new();
+        app.state.show_help = true;
+
+        // Other keys should be consumed without effect
+        app.handle_input(key(KeyCode::Char('q')));
+        assert!(!app.state.should_quit);
+        assert!(app.state.show_help);
     }
 
     #[test]

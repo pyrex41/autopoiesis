@@ -8,3 +8,4 @@ pub mod chat;
 pub mod diff_viewer;
 pub mod mcp_panel;
 pub mod snapshot_dag;
+pub mod help_overlay;

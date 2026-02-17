@@ -1,0 +1,49 @@
+# Nexus Configuration File
+# Copy to nexus.toml (in cwd or ~/.nexus/nexus.toml)
+
+[connection]
+# WebSocket URL for the Autopoiesis backend
+ws_url = "ws://localhost:8080/ws"
+
+# REST API URL
+rest_url = "http://localhost:8081"
+
+# Optional Bearer token for authentication
+# api_key = "your-api-key-here"
+
+# Maximum reconnect backoff in seconds (default: 30)
+reconnect_max_secs = 30
+
+[tui]
+# Color theme: tron | holodeck | matrix | minimal
+theme = "tron"
+
+# Initial layout: cockpit | focused | monitor
+layout = "cockpit"
+
+# Target frame rate
+fps = 60
+
+# Enable mouse support
+mouse = true
+
+[[mcp.servers]]
+# Connect to Autopoiesis MCP server (HTTP transport)
+name = "autopoiesis"
+transport = "http"
+url = "http://localhost:8081/mcp"
+
+# Example stdio MCP server (uncomment to use):
+# [[mcp.servers]]
+# name = "filesystem"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+[keybinds]
+# Leader key (default: space)
+leader = "space"
+# Quit key (default: q, in normal mode)
+quit = "q"
+# Enter command mode (default: /)
+command = "/"
