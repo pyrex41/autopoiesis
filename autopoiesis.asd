@@ -36,6 +36,19 @@
        (:file "extension-compiler")
        (:file "profiling")
        (:file "config")))
+     (:module "substrate"
+      :serial t
+      :depends-on ("core")
+      :components
+      ((:file "packages")
+       (:file "conditions")
+       (:file "intern")
+       (:file "encoding")
+       (:file "datom")
+       (:file "entity")
+       (:file "query")
+       (:file "store")
+       (:file "linda")))
      (:module "agent"
       :serial t
       :depends-on ("core")
@@ -233,6 +246,7 @@
     :serial t
     :components
     ((:file "packages")
+     (:file "substrate-tests")
      (:file "core-tests")
      (:file "agent-tests")
      (:file "snapshot-tests")

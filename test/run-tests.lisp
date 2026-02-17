@@ -14,6 +14,7 @@
 
 (defun run-all-tests ()
   "Run all Autopoiesis tests."
+  (run! 'substrate-tests)
   (run! 'core-tests)
   (run! 'agent-tests)
   (run! 'snapshot-tests)
@@ -27,6 +28,10 @@
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
+(defun test-substrate ()
+  "Run only substrate tests."
+  (run! 'substrate-tests))
+
 (defun test-core ()
   "Run only core tests."
   (run! 'core-tests))

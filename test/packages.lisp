@@ -11,6 +11,7 @@
   (:export
    #:run-all-tests
    #:run-e2e-tests
+   #:substrate-tests
    #:core-tests
    #:agent-tests
    #:snapshot-tests
