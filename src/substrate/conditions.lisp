@@ -1,23 +1,23 @@
 ;;;; conditions.lisp - Substrate condition hierarchy
 ;;;;
-;;;; Extends AP's condition hierarchy with substrate-specific conditions
-;;;; and restarts. Pattern follows the three-level structure from
-;;;; src/core/conditions.lisp.
+;;;; Self-contained conditions for the substrate. When loaded as part of
+;;;; autopoiesis, these still integrate with CL's condition system normally.
 
 (in-package #:autopoiesis.substrate)
 
-;;; Base substrate condition (inherits AP's base)
-(define-condition substrate-condition (autopoiesis.core:autopoiesis-condition)
-  ((entity-id :initarg :entity-id :reader condition-entity-id :initform nil)
+;;; Base substrate condition
+(define-condition substrate-condition (condition)
+  ((message :initarg :message :reader substrate-condition-message :initform "")
+   (entity-id :initarg :entity-id :reader condition-entity-id :initform nil)
    (attribute :initarg :attribute :reader condition-attribute :initform nil))
   (:documentation "Base condition for substrate operations"))
 
-(define-condition substrate-error (substrate-condition autopoiesis.core:autopoiesis-error)
+(define-condition substrate-error (substrate-condition error)
   ()
   (:report (lambda (c s)
              (format s "Substrate error~@[ (entity: ~A)~]: ~A"
                      (condition-entity-id c)
-                     (autopoiesis.core:condition-message c))))
+                     (substrate-condition-message c))))
   (:documentation "Substrate error condition"))
 
 ;;; Validation error with restarts for schema mismatches
