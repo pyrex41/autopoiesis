@@ -749,3 +749,68 @@
       ;; Hook should have received all datoms from both transact! calls
       (is (= 2 (length received-datoms))
           "Hook should receive all datoms from batch"))))
+
+;;; ===================================================================
+;;; Temporal query tests
+;;; ===================================================================
+
+(test entity-history-returns-all-values
+  "entity-history returns historical values with tx-ids."
+  (autopoiesis.substrate:with-store ()
+    ;; Write 3 different values for the same entity+attribute
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :agent-1 :agent/status :starting)))
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :agent-1 :agent/status :running)))
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :agent-1 :agent/status :stopped)))
+    ;; entity-history should return all 3, most recent first
+    (let ((history (autopoiesis.substrate:entity-history :agent-1 :agent/status)))
+      (is (>= (length history) 3)
+          "Should have at least 3 history entries")
+      ;; Most recent should be :stopped
+      (is (eq :stopped (getf (first history) :value))
+          "Most recent value should be :stopped")
+      ;; Each entry should have :tx and :value
+      (dolist (entry history)
+        (is (not (null (getf entry :tx))) "Entry should have :tx")
+        (is (not (null (getf entry :value))) "Entry should have :value")))))
+
+(test entity-history-respects-limit
+  "entity-history :last-n limits results."
+  (autopoiesis.substrate:with-store ()
+    (dotimes (i 5)
+      (autopoiesis.substrate:transact!
+       (list (autopoiesis.substrate:make-datom :counter :val i))))
+    (let ((history (autopoiesis.substrate:entity-history :counter :val :last-n 2)))
+      (is (= 2 (length history)) "Should return exactly 2 entries"))))
+
+(test entity-as-of-reconstructs-state
+  "entity-as-of returns entity state at a historical transaction."
+  (autopoiesis.substrate:with-store ()
+    (let ((tx1 (autopoiesis.substrate:transact!
+                (list (autopoiesis.substrate:make-datom :agent-1 :agent/name "alice")
+                      (autopoiesis.substrate:make-datom :agent-1 :agent/status :running))))
+          (tx2 (autopoiesis.substrate:transact!
+                (list (autopoiesis.substrate:make-datom :agent-1 :agent/status :stopped)
+                      (autopoiesis.substrate:make-datom :agent-1 :agent/result "done")))))
+      ;; State at tx1: should have name=alice, status=running, no result
+      (let ((state-at-tx1 (autopoiesis.substrate:entity-as-of :agent-1 tx1)))
+        (is (equal "alice" (getf state-at-tx1 :agent/name)))
+        (is (eq :running (getf state-at-tx1 :agent/status)))
+        (is (null (getf state-at-tx1 :agent/result))
+            "result should not exist at tx1"))
+      ;; State at tx2: should have updated status and result
+      (let ((state-at-tx2 (autopoiesis.substrate:entity-as-of :agent-1 tx2)))
+        (is (equal "alice" (getf state-at-tx2 :agent/name)))
+        (is (eq :stopped (getf state-at-tx2 :agent/status)))
+        (is (equal "done" (getf state-at-tx2 :agent/result)))))))
+
+(test scan-index-returns-results
+  "scan-index returns entries from in-memory EAVT index."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :e1 :name "test")))
+    ;; scan-index should return at least one entry
+    (let ((results (autopoiesis.substrate:scan-index :eavt)))
+      (is (> (length results) 0) "EAVT index should have entries"))))

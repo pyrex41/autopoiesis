@@ -46,6 +46,8 @@
    #:entity-attr
    #:entity-attrs
    #:entity-state
+   #:entity-history
+   #:entity-as-of
    #:find-entities
    #:find-entities-by-type
    #:scan-index

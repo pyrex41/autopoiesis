@@ -2,6 +2,7 @@
 ;;;;
 ;;;; find-entities and find-entities-by-type use the inverted
 ;;;; value index for O(1) lookups.
+;;;; scan-index scans in-memory or LMDB indexes.
 ;;;;
 ;;;; All state accessed through *substrate* context object.
 
@@ -40,8 +41,48 @@
   "Find the first entity ID where ATTRIBUTE equals VALUE, or nil."
   (car (find-entities attribute value :store store)))
 
-(defun scan-index (index-name &key (store *store*) (limit 100))
-  "Scan entries from a named index. Phase 1: returns nil (no index storage yet).
-   Phase 2: cursor scan over LMDB."
-  (declare (ignore index-name store limit))
-  nil)
+(defun scan-index (index-name &key (store *store*) prefix (limit 100))
+  "Scan entries from a named index. Returns list of (key . value) pairs.
+   PREFIX: optional byte array prefix to filter by.
+   In-memory path: scans hash table with optional prefix matching.
+   LMDB path: cursor scan with prefix."
+  (let ((mem-table (gethash index-name (store-memory-indexes store)))
+        (results nil)
+        (count 0))
+    (when mem-table
+      (maphash (lambda (key value)
+                 (when (< count limit)
+                   (if prefix
+                       ;; Prefix match: key must start with prefix bytes
+                       (when (and (typep key '(simple-array (unsigned-byte 8) (*)))
+                                  (>= (length key) (length prefix))
+                                  (%byte-prefix-match-p key prefix))
+                         (push (cons key value) results)
+                         (incf count))
+                       ;; No prefix: return all
+                       (progn
+                         (push (cons key value) results)
+                         (incf count)))))
+               mem-table))
+    ;; LMDB path
+    (let ((index-entry (assoc index-name (store-indexes store))))
+      (when index-entry
+        (let ((db (getf (cdr index-entry) :db)))
+          (when (and db (store-lmdb-env store) (zerop (length results)))
+            (lmdb:with-txn (:write nil)
+              (lmdb:do-db (key value db)
+                (when (< count limit)
+                  (if prefix
+                      (when (and (>= (length key) (length prefix))
+                                 (%byte-prefix-match-p key prefix))
+                        (push (cons key (deserialize-value value)) results)
+                        (incf count))
+                      (progn
+                        (push (cons key (deserialize-value value)) results)
+                        (incf count))))))))))
+    (nreverse results)))
+
+(defun %byte-prefix-match-p (key prefix)
+  "Check if KEY starts with PREFIX (both byte arrays)."
+  (loop for i below (length prefix)
+        always (= (aref key i) (aref prefix i))))
