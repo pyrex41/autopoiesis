@@ -16,7 +16,7 @@ use crate::input::{self, Action};
 use crate::keybinds::{LeaderAction, LeaderState};
 use crate::layout::{AppLayout, FocusedPane};
 use crate::notifications::{NotificationLevel, NotificationStack};
-use crate::state::{AppState, ConnectionStatus, InputMode};
+use crate::state::{AppState, ConnectionStatus, InputMode, VoiceMode};
 use crate::widgets::{
     agent_detail::AgentDetail, agent_list::AgentList, blocking_prompt::BlockingPrompt,
     chat::Chat, command_bar::CommandBar, status_bar::StatusBar, thought_stream::ThoughtStream,
@@ -106,6 +106,9 @@ impl App {
             tokio::select! {
                 _ = tokio::time::sleep(TICK_RATE) => {
                     self.state.prune_notifications();
+                    if let Some(err) = self.state.voice_error.take() {
+                        self.state.push_notification(&format!("Voice: {}", err), NotificationLevel::Warning);
+                    }
                     while event::poll(Duration::ZERO)? {
                         if let Event::Key(key) = event::read()? {
                             if key.kind == KeyEventKind::Press {
@@ -269,6 +272,24 @@ impl App {
             return;
         }
 
+        // F5: push-to-talk toggle
+        if key.code == KeyCode::F(5) {
+            if self.state.voice_mode == VoiceMode::PushToTalk {
+                if self.state.is_recording {
+                    self.state.is_recording = false;
+                    self.state
+                        .push_notification("Recording stopped", NotificationLevel::Info);
+                } else {
+                    self.state.is_recording = true;
+                    self.state.push_notification(
+                        "Recording... (press F5 again to stop)",
+                        NotificationLevel::Warning,
+                    );
+                }
+            }
+            return;
+        }
+
         // Normal mode: try leader-key system first
         let (new_leader, leader_action) = self.leader_state.process(key);
         self.leader_state = new_leader;
@@ -294,6 +315,16 @@ impl App {
             }
             LeaderAction::ToggleHelp | LeaderAction::Help => {
                 self.state.toggle_help();
+            }
+            LeaderAction::ToggleVoice => {
+                self.state.toggle_voice_mode();
+                let mode_name = match self.state.voice_mode {
+                    VoiceMode::Disabled => "Off",
+                    VoiceMode::PushToTalk => "Push-to-Talk",
+                    VoiceMode::VoiceActivated => "Voice Activated",
+                };
+                self.state
+                    .push_notification(&format!("Voice: {mode_name}"), NotificationLevel::Info);
             }
             LeaderAction::FocusNext => {
                 self.state.focused_pane = self.state.focused_pane.next();
@@ -1611,5 +1642,66 @@ mod tests {
                 app.render(f);
             })
             .unwrap();
+    }
+
+    // === Voice tests ===
+
+    #[test]
+    fn test_leader_key_space_v_toggles_voice() {
+        let mut app = App::new();
+        assert_eq!(app.state.voice_mode, VoiceMode::Disabled);
+
+        // Space v -> PushToTalk
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('v')));
+        assert_eq!(app.state.voice_mode, VoiceMode::PushToTalk);
+        assert_eq!(app.state.notifications.len(), 1);
+        assert!(app.state.notifications[0].message.contains("Push-to-Talk"));
+
+        // Space v -> VoiceActivated
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('v')));
+        assert_eq!(app.state.voice_mode, VoiceMode::VoiceActivated);
+
+        // Space v -> Disabled
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('v')));
+        assert_eq!(app.state.voice_mode, VoiceMode::Disabled);
+    }
+
+    #[test]
+    fn test_f5_push_to_talk_toggle() {
+        let mut app = App::new();
+        app.state.voice_mode = VoiceMode::PushToTalk;
+
+        // F5 starts recording
+        app.handle_input(key(KeyCode::F(5)));
+        assert!(app.state.is_recording);
+        assert_eq!(app.state.notifications.len(), 1);
+
+        // F5 again stops recording
+        app.handle_input(key(KeyCode::F(5)));
+        assert!(!app.state.is_recording);
+        assert_eq!(app.state.notifications.len(), 2);
+    }
+
+    #[test]
+    fn test_f5_does_nothing_when_voice_disabled() {
+        let mut app = App::new();
+        assert_eq!(app.state.voice_mode, VoiceMode::Disabled);
+
+        app.handle_input(key(KeyCode::F(5)));
+        assert!(!app.state.is_recording);
+        assert!(app.state.notifications.is_empty());
+    }
+
+    #[test]
+    fn test_f5_does_nothing_in_vad_mode() {
+        let mut app = App::new();
+        app.state.voice_mode = VoiceMode::VoiceActivated;
+
+        app.handle_input(key(KeyCode::F(5)));
+        assert!(!app.state.is_recording);
+        assert!(app.state.notifications.is_empty());
     }
 }

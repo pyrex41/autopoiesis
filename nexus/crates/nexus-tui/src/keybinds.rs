@@ -23,6 +23,9 @@ pub enum LeaderAction {
     AgentStep,          // Space a t
     AgentInjectThought, // Space a i
 
+    // Voice (Space + v)
+    ToggleVoice,
+
     // Global shortcuts (no leader key needed)
     FocusNext, // Tab
     FocusPrev, // Shift+Tab
@@ -77,6 +80,7 @@ impl LeaderState {
                 }
                 KeyCode::Char('l') => (LeaderState::Idle, LeaderAction::CycleLayout),
                 KeyCode::Char('h') => (LeaderState::Idle, LeaderAction::ToggleHelp),
+                KeyCode::Char('v') => (LeaderState::Idle, LeaderAction::ToggleVoice),
                 KeyCode::Esc => (LeaderState::Idle, LeaderAction::Cancelled),
                 _ => (LeaderState::Idle, LeaderAction::Cancelled),
             },
@@ -165,6 +169,14 @@ mod tests {
         let (state, _) = LeaderState::Idle.process(key(KeyCode::Char(' ')));
         let (_, action) = state.process(key(KeyCode::Char('l')));
         assert_eq!(action, LeaderAction::CycleLayout);
+    }
+
+    #[test]
+    fn test_space_v_toggles_voice() {
+        let (state, _) = LeaderState::Idle.process(key(KeyCode::Char(' ')));
+        let (state, action) = state.process(key(KeyCode::Char('v')));
+        assert_eq!(state, LeaderState::Idle);
+        assert_eq!(action, LeaderAction::ToggleVoice);
     }
 
     #[test]

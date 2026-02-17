@@ -30,6 +30,14 @@ pub enum InputMode {
     Command,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VoiceMode {
+    #[default]
+    Disabled,
+    PushToTalk,
+    VoiceActivated,
+}
+
 #[derive(Debug)]
 pub struct AppState {
     pub connection: ConnectionStatus,
@@ -66,6 +74,12 @@ pub struct AppState {
     // MCP fields:
     pub mcp_servers: Vec<McpServerStatus>,
     pub selected_mcp_server_idx: usize,
+    // Voice fields:
+    pub voice_mode: VoiceMode,
+    pub is_recording: bool,
+    pub is_speaking: bool,
+    pub transcribed_text: Option<String>,
+    pub voice_error: Option<String>,
 }
 
 impl Default for AppState {
@@ -102,6 +116,11 @@ impl Default for AppState {
             diff_scroll_offset: 0,
             mcp_servers: Vec::new(),
             selected_mcp_server_idx: 0,
+            voice_mode: VoiceMode::Disabled,
+            is_recording: false,
+            is_speaking: false,
+            transcribed_text: None,
+            voice_error: None,
         }
     }
 }
@@ -235,6 +254,21 @@ impl AppState {
                 self.selected_mcp_server_idx - 1
             };
         }
+    }
+
+    // Voice methods:
+
+    pub fn toggle_voice_mode(&mut self) {
+        self.voice_mode = match self.voice_mode {
+            VoiceMode::Disabled => VoiceMode::PushToTalk,
+            VoiceMode::PushToTalk => VoiceMode::VoiceActivated,
+            VoiceMode::VoiceActivated => VoiceMode::Disabled,
+        };
+    }
+
+    pub fn set_transcription(&mut self, text: String) {
+        self.command_input = text.clone();
+        self.transcribed_text = Some(text);
     }
 }
 
@@ -594,5 +628,36 @@ mod tests {
         state.select_next_mcp_server(); // no panic
         state.select_prev_mcp_server(); // no panic
         assert_eq!(state.selected_mcp_server_idx, 0);
+    }
+
+    // === Voice tests ===
+
+    #[test]
+    fn test_voice_mode_default() {
+        let state = AppState::default();
+        assert_eq!(state.voice_mode, VoiceMode::Disabled);
+        assert!(!state.is_recording);
+        assert!(!state.is_speaking);
+        assert!(state.transcribed_text.is_none());
+    }
+
+    #[test]
+    fn test_toggle_voice_mode() {
+        let mut state = AppState::default();
+        assert_eq!(state.voice_mode, VoiceMode::Disabled);
+        state.toggle_voice_mode();
+        assert_eq!(state.voice_mode, VoiceMode::PushToTalk);
+        state.toggle_voice_mode();
+        assert_eq!(state.voice_mode, VoiceMode::VoiceActivated);
+        state.toggle_voice_mode();
+        assert_eq!(state.voice_mode, VoiceMode::Disabled);
+    }
+
+    #[test]
+    fn test_set_transcription() {
+        let mut state = AppState::default();
+        state.set_transcription("hello world".to_string());
+        assert_eq!(state.transcribed_text, Some("hello world".to_string()));
+        assert_eq!(state.command_input, "hello world");
     }
 }

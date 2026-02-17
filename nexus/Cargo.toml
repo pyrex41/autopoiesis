@@ -11,6 +11,7 @@ description = "Terminal cockpit for the Autopoiesis agent platform"
 [dependencies]
 nexus-protocol = { path = "crates/nexus-protocol" }
 nexus-tui = { path = "crates/nexus-tui" }
+nexus-voice = { path = "crates/nexus-voice" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -36,3 +37,7 @@ ratatui = { version = "0.29", features = ["crossterm"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 clap = { version = "4", features = ["derive", "env"] }
 toml = "0.8"
+ort = { version = "2.0.0-rc.11", features = ["download-binaries", "copy-dylibs"] }
+cpal = "0.15"
+rodio = { version = "0.19", default-features = false, features = ["wav"] }
+hound = "3.5"
