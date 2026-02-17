@@ -6,6 +6,8 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
+use bevy_panorbit_camera::PanOrbitCamera;
+
 use crate::state::components::AgentNode;
 use crate::state::resources::*;
 
@@ -66,10 +68,12 @@ pub fn connection_status_bar(
 }
 
 /// Minimap: top-down view of agent positions in bottom-left.
+/// Click to move the camera focus to that world position.
 pub fn minimap(
     mut contexts: EguiContexts,
-    agents: Query<(&AgentNode, &Transform)>,
+    agents: Query<(&AgentNode, &Transform), Without<PanOrbitCamera>>,
     selected: Res<SelectedAgent>,
+    mut camera: Query<&mut PanOrbitCamera>,
 ) {
     egui::Window::new("Minimap")
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
@@ -78,7 +82,7 @@ pub fn minimap(
         .title_bar(false)
         .fixed_size(egui::vec2(150.0, 150.0))
         .show(contexts.ctx_mut(), |ui| {
-            let (rect, _response) = ui.allocate_exact_size(
+            let (rect, response) = ui.allocate_exact_size(
                 egui::vec2(140.0, 140.0),
                 egui::Sense::click(),
             );
@@ -87,13 +91,13 @@ pub fn minimap(
             painter.rect_filled(rect, 4.0, egui::Color32::from_rgba_premultiplied(10, 10, 30, 200));
 
             // Map world coords to minimap coords
-            let world_range = 50.0; // ±50 units
+            let world_range = 50.0; // +/-50 units
             let map_center = rect.center();
             let map_scale = rect.width() / (world_range * 2.0);
 
             for (agent, transform) in agents.iter() {
                 let x = map_center.x + transform.translation.x * map_scale;
-                let y = map_center.y + transform.translation.z * map_scale; // top-down: Z → Y
+                let y = map_center.y + transform.translation.z * map_scale; // top-down: Z -> Y
 
                 let is_selected = selected.agent_id == Some(agent.agent_id);
                 let color = if is_selected {
@@ -109,6 +113,17 @@ pub fn minimap(
 
                 let radius = if is_selected { 4.0 } else { 3.0 };
                 painter.circle_filled(egui::pos2(x, y), radius, color);
+            }
+
+            // Click on minimap to move camera focus
+            if response.clicked() {
+                if let Some(click_pos) = response.interact_pointer_pos() {
+                    let rel_x = (click_pos.x - map_center.x) / map_scale;
+                    let rel_z = (click_pos.y - map_center.y) / map_scale;
+                    if let Ok(mut cam) = camera.get_single_mut() {
+                        cam.focus = Vec3::new(rel_x, 0.0, rel_z);
+                    }
+                }
             }
         });
 }

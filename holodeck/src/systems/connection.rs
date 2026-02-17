@@ -24,6 +24,7 @@ pub struct BackendEventWriters<'w> {
     pub ev_blocking_list: EventWriter<'w, BlockingRequestListReceived>,
     pub ev_blocking: EventWriter<'w, BlockingRequestEvent>,
     pub ev_blocking_responded: EventWriter<'w, BlockingRespondedEvent>,
+    pub ev_step_complete: EventWriter<'w, StepCompleteEvent>,
     pub ev_backend: EventWriter<'w, BackendEvent>,
 }
 
@@ -93,7 +94,9 @@ fn dispatch_server_message(
             ar.update_state(agent_id, state.clone());
             w.ev_agent_state.send(AgentStateChangedEvent { agent_id, state });
         }
-        ServerMessage::StepComplete { .. } => {}
+        ServerMessage::StepComplete { agent_id, .. } => {
+            w.ev_step_complete.send(StepCompleteEvent { agent_id });
+        }
         ServerMessage::Thoughts { thoughts, total } => {
             tc.thoughts = thoughts.clone();
             w.ev_thought_list.send(ThoughtListReceived { thoughts, total });

@@ -4,14 +4,18 @@
 //! to represent them in the scene. State changes update colors with smooth lerps.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use bevy::prelude::*;
+use bevy_tweening::*;
 use uuid::Uuid;
 
 use crate::protocol::events::*;
 use crate::rendering::materials;
+use crate::shaders::agent_shell_material::AgentShellMaterial;
 use crate::state::components::*;
 use crate::state::resources::AgentRegistry;
+use crate::systems::tweens::AgentColorLens;
 
 /// Lookup table: agent UUID → Entity for quick mapping.
 #[derive(Resource, Default, Debug)]
@@ -21,7 +25,7 @@ pub struct AgentEntityMap(pub HashMap<Uuid, Entity>);
 pub fn spawn_agents_from_list(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut mats: ResMut<Assets<StandardMaterial>>,
+    mut mats: ResMut<Assets<AgentShellMaterial>>,
     mut ev_list: EventReader<AgentListReceived>,
     mut entity_map: ResMut<AgentEntityMap>,
     existing: Query<&AgentNode>,
@@ -47,7 +51,7 @@ pub fn spawn_agents_from_list(
                 .spawn((
                     // Mesh: icosphere
                     Mesh3d(meshes.add(Sphere::new(0.8).mesh().ico(3).unwrap())),
-                    MeshMaterial3d(mats.add(materials::agent_material(color))),
+                    MeshMaterial3d(mats.add(materials::agent_shell_material(color))),
                     Transform::from_translation(pos),
                     // Agent data
                     AgentNode {
@@ -67,7 +71,7 @@ pub fn spawn_agents_from_list(
                 ))
                 .id();
 
-            // Spawn a point light as a child for local illumination
+            // Spawn point light and name label as children
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     PointLight {
@@ -77,6 +81,13 @@ pub fn spawn_agents_from_list(
                         ..default()
                     },
                     Transform::from_translation(Vec3::new(0.0, 1.5, 0.0)),
+                ));
+                parent.spawn((
+                    Text2d::new(&agent_data.name),
+                    TextFont { font_size: 14.0, ..default() },
+                    TextColor(Color::srgba(0.0, 0.8, 1.0, 0.9)),
+                    Transform::from_translation(Vec3::new(0.0, 2.5, 0.0)),
+                    AgentLabel,
                 ));
             });
 
@@ -89,7 +100,7 @@ pub fn spawn_agents_from_list(
 pub fn spawn_agent_on_created(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut mats: ResMut<Assets<StandardMaterial>>,
+    mut mats: ResMut<Assets<AgentShellMaterial>>,
     mut ev_created: EventReader<AgentCreatedEvent>,
     mut entity_map: ResMut<AgentEntityMap>,
 ) {
@@ -109,7 +120,7 @@ pub fn spawn_agent_on_created(
         let entity = commands
             .spawn((
                 Mesh3d(meshes.add(Sphere::new(0.8).mesh().ico(3).unwrap())),
-                MeshMaterial3d(mats.add(materials::agent_material(color))),
+                MeshMaterial3d(mats.add(materials::agent_shell_material(color))),
                 Transform::from_translation(pos),
                 AgentNode {
                     agent_id: ev.agent.id,
@@ -138,6 +149,13 @@ pub fn spawn_agent_on_created(
                 },
                 Transform::from_translation(Vec3::new(0.0, 1.5, 0.0)),
             ));
+            parent.spawn((
+                Text2d::new(&ev.agent.name),
+                TextFont { font_size: 14.0, ..default() },
+                TextColor(Color::srgba(0.0, 0.8, 1.0, 0.9)),
+                Transform::from_translation(Vec3::new(0.0, 2.5, 0.0)),
+                AgentLabel,
+            ));
         });
 
         entity_map.0.insert(ev.agent.id, entity);
@@ -145,12 +163,16 @@ pub fn spawn_agent_on_created(
 }
 
 /// Update agent visuals when state changes.
+///
+/// Instead of instantly setting the new color, inserts an `AssetAnimator`
+/// that smoothly tweens the shader's `base_color` over 300ms.
 pub fn update_agent_state(
+    mut commands: Commands,
     mut ev_state: EventReader<AgentStateChangedEvent>,
     entity_map: Res<AgentEntityMap>,
     mut query: Query<(&mut AgentNode, &mut AgentVisual)>,
-    mut mats: ResMut<Assets<StandardMaterial>>,
-    mat_handles: Query<&MeshMaterial3d<StandardMaterial>>,
+    mats: Res<Assets<AgentShellMaterial>>,
+    mat_handles: Query<&MeshMaterial3d<AgentShellMaterial>>,
 ) {
     for ev in ev_state.read() {
         if let Some(&entity) = entity_map.0.get(&ev.agent_id) {
@@ -159,12 +181,25 @@ pub fn update_agent_state(
                 let new_color = AgentVisual::color_for_state(&ev.state);
                 visual.base_color = new_color;
 
-                // Update the material
-                if let Ok(mat_handle) = mat_handles.get(entity) {
-                    if let Some(mat) = mats.get_mut(&mat_handle.0) {
-                        *mat = materials::agent_material(new_color);
-                    }
-                }
+                // Read current color from the material to use as tween start
+                let start_color = mat_handles
+                    .get(entity)
+                    .ok()
+                    .and_then(|h| mats.get(&h.0))
+                    .map(|mat| mat.uniforms.base_color)
+                    .unwrap_or(new_color.to_linear());
+
+                let tween = Tween::new(
+                    EaseFunction::CubicInOut,
+                    Duration::from_millis(300),
+                    AgentColorLens {
+                        start: start_color,
+                        end: new_color.to_linear(),
+                    },
+                );
+
+                // Insert (or replace) the asset animator on this entity
+                commands.entity(entity).insert(AssetAnimator::new(tween));
             }
         }
     }

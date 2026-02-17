@@ -7,6 +7,7 @@
 use bevy::prelude::*;
 
 use crate::protocol::events::ThoughtReceivedEvent;
+use crate::shaders::agent_shell_material::AgentShellMaterial;
 use crate::state::components::*;
 use crate::systems::agents::AgentEntityMap;
 
@@ -57,6 +58,21 @@ pub fn decay_glow(
             if visual.glow_intensity < 1.0 {
                 visual.glow_intensity = 1.0;
             }
+        }
+    }
+}
+
+/// Sync AgentVisual.glow_intensity to the shader uniforms each frame.
+///
+/// The glow_intensity on the component is updated by thought_glow_spike and
+/// decay_glow. This system pushes that value into the actual GPU material.
+pub fn sync_glow_to_shader(
+    query: Query<(&AgentVisual, &MeshMaterial3d<AgentShellMaterial>)>,
+    mut materials: ResMut<Assets<AgentShellMaterial>>,
+) {
+    for (visual, mat_handle) in query.iter() {
+        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+            mat.uniforms.glow_intensity = visual.glow_intensity;
         }
     }
 }

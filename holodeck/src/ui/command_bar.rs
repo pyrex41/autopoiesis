@@ -61,6 +61,30 @@ pub fn command_bar(
                 state.should_focus = false;
             }
 
+            // Command history navigation
+            if response.has_focus() {
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !state.history.is_empty() {
+                    let new_idx = match state.history_index {
+                        Some(idx) if idx > 0 => idx - 1,
+                        Some(idx) => idx,
+                        None => state.history.len() - 1,
+                    };
+                    state.history_index = Some(new_idx);
+                    state.input = state.history[new_idx].clone();
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                    if let Some(idx) = state.history_index {
+                        if idx + 1 < state.history.len() {
+                            state.history_index = Some(idx + 1);
+                            state.input = state.history[idx + 1].clone();
+                        } else {
+                            state.history_index = None;
+                            state.input.clear();
+                        }
+                    }
+                }
+            }
+
             let submitted = response.lost_focus()
                 && ui.input(|i| i.key_pressed(egui::Key::Enter));
 

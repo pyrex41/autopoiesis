@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::ui::{agent_panel, command_bar, hud, notifications, thought_inspector};
+use crate::ui::{agent_panel, command_bar, hud, notifications, theme, thought_inspector};
 
 /// Plugin for all egui-based UI.
 pub struct UiPlugin;
@@ -17,6 +17,8 @@ impl Plugin for UiPlugin {
             .init_resource::<command_bar::CommandBarState>()
             .init_resource::<notifications::ToastQueue>()
             .init_resource::<thought_inspector::InspectedThought>()
+            // Theme (applied on first frame)
+            .add_systems(Update, theme::apply_theme_system)
             // HUD systems
             .add_systems(Update, (
                 hud::connection_status_bar,

@@ -1,5 +1,7 @@
 //! Bevy Components: attached to ECS entities in the 3D scene.
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use uuid::Uuid;
 
@@ -92,3 +94,70 @@ pub struct AgentLabel;
 
 #[derive(Component, Debug)]
 pub struct GridFloor;
+
+#[derive(Component, Debug)]
+pub struct BlockingOptionButton {
+    pub request_id: String,
+    pub option_text: String,
+}
+
+#[derive(Component, Debug)]
+pub struct StepCompleteParticle {
+    pub lifetime: Timer,
+    pub velocity: Vec3,
+}
+
+/// Tracks the particle effect child entity attached to an agent.
+#[derive(Component, Debug)]
+pub struct AgentParticles {
+    pub effect_entity: Entity,
+}
+
+// --- Phase 2: Diegetic Agent Entity Components ---
+
+/// Marker for the status spine (Dead Space health bar) parent entity.
+#[derive(Component, Debug)]
+pub struct StatusSpine;
+
+/// Individual spine segment (child of StatusSpine).
+#[derive(Component, Debug)]
+pub struct SpineSegment {
+    pub index: usize,
+    pub health_value: f32,
+}
+
+/// Orbiting capability module shape.
+#[derive(Component, Debug)]
+pub struct CapabilityModule {
+    pub capability_name: String,
+    pub orbit_radius: f32,
+    pub orbit_phase: f32,
+    pub orbit_speed: f32,
+    pub is_active: bool,
+}
+
+/// Task progress ring (partial torus around agent).
+#[derive(Component, Debug)]
+pub struct TaskRing {
+    pub progress: f32,
+    pub task_name: String,
+}
+
+/// Marker for compound agent entity (has spine, modules, ring, particles as children).
+#[derive(Component, Debug)]
+pub struct AgentCompound;
+
+/// Per-agent metrics driving visual elements.
+#[derive(Debug, Clone, Default)]
+pub struct AgentMetricData {
+    pub cognitive_load: f32,
+    pub token_usage: f32,
+    pub task_progress: f32,
+    pub active_capability: Option<String>,
+}
+
+/// Resource tracking metrics for all agents.
+#[derive(Resource, Debug, Default)]
+pub struct AgentMetrics {
+    pub metrics: HashMap<Uuid, AgentMetricData>,
+}

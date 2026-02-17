@@ -9,6 +9,7 @@ use bevy_egui::{egui, EguiContexts};
 use crate::protocol::types::ThoughtType;
 use crate::state::events::*;
 use crate::state::resources::*;
+use crate::ui::thought_inspector::InspectedThought;
 
 /// Local state for the inject-thought text input.
 #[derive(Resource, Default)]
@@ -26,6 +27,7 @@ pub fn agent_detail_panel(
     mut ev_action: EventWriter<SendAgentAction>,
     mut ev_step: EventWriter<SendStepAgent>,
     mut ev_inject: EventWriter<SendInjectThought>,
+    mut inspected: ResMut<InspectedThought>,
 ) {
     let Some(agent_id) = selected.agent_id else {
         return;
@@ -173,25 +175,23 @@ pub fn agent_detail_panel(
                             }
                         };
 
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(format!("[{type_label}]"))
-                                    .color(type_color)
-                                    .size(11.0)
-                                    .strong(),
-                            );
-                            // Content preview (truncated)
-                            let preview: String = thought
-                                .content
-                                .chars()
-                                .take(80)
-                                .collect();
-                            ui.label(
-                                egui::RichText::new(preview)
-                                    .color(egui::Color32::from_rgb(200, 200, 220))
-                                    .size(11.0),
-                            );
-                        });
+                        let preview: String = thought
+                            .content
+                            .chars()
+                            .take(80)
+                            .collect();
+                        let label_text = format!("[{type_label}] {preview}");
+                        let is_selected = inspected.thought.as_ref()
+                            .map_or(false, |t| t.id == thought.id);
+                        let response = ui.selectable_label(
+                            is_selected,
+                            egui::RichText::new(label_text)
+                                .color(if is_selected { type_color } else { egui::Color32::from_rgb(200, 200, 220) })
+                                .size(11.0),
+                        );
+                        if response.clicked() {
+                            inspected.thought = Some(thought.clone());
+                        }
                     }
                 });
         });

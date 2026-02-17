@@ -1,14 +1,35 @@
 //! Custom materials: glow, hologram, energy beam.
 //!
-//! For Phase 1 we use Bevy's `StandardMaterial` with high emissive values
-//! to trigger bloom. Custom shaders (hologram, energy beam) are Phase 2+.
+//! Agent spheres use `AgentShellMaterial` (custom WGSL shader with fresnel,
+//! scanlines, flicker). Other entities still use `StandardMaterial` with high
+//! emissive values to trigger bloom.
 
 use bevy::prelude::*;
 
-/// Create an emissive material for an agent sphere.
+use crate::shaders::agent_shell_material::{AgentShellMaterial, AgentShellUniforms};
+
+/// Create a custom agent shell material with fresnel, scanlines, and flicker.
 ///
-/// The emissive intensity is set high enough to trigger Bevy's bloom
+/// The shader outputs HDR values > 1.0 to trigger Bevy's bloom
 /// post-processing, giving the Tron-aesthetic neon glow.
+pub fn agent_shell_material(color: Color) -> AgentShellMaterial {
+    let linear = color.to_linear();
+    AgentShellMaterial {
+        uniforms: AgentShellUniforms {
+            base_color: linear,
+            glow_intensity: 1.5,
+            fresnel_power: 3.0,
+            scanline_freq: 30.0,
+            scanline_speed: 2.0,
+            flicker_amount: 0.05,
+            _padding1: 0.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
+        },
+    }
+}
+
+/// Legacy emissive StandardMaterial for non-agent entities that still need it.
 pub fn agent_material(color: Color) -> StandardMaterial {
     let linear = color.to_linear();
     StandardMaterial {

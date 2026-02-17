@@ -42,6 +42,7 @@ impl Plugin for ConnectionPlugin {
             .add_event::<BlockingRequestListReceived>()
             .add_event::<BlockingRequestEvent>()
             .add_event::<BlockingRespondedEvent>()
+            .add_event::<StepCompleteEvent>()
             .add_event::<BackendEvent>()
             .add_event::<SendCreateAgent>()
             .add_event::<SendAgentAction>()

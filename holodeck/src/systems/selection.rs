@@ -62,3 +62,21 @@ pub fn handle_deselect(
         selected_agent.entity = None;
     }
 }
+
+pub fn deselect_on_escape(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut selected_agent: ResMut<SelectedAgent>,
+    rings: Query<Entity, With<SelectionRing>>,
+) {
+    if keyboard.just_pressed(KeyCode::Escape) && selected_agent.agent_id.is_some() {
+        for ring_entity in rings.iter() {
+            commands.entity(ring_entity).despawn();
+        }
+        if let Some(old_entity) = selected_agent.entity {
+            commands.entity(old_entity).remove::<Selected>();
+        }
+        selected_agent.agent_id = None;
+        selected_agent.entity = None;
+    }
+}

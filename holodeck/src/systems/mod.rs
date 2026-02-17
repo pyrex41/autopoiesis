@@ -1,8 +1,16 @@
 pub mod agents;
 pub mod animation;
 pub mod blocking;
+pub mod camera;
+pub mod capabilities;
 pub mod connection;
+pub mod disconnect_visual;
 pub mod layout;
+pub mod particles;
 pub mod selection;
 pub mod snapshots;
+pub mod spine;
+pub mod step_complete;
+pub mod task_ring;
 pub mod thoughts;
+pub mod tweens;
