@@ -18,6 +18,8 @@ pub enum FocusedPane {
     ThoughtStream,
     BlockingPrompt,
     Chat,
+    SnapshotDag,
+    DiffViewer,
     CommandBar,
     SecondaryPanel,
 }
@@ -28,10 +30,12 @@ impl FocusedPane {
         match self {
             Self::AgentList => Self::PrimaryDetail,
             Self::PrimaryDetail => Self::ThoughtStream,
-            Self::ThoughtStream => Self::CommandBar,
+            Self::ThoughtStream => Self::Chat,
+            Self::Chat => Self::SnapshotDag,
+            Self::SnapshotDag => Self::DiffViewer,
+            Self::DiffViewer => Self::CommandBar,
             Self::CommandBar => Self::AgentList,
             Self::BlockingPrompt => Self::AgentList,
-            Self::Chat => Self::CommandBar,
             Self::SecondaryPanel => Self::CommandBar,
         }
     }
@@ -42,9 +46,11 @@ impl FocusedPane {
             Self::AgentList => Self::CommandBar,
             Self::PrimaryDetail => Self::AgentList,
             Self::ThoughtStream => Self::PrimaryDetail,
-            Self::CommandBar => Self::ThoughtStream,
-            Self::BlockingPrompt => Self::ThoughtStream,
             Self::Chat => Self::ThoughtStream,
+            Self::SnapshotDag => Self::Chat,
+            Self::DiffViewer => Self::SnapshotDag,
+            Self::CommandBar => Self::DiffViewer,
+            Self::BlockingPrompt => Self::ThoughtStream,
             Self::SecondaryPanel => Self::ThoughtStream,
         }
     }
@@ -404,6 +410,12 @@ mod tests {
         assert_eq!(pane, FocusedPane::PrimaryDetail);
         let pane = pane.next(); // ThoughtStream
         assert_eq!(pane, FocusedPane::ThoughtStream);
+        let pane = pane.next(); // Chat
+        assert_eq!(pane, FocusedPane::Chat);
+        let pane = pane.next(); // SnapshotDag
+        assert_eq!(pane, FocusedPane::SnapshotDag);
+        let pane = pane.next(); // DiffViewer
+        assert_eq!(pane, FocusedPane::DiffViewer);
         let pane = pane.next(); // CommandBar
         assert_eq!(pane, FocusedPane::CommandBar);
         let pane = pane.next(); // AgentList (wraps)
@@ -415,6 +427,12 @@ mod tests {
         let pane = FocusedPane::AgentList;
         let pane = pane.prev(); // CommandBar
         assert_eq!(pane, FocusedPane::CommandBar);
+        let pane = pane.prev(); // DiffViewer
+        assert_eq!(pane, FocusedPane::DiffViewer);
+        let pane = pane.prev(); // SnapshotDag
+        assert_eq!(pane, FocusedPane::SnapshotDag);
+        let pane = pane.prev(); // Chat
+        assert_eq!(pane, FocusedPane::Chat);
         let pane = pane.prev(); // ThoughtStream
         assert_eq!(pane, FocusedPane::ThoughtStream);
         let pane = pane.prev(); // PrimaryDetail
@@ -426,7 +444,7 @@ mod tests {
     #[test]
     fn test_focused_pane_next_special_panes() {
         assert_eq!(FocusedPane::BlockingPrompt.next(), FocusedPane::AgentList);
-        assert_eq!(FocusedPane::Chat.next(), FocusedPane::CommandBar);
+        assert_eq!(FocusedPane::Chat.next(), FocusedPane::SnapshotDag);
         assert_eq!(FocusedPane::SecondaryPanel.next(), FocusedPane::CommandBar);
     }
 

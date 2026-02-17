@@ -164,6 +164,23 @@ impl App {
             );
         }
 
+        // Snapshot DAG in secondary panel
+        if let Some(snap_area) = layout.secondary_panel {
+            if !self.state.snapshots.is_empty() {
+                let is_focused = self.state.focused_pane == FocusedPane::SnapshotDag;
+                frame.render_widget(
+                    crate::widgets::snapshot_dag::SnapshotDag::new(
+                        &self.state.snapshots,
+                        &self.state.branches,
+                        self.state.current_branch.as_deref(),
+                        self.state.selected_snapshot_idx,
+                        is_focused,
+                    ),
+                    snap_area,
+                );
+            }
+        }
+
         // Notifications always render
         frame.render_widget(
             NotificationStack::new(&self.state.notifications),
@@ -181,6 +198,17 @@ impl App {
         // Handle chat focus
         if self.state.focused_pane == FocusedPane::Chat {
             self.handle_chat_input(key);
+            return;
+        }
+
+        // Handle snapshot DAG focus
+        if self.state.focused_pane == FocusedPane::SnapshotDag {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => self.state.select_next_snapshot(),
+                KeyCode::Char('k') | KeyCode::Up => self.state.select_prev_snapshot(),
+                KeyCode::Esc => self.state.focused_pane = FocusedPane::AgentList,
+                _ => {}
+            }
             return;
         }
 
@@ -509,12 +537,42 @@ impl App {
                     a.thought_count += 1;
                 }
             }
-            ServerMessage::Snapshots { .. } => {}
-            ServerMessage::Snapshot { .. } => {}
-            ServerMessage::SnapshotCreated { .. } => {}
-            ServerMessage::Branches { .. } => {}
-            ServerMessage::BranchCreated { .. } => {}
-            ServerMessage::BranchSwitched { .. } => {}
+            ServerMessage::Snapshots { snapshots } => {
+                self.state.snapshots = snapshots;
+            }
+            ServerMessage::Snapshot { snapshot, .. } => {
+                if let Some(existing) = self.state.snapshots.iter_mut().find(|s| s.id == snapshot.id)
+                {
+                    *existing = snapshot;
+                } else {
+                    self.state.push_snapshot(snapshot);
+                }
+            }
+            ServerMessage::SnapshotCreated { snapshot } => {
+                let short_id: String = snapshot.id.chars().take(8).collect();
+                self.state.push_snapshot(snapshot);
+                self.state.push_notification(
+                    &format!("Snapshot created: {}", short_id),
+                    NotificationLevel::Success,
+                );
+            }
+            ServerMessage::Branches { branches, current } => {
+                self.state.update_branches(branches, current);
+            }
+            ServerMessage::BranchCreated { branch } => {
+                self.state.push_notification(
+                    &format!("Branch created: {}", branch.name),
+                    NotificationLevel::Success,
+                );
+                self.state.branches.push(branch);
+            }
+            ServerMessage::BranchSwitched { branch } => {
+                self.state.push_notification(
+                    &format!("Switched to branch: {}", branch.name),
+                    NotificationLevel::Info,
+                );
+                self.state.current_branch = Some(branch.name);
+            }
             ServerMessage::BlockingRequests { requests } => {
                 self.state.blocking_requests = requests;
             }
@@ -1313,6 +1371,168 @@ mod tests {
         let mut app = App::new();
         app.state
             .push_notification("Test notification", NotificationLevel::Info);
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                app.render(f);
+            })
+            .unwrap();
+    }
+
+    // === Phase 6 tests ===
+
+    fn make_snapshot(id: &str, ts: f64) -> SnapshotData {
+        SnapshotData {
+            id: id.to_string(),
+            parent: None,
+            hash: None,
+            metadata: None,
+            timestamp: ts,
+        }
+    }
+
+    fn make_branch(name: &str, head: Option<&str>) -> BranchData {
+        BranchData {
+            name: name.to_string(),
+            head: head.map(|s| s.to_string()),
+            created: None,
+        }
+    }
+
+    #[test]
+    fn test_dispatch_snapshots() {
+        let mut app = App::new();
+        let snaps = vec![make_snapshot("s1", 100.0), make_snapshot("s2", 200.0)];
+        app.dispatch_server_message(ServerMessage::Snapshots { snapshots: snaps });
+        assert_eq!(app.state.snapshots.len(), 2);
+        assert_eq!(app.state.snapshots[0].id, "s1");
+    }
+
+    #[test]
+    fn test_dispatch_snapshot_upsert_existing() {
+        let mut app = App::new();
+        app.state.snapshots = vec![make_snapshot("s1", 100.0)];
+
+        let mut updated = make_snapshot("s1", 150.0);
+        updated.hash = Some("newhash".to_string());
+        app.dispatch_server_message(ServerMessage::Snapshot {
+            snapshot: updated,
+            agent_state: None,
+        });
+        assert_eq!(app.state.snapshots.len(), 1);
+        assert_eq!(app.state.snapshots[0].hash, Some("newhash".to_string()));
+    }
+
+    #[test]
+    fn test_dispatch_snapshot_upsert_new() {
+        let mut app = App::new();
+        app.state.snapshots = vec![make_snapshot("s1", 100.0)];
+
+        app.dispatch_server_message(ServerMessage::Snapshot {
+            snapshot: make_snapshot("s2", 200.0),
+            agent_state: None,
+        });
+        assert_eq!(app.state.snapshots.len(), 2);
+    }
+
+    #[test]
+    fn test_dispatch_snapshot_created() {
+        let mut app = App::new();
+        app.dispatch_server_message(ServerMessage::SnapshotCreated {
+            snapshot: make_snapshot("abcd1234rest", 100.0),
+        });
+        assert_eq!(app.state.snapshots.len(), 1);
+        assert_eq!(app.state.notifications.len(), 1);
+        assert!(app.state.notifications[0].message.contains("abcd1234"));
+        assert_eq!(
+            app.state.notifications[0].level,
+            NotificationLevel::Success,
+        );
+    }
+
+    #[test]
+    fn test_dispatch_branches() {
+        let mut app = App::new();
+        let branches = vec![
+            make_branch("main", Some("s1")),
+            make_branch("dev", None),
+        ];
+        app.dispatch_server_message(ServerMessage::Branches {
+            branches,
+            current: Some("main".to_string()),
+        });
+        assert_eq!(app.state.branches.len(), 2);
+        assert_eq!(app.state.current_branch, Some("main".to_string()));
+    }
+
+    #[test]
+    fn test_dispatch_branch_created() {
+        let mut app = App::new();
+        app.dispatch_server_message(ServerMessage::BranchCreated {
+            branch: make_branch("feature", Some("s1")),
+        });
+        assert_eq!(app.state.branches.len(), 1);
+        assert_eq!(app.state.notifications.len(), 1);
+        assert!(app.state.notifications[0].message.contains("feature"));
+    }
+
+    #[test]
+    fn test_dispatch_branch_switched() {
+        let mut app = App::new();
+        app.dispatch_server_message(ServerMessage::BranchSwitched {
+            branch: make_branch("dev", Some("s2")),
+        });
+        assert_eq!(app.state.current_branch, Some("dev".to_string()));
+        assert_eq!(app.state.notifications.len(), 1);
+        assert!(app.state.notifications[0].message.contains("dev"));
+    }
+
+    #[test]
+    fn test_snapshot_dag_navigation() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::SnapshotDag;
+        app.state.snapshots = vec![
+            make_snapshot("a", 1.0),
+            make_snapshot("b", 2.0),
+            make_snapshot("c", 3.0),
+        ];
+        assert_eq!(app.state.selected_snapshot_idx, 0);
+
+        app.handle_input(key(KeyCode::Char('j')));
+        assert_eq!(app.state.selected_snapshot_idx, 1);
+
+        app.handle_input(key(KeyCode::Char('k')));
+        assert_eq!(app.state.selected_snapshot_idx, 0);
+
+        app.handle_input(key(KeyCode::Down));
+        assert_eq!(app.state.selected_snapshot_idx, 1);
+
+        app.handle_input(key(KeyCode::Up));
+        assert_eq!(app.state.selected_snapshot_idx, 0);
+    }
+
+    #[test]
+    fn test_snapshot_dag_esc_returns_focus() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::SnapshotDag;
+
+        app.handle_input(key(KeyCode::Esc));
+        assert_eq!(app.state.focused_pane, FocusedPane::AgentList);
+    }
+
+    #[test]
+    fn test_render_with_snapshots() {
+        use ratatui::backend::TestBackend;
+
+        let mut app = App::new();
+        app.state.snapshots = vec![
+            make_snapshot("snap1234abcd", 100.0),
+            make_snapshot("snap5678efgh", 200.0),
+        ];
+        app.state.branches = vec![make_branch("main", Some("snap5678efgh"))];
+        app.state.current_branch = Some("main".to_string());
 
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();

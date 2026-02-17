@@ -77,6 +77,22 @@ pub fn parse_command(
                 environment: None,
             })
         }
+        ["branch", "create", name, rest @ ..] => {
+            let from_snapshot = rest
+                .first()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            Some(nexus_protocol::types::ClientMessage::CreateBranch {
+                name: name.to_string(),
+                from_snapshot,
+            })
+        }
+        ["branch", "checkout", name] | ["branch", "switch", name] => {
+            Some(nexus_protocol::types::ClientMessage::SwitchBranch {
+                name: name.to_string(),
+            })
+        }
         _ if !input.trim().is_empty() => {
             selected_agent_id.map(|id| nexus_protocol::types::ClientMessage::InjectThought {
                 agent_id: id,
@@ -264,5 +280,61 @@ mod tests {
     fn test_parse_command_empty() {
         assert!(parse_command("", None).is_none());
         assert!(parse_command("   ", None).is_none());
+    }
+
+    #[test]
+    fn test_parse_command_branch_create() {
+        let msg = parse_command("branch create feature-x", None);
+        assert!(msg.is_some());
+        match msg.unwrap() {
+            nexus_protocol::types::ClientMessage::CreateBranch {
+                name,
+                from_snapshot,
+            } => {
+                assert_eq!(name, "feature-x");
+                assert!(from_snapshot.is_empty());
+            }
+            _ => panic!("Expected CreateBranch"),
+        }
+    }
+
+    #[test]
+    fn test_parse_command_branch_create_from_snapshot() {
+        let msg = parse_command("branch create feature-x snap-abc", None);
+        assert!(msg.is_some());
+        match msg.unwrap() {
+            nexus_protocol::types::ClientMessage::CreateBranch {
+                name,
+                from_snapshot,
+            } => {
+                assert_eq!(name, "feature-x");
+                assert_eq!(from_snapshot, "snap-abc");
+            }
+            _ => panic!("Expected CreateBranch"),
+        }
+    }
+
+    #[test]
+    fn test_parse_command_branch_checkout() {
+        let msg = parse_command("branch checkout main", None);
+        assert!(msg.is_some());
+        match msg.unwrap() {
+            nexus_protocol::types::ClientMessage::SwitchBranch { name } => {
+                assert_eq!(name, "main");
+            }
+            _ => panic!("Expected SwitchBranch"),
+        }
+    }
+
+    #[test]
+    fn test_parse_command_branch_switch() {
+        let msg = parse_command("branch switch dev", None);
+        assert!(msg.is_some());
+        match msg.unwrap() {
+            nexus_protocol::types::ClientMessage::SwitchBranch { name } => {
+                assert_eq!(name, "dev");
+            }
+            _ => panic!("Expected SwitchBranch"),
+        }
     }
 }

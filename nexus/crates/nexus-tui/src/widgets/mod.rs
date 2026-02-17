@@ -5,3 +5,5 @@ pub mod thought_stream;
 pub mod command_bar;
 pub mod blocking_prompt;
 pub mod chat;
+pub mod diff_viewer;
+pub mod snapshot_dag;

@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::layout::{FocusedPane, LayoutMode};
 use crate::notifications::{Notification, NotificationLevel};
 use crate::widgets::chat::ChatMessage;
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ConnectionStatus {
@@ -45,6 +46,15 @@ pub struct AppState {
     pub chat_messages: Vec<ChatMessage>,
     pub chat_input: String,
     pub auto_scroll_thoughts: bool,
+    // Phase 6 fields:
+    pub snapshots: Vec<SnapshotData>,
+    pub branches: Vec<BranchData>,
+    pub current_branch: Option<String>,
+    pub selected_snapshot_idx: usize,
+    pub snapshot_diff: Option<String>,
+    pub show_snapshot_panel: bool,
+    pub snapshot_scroll_offset: usize,
+    pub diff_scroll_offset: usize,
 }
 
 impl Default for AppState {
@@ -71,6 +81,14 @@ impl Default for AppState {
             chat_messages: Vec::new(),
             chat_input: String::new(),
             auto_scroll_thoughts: true,
+            snapshots: Vec::new(),
+            branches: Vec::new(),
+            current_branch: None,
+            selected_snapshot_idx: 0,
+            snapshot_diff: None,
+            show_snapshot_panel: false,
+            snapshot_scroll_offset: 0,
+            diff_scroll_offset: 0,
         }
     }
 }
@@ -131,6 +149,39 @@ impl AppState {
 
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
+    }
+
+    // Phase 6 methods:
+
+    pub fn push_snapshot(&mut self, snap: SnapshotData) {
+        self.snapshots.push(snap);
+        self.snapshots.sort_by(|a, b| {
+            a.timestamp
+                .partial_cmp(&b.timestamp)
+                .unwrap_or(Ordering::Equal)
+        });
+    }
+
+    pub fn update_branches(&mut self, branches: Vec<BranchData>, current: Option<String>) {
+        self.branches = branches;
+        self.current_branch = current;
+    }
+
+    pub fn select_next_snapshot(&mut self) {
+        if !self.snapshots.is_empty() {
+            self.selected_snapshot_idx =
+                (self.selected_snapshot_idx + 1) % self.snapshots.len();
+        }
+    }
+
+    pub fn select_prev_snapshot(&mut self) {
+        if !self.snapshots.is_empty() {
+            self.selected_snapshot_idx = if self.selected_snapshot_idx == 0 {
+                self.snapshots.len() - 1
+            } else {
+                self.selected_snapshot_idx - 1
+            };
+        }
     }
 }
 
@@ -326,6 +377,105 @@ mod tests {
 
         state.toggle_help();
         assert!(!state.show_help);
+    }
+
+    // === Phase 6 tests ===
+
+    #[test]
+    fn test_default_phase6_fields() {
+        let state = AppState::default();
+        assert!(state.snapshots.is_empty());
+        assert!(state.branches.is_empty());
+        assert!(state.current_branch.is_none());
+        assert_eq!(state.selected_snapshot_idx, 0);
+        assert!(state.snapshot_diff.is_none());
+        assert!(!state.show_snapshot_panel);
+        assert_eq!(state.snapshot_scroll_offset, 0);
+        assert_eq!(state.diff_scroll_offset, 0);
+    }
+
+    fn make_snapshot(id: &str, ts: f64) -> SnapshotData {
+        SnapshotData {
+            id: id.to_string(),
+            parent: None,
+            hash: None,
+            metadata: None,
+            timestamp: ts,
+        }
+    }
+
+    #[test]
+    fn test_push_snapshot_sorts_by_timestamp() {
+        let mut state = AppState::default();
+        state.push_snapshot(make_snapshot("b", 200.0));
+        state.push_snapshot(make_snapshot("a", 100.0));
+        state.push_snapshot(make_snapshot("c", 150.0));
+
+        assert_eq!(state.snapshots[0].id, "a");
+        assert_eq!(state.snapshots[1].id, "c");
+        assert_eq!(state.snapshots[2].id, "b");
+    }
+
+    #[test]
+    fn test_update_branches() {
+        let mut state = AppState::default();
+        let branches = vec![
+            BranchData {
+                name: "main".to_string(),
+                head: Some("snap-1".to_string()),
+                created: None,
+            },
+            BranchData {
+                name: "dev".to_string(),
+                head: None,
+                created: None,
+            },
+        ];
+        state.update_branches(branches, Some("main".to_string()));
+        assert_eq!(state.branches.len(), 2);
+        assert_eq!(state.current_branch, Some("main".to_string()));
+    }
+
+    #[test]
+    fn test_select_next_snapshot_wraps() {
+        let mut state = AppState::default();
+        state.snapshots = vec![
+            make_snapshot("a", 1.0),
+            make_snapshot("b", 2.0),
+            make_snapshot("c", 3.0),
+        ];
+        assert_eq!(state.selected_snapshot_idx, 0);
+
+        state.select_next_snapshot();
+        assert_eq!(state.selected_snapshot_idx, 1);
+        state.select_next_snapshot();
+        assert_eq!(state.selected_snapshot_idx, 2);
+        state.select_next_snapshot();
+        assert_eq!(state.selected_snapshot_idx, 0); // wraps
+    }
+
+    #[test]
+    fn test_select_prev_snapshot_wraps() {
+        let mut state = AppState::default();
+        state.snapshots = vec![
+            make_snapshot("a", 1.0),
+            make_snapshot("b", 2.0),
+            make_snapshot("c", 3.0),
+        ];
+        assert_eq!(state.selected_snapshot_idx, 0);
+
+        state.select_prev_snapshot();
+        assert_eq!(state.selected_snapshot_idx, 2); // wraps to end
+        state.select_prev_snapshot();
+        assert_eq!(state.selected_snapshot_idx, 1);
+    }
+
+    #[test]
+    fn test_select_snapshot_on_empty() {
+        let mut state = AppState::default();
+        state.select_next_snapshot(); // no panic
+        state.select_prev_snapshot(); // no panic
+        assert_eq!(state.selected_snapshot_idx, 0);
     }
 
 }
