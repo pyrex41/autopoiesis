@@ -28,6 +28,19 @@ struct Cli {
     /// Path to config file (default: nexus.toml in cwd or ~/.nexus/)
     #[arg(long)]
     config: Option<std::path::PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<SubCommand>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum SubCommand {
+    /// Download models for voice features (Moonshine STT, Piper TTS)
+    Setup {
+        /// List available models without downloading
+        #[arg(long)]
+        list: bool,
+    },
 }
 
 #[tokio::main]
@@ -41,6 +54,31 @@ async fn main() -> anyhow::Result<()> {
         )
         .with_target(false)
         .init();
+
+    // Handle subcommands before starting TUI
+    if let Some(SubCommand::Setup { list }) = cli.command {
+        println!("Nexus Setup -- Voice Model Manager");
+        println!();
+        println!("Required models:");
+        println!("  Moonshine v2 (STT): moonshine-small-streaming-en (~120MB)");
+        println!("              Search: ~/Library/Application Support/com.pais.handy/models/");
+        println!("                      ~/.nexus/models/moonshine-small-streaming-en/");
+        println!("  Piper TTS:          en_US-lessac-medium (~60MB)");
+        println!("              Search: ~/.nexus/models/piper/");
+        println!("  Silero VAD v4:      silero_vad_v4.onnx (~2MB)");
+        println!("              Search: ~/.nexus/models/silero_vad_v4.onnx");
+        println!();
+        println!("Download instructions:");
+        println!("  STT: Download from https://github.com/usefulsensors/moonshine/releases");
+        println!("       or if you have Handy.app installed, models are already available.");
+        println!("  TTS: Download from https://github.com/rhasspy/piper/releases");
+        println!("  VAD: Download from https://github.com/snakers4/silero-vad/releases");
+        if !list {
+            println!();
+            println!("(Use --list to just show model info without any downloads)");
+        }
+        return Ok(());
+    }
 
     tracing::info!("Nexus starting...");
 
