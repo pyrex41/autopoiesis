@@ -41,6 +41,7 @@
    ;; Transactions
    #:transact!
    #:next-tx-id
+   #:with-batch-transaction
    ;; Query
    #:entity-attr
    #:entity-attrs

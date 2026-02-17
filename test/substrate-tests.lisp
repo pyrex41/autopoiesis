@@ -669,3 +669,83 @@
     (sleep 2)
     (is (aref results 0) "Thread A should see its own data and not thread B's")
     (is (aref results 1) "Thread B should see its own data and not thread A's")))
+
+;;; ===================================================================
+;;; Batch transaction tests
+;;; ===================================================================
+
+(test batch-basic-accumulation
+  "with-batch-transaction accumulates multiple transact! into one write."
+  (autopoiesis.substrate:with-store ()
+    (let ((hook-call-count 0))
+      (autopoiesis.substrate:register-hook
+       autopoiesis.substrate:*store* :count-hook
+       (lambda (datoms tx-id)
+         (declare (ignore datoms tx-id))
+         (incf hook-call-count)))
+      (autopoiesis.substrate:with-batch-transaction ()
+        (autopoiesis.substrate:transact!
+         (list (autopoiesis.substrate:make-datom :e1 :name "alice")))
+        (autopoiesis.substrate:transact!
+         (list (autopoiesis.substrate:make-datom :e2 :name "bob")))
+        ;; During batch: hook should NOT have fired yet
+        (is (= 0 hook-call-count) "Hooks should not fire during batch"))
+      ;; After batch: both writes committed, hook fired once
+      (is (= 1 hook-call-count) "Hook should fire exactly once after batch")
+      (is (equal "alice" (autopoiesis.substrate:entity-attr :e1 :name)))
+      (is (equal "bob" (autopoiesis.substrate:entity-attr :e2 :name))))))
+
+(test batch-nested-no-premature-flush
+  "Nested with-batch-transaction only flushes at outermost level."
+  (autopoiesis.substrate:with-store ()
+    (let ((hook-call-count 0))
+      (autopoiesis.substrate:register-hook
+       autopoiesis.substrate:*store* :count-hook
+       (lambda (datoms tx-id)
+         (declare (ignore datoms tx-id))
+         (incf hook-call-count)))
+      (autopoiesis.substrate:with-batch-transaction ()
+        (autopoiesis.substrate:transact!
+         (list (autopoiesis.substrate:make-datom :e1 :name "outer")))
+        (autopoiesis.substrate:with-batch-transaction ()
+          (autopoiesis.substrate:transact!
+           (list (autopoiesis.substrate:make-datom :e2 :name "inner")))
+          ;; Inner batch exit: should NOT flush
+          (is (= 0 hook-call-count) "Inner batch should not trigger flush"))
+        ;; After inner but still in outer: still no flush
+        (is (= 0 hook-call-count) "Still in outer batch, no flush yet"))
+      ;; After outer: everything flushed
+      (is (= 1 hook-call-count) "Hook fires once after outer batch")
+      (is (equal "outer" (autopoiesis.substrate:entity-attr :e1 :name)))
+      (is (equal "inner" (autopoiesis.substrate:entity-attr :e2 :name))))))
+
+(test batch-error-rollback
+  "On error, batch queue is cleared -- no partial writes."
+  (autopoiesis.substrate:with-store ()
+    (handler-case
+        (autopoiesis.substrate:with-batch-transaction ()
+          (autopoiesis.substrate:transact!
+           (list (autopoiesis.substrate:make-datom :e1 :name "should-not-persist")))
+          (error "intentional error"))
+      (error () nil))
+    ;; The datom should NOT have been written
+    (is (null (autopoiesis.substrate:entity-attr :e1 :name))
+        "Errored batch should not write data")))
+
+(test batch-hook-receives-all-datoms
+  "Hook receives the combined datom list from the entire batch."
+  (autopoiesis.substrate:with-store ()
+    (let ((received-datoms nil))
+      (autopoiesis.substrate:register-hook
+       autopoiesis.substrate:*store* :capture-hook
+       (lambda (datoms tx-id)
+         (declare (ignore tx-id))
+         (setf received-datoms datoms)))
+      (autopoiesis.substrate:with-batch-transaction ()
+        (autopoiesis.substrate:transact!
+         (list (autopoiesis.substrate:make-datom :e1 :x 1)))
+        (autopoiesis.substrate:transact!
+         (list (autopoiesis.substrate:make-datom :e2 :x 2))))
+      ;; Hook should have received all datoms from both transact! calls
+      (is (= 2 (length received-datoms))
+          "Hook should receive all datoms from batch"))))

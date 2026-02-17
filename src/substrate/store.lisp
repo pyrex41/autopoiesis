@@ -123,57 +123,102 @@
    4. Fire ALL registered hooks with (datoms tx-id) (OUTSIDE lock)
    Returns tx-id.
 
+   In batch mode (inside with-batch-transaction), datoms are queued
+   instead of being written immediately. The flush happens when the
+   outermost batch exits.
+
    CRITICAL: Hooks fire OUTSIDE the lock. This prevents deadlock when hooks
    call transact! (common for defsystem callbacks, materialized views, etc.)."
   ;; Filter out nils (convenience for callers using conditional datoms)
   (let ((datoms (remove nil datoms)))
     (when (null datoms)
       (return-from transact! nil))
-    (let ((tx-id nil)
-          (committed-datoms nil)
-          (hooks-snapshot nil)
-          (cache (get-entity-cache)))
-      ;; Phase 1: Write under lock
-      (bt:with-lock-held ((store-lock store))
-        (setf tx-id (incf (store-tx-counter store)))
-        ;; Stamp all datoms with tx-id
-        (dolist (datom datoms)
-          (setf (d-tx datom) tx-id))
-        ;; Write to all indexes (respecting scope)
-        (dolist (index-entry (store-indexes store))
-          (let ((key-fn (getf (cdr index-entry) :key-fn))
-                (scope (getf (cdr index-entry) :scope)))
-            (dolist (datom datoms)
-              (when (or (null scope) (funcall scope datom))
-                (write-to-index store (car index-entry) key-fn datom)))))
-        ;; Update entity cache (write-through over EA-CURRENT) + value index
-        (dolist (datom datoms)
-          ;; When asserting a value that overwrites an existing one,
-          ;; retract the OLD value from the value index first.
-          (when (d-added datom)
-            (multiple-value-bind (old-value found-p)
-                (gethash (cons (d-entity datom) (d-attribute datom)) cache)
-              (when (and found-p (not (equal old-value (d-value datom))))
-                (update-value-index (%make-datom :entity (d-entity datom)
-                                                 :attribute (d-attribute datom)
-                                                 :value old-value
-                                                 :added nil)))))
-          (update-entity-cache store datom)
-          (update-value-index datom))
-        ;; Write to LMDB if available (inside lock for atomicity)
-        (when (store-lmdb-env store)
-          (lmdb-transact! datoms store)
-          (persist-tx-counter store tx-id))
-        ;; Snapshot datoms and hooks for firing outside lock
-        (setf committed-datoms (copy-list datoms))
-        (setf hooks-snapshot (copy-list (store-hooks store))))
-      ;; Phase 2: Fire hooks OUTSIDE the lock
-      (dolist (hook-entry hooks-snapshot)
-        (handler-case
-            (funcall (cdr hook-entry) committed-datoms tx-id)
-          (error (e)
-            (warn "Hook ~A error: ~A" (car hook-entry) e))))
-      tx-id)))
+    ;; Check batch mode: if inside with-batch-transaction, queue instead of write
+    (let ((ctx *substrate*))
+      (when (and ctx (> (substrate-context-batch-depth ctx) 0))
+        (setf (substrate-context-batch-queue ctx)
+              (append (substrate-context-batch-queue ctx) datoms))
+        (return-from transact! :batched)))
+    ;; Normal mode: write immediately
+    (%transact-immediate! datoms store)))
+
+(defun %transact-immediate! (datoms store)
+  "Internal: perform the actual transact! write + hooks. Called directly
+   or from with-batch-transaction flush."
+  (let ((tx-id nil)
+        (committed-datoms nil)
+        (hooks-snapshot nil)
+        (cache (get-entity-cache)))
+    ;; Phase 1: Write under lock
+    (bt:with-lock-held ((store-lock store))
+      (setf tx-id (incf (store-tx-counter store)))
+      ;; Stamp all datoms with tx-id
+      (dolist (datom datoms)
+        (setf (d-tx datom) tx-id))
+      ;; Write to all indexes (respecting scope)
+      (dolist (index-entry (store-indexes store))
+        (let ((key-fn (getf (cdr index-entry) :key-fn))
+              (scope (getf (cdr index-entry) :scope)))
+          (dolist (datom datoms)
+            (when (or (null scope) (funcall scope datom))
+              (write-to-index store (car index-entry) key-fn datom)))))
+      ;; Update entity cache (write-through over EA-CURRENT) + value index
+      (dolist (datom datoms)
+        ;; When asserting a value that overwrites an existing one,
+        ;; retract the OLD value from the value index first.
+        (when (d-added datom)
+          (multiple-value-bind (old-value found-p)
+              (gethash (cons (d-entity datom) (d-attribute datom)) cache)
+            (when (and found-p (not (equal old-value (d-value datom))))
+              (update-value-index (%make-datom :entity (d-entity datom)
+                                               :attribute (d-attribute datom)
+                                               :value old-value
+                                               :added nil)))))
+        (update-entity-cache store datom)
+        (update-value-index datom))
+      ;; Write to LMDB if available (inside lock for atomicity)
+      (when (store-lmdb-env store)
+        (lmdb-transact! datoms store)
+        (persist-tx-counter store tx-id))
+      ;; Snapshot datoms and hooks for firing outside lock
+      (setf committed-datoms (copy-list datoms))
+      (setf hooks-snapshot (copy-list (store-hooks store))))
+    ;; Phase 2: Fire hooks OUTSIDE the lock
+    (dolist (hook-entry hooks-snapshot)
+      (handler-case
+          (funcall (cdr hook-entry) committed-datoms tx-id)
+        (error (e)
+          (warn "Hook ~A error: ~A" (car hook-entry) e))))
+    tx-id))
+
+;;; ===================================================================
+;;; Batched writes
+;;; ===================================================================
+
+(defmacro with-batch-transaction ((&key (store '*store*)) &body body)
+  "Execute BODY with batched writes. All transact! calls within BODY
+   are accumulated and flushed as a single atomic write when the
+   outermost with-batch-transaction exits.
+
+   Supports nesting: inner batches don't flush, only the outermost does.
+   On error, the queue is cleared (no partial writes).
+   Hooks fire once after the combined batch, not per-transact! call."
+  (let ((ctx-var (gensym "CTX"))
+        (store-var (gensym "STORE"))
+        (ok-var (gensym "OK")))
+    `(let* ((,ctx-var *substrate*)
+            (,store-var ,store)
+            (,ok-var nil))
+       (incf (substrate-context-batch-depth ,ctx-var))
+       (unwind-protect
+            (prog1 (progn ,@body)
+              (setf ,ok-var t))
+         (decf (substrate-context-batch-depth ,ctx-var))
+         (when (zerop (substrate-context-batch-depth ,ctx-var))
+           (let ((queued (substrate-context-batch-queue ,ctx-var)))
+             (setf (substrate-context-batch-queue ,ctx-var) nil)
+             (when (and queued ,ok-var)
+               (%transact-immediate! queued ,store-var))))))))
 
 (defun next-tx-id (&key (store *store*))
   "Return the next transaction ID that would be assigned."
