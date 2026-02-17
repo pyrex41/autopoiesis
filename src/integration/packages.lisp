@@ -148,6 +148,9 @@
    #:save-session
    #:resume-session
 
+   ;; Provider macro
+   #:define-cli-provider
+
    ;; Provider protocol
    #:provider
    #:provider-name
