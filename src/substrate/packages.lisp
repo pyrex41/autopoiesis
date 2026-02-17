@@ -10,6 +10,17 @@
 (defpackage #:autopoiesis.substrate
   (:use #:cl #:alexandria)
   (:export
+   ;; Context object (replaces individual specials)
+   #:*substrate*
+   #:substrate-context
+   #:make-substrate-context
+   #:substrate-context-store
+   #:substrate-context-entity-cache
+   #:substrate-context-value-index
+   #:substrate-context-intern-table
+   #:substrate-context-resolve-table
+   #:substrate-context-next-entity-id
+   #:substrate-context-next-attribute-id
    ;; Store lifecycle
    #:*store*
    #:open-store
@@ -38,7 +49,7 @@
    #:find-entities-by-type
    #:scan-index
    #:query-first
-   ;; Entity cache
+   ;; Entity cache (backward compat accessors)
    #:*entity-cache*
    #:reset-entity-cache
    ;; Hooks
@@ -48,7 +59,7 @@
    #:define-index
    ;; Linda operations
    #:take!
-   ;; Value index
+   ;; Value index (backward compat accessor)
    #:*value-index*
    ;; Programming model (Phase 1.5)
    #:define-entity-type

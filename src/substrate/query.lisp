@@ -2,19 +2,28 @@
 ;;;;
 ;;;; find-entities and find-entities-by-type use the inverted
 ;;;; value index for O(1) lookups.
+;;;;
+;;;; All state accessed through *substrate* context object.
 
 (in-package #:autopoiesis.substrate)
+
+(defun get-value-index ()
+  "Return the active value index hash table."
+  (let ((ctx *substrate*))
+    (if ctx (substrate-context-value-index ctx) *value-index*)))
 
 (defun find-entities (attribute value &key (store *store*))
   "Find all entity IDs where ATTRIBUTE equals VALUE.
    Uses the inverted value index for O(1) lookup."
   (declare (ignore store))
-  (let* ((aid (if (integerp attribute) attribute
-                  (gethash attribute *intern-table*)))
+  (let* ((intern-tbl (get-intern-table))
+         (vi (get-value-index))
+         (aid (if (integerp attribute) attribute
+                  (gethash attribute intern-tbl)))
          (results nil))
     (when aid
       (let* ((key (cons aid value))
-             (set (gethash key *value-index*)))
+             (set (gethash key vi)))
         (when set
           (maphash (lambda (eid _)
                      (declare (ignore _))

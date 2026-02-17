@@ -3,31 +3,38 @@
 ;;;; Inverted value index for O(1) take! lookups.
 ;;;; The value index maps (attribute-id . value) -> set of entity-ids,
 ;;;; updated alongside entity-cache on every transact!.
+;;;;
+;;;; All state accessed through *substrate* context object.
 
 (in-package #:autopoiesis.substrate)
 
 (defvar *value-index* (make-hash-table :test 'equal)
-  "Inverted index: (attribute-id . value) -> hash-set of entity-ids")
+  "DEPRECATED: Use (substrate-context-value-index *substrate*).
+   Inverted index: (attribute-id . value) -> hash-set of entity-ids")
 
 (defun reset-value-index ()
   "Reset the value index. For testing only."
-  (clrhash *value-index*))
+  (let ((ctx *substrate*))
+    (if ctx
+        (clrhash (substrate-context-value-index ctx))
+        (clrhash *value-index*))))
 
 (defun update-value-index (datom)
   "Update the inverted value index for take! lookups."
-  (let ((key (cons (d-attribute datom) (d-value datom))))
+  (let* ((vi (get-value-index))
+         (key (cons (d-attribute datom) (d-value datom))))
     (if (d-added datom)
         ;; Assert: add entity to the value index
-        (let ((set (or (gethash key *value-index*)
-                       (setf (gethash key *value-index*)
+        (let ((set (or (gethash key vi)
+                       (setf (gethash key vi)
                              (make-hash-table :test 'eql)))))
           (setf (gethash (d-entity datom) set) t))
         ;; Retract: remove entity from the value index
-        (let ((set (gethash key *value-index*)))
+        (let ((set (gethash key vi)))
           (when set
             (remhash (d-entity datom) set)
             (when (zerop (hash-table-count set))
-              (remhash key *value-index*)))))))
+              (remhash key vi)))))))
 
 (defun take! (attribute match-value &key (store *store*) (new-value nil new-value-p))
   "Linda in() -- atomically find an entity where ATTRIBUTE equals MATCH-VALUE,
@@ -40,11 +47,13 @@
    - Only one worker succeeds per entity (lock serializes)
    - Others see the updated value and move on."
   (bt:with-lock-held ((store-lock store))
-    (let* ((aid (if (integerp attribute) attribute
-                    (or (gethash attribute *intern-table*)
+    (let* ((intern-tbl (get-intern-table))
+           (vi (get-value-index))
+           (aid (if (integerp attribute) attribute
+                    (or (gethash attribute intern-tbl)
                         (return-from take! nil))))
            (key (cons aid match-value))
-           (set (gethash key *value-index*))
+           (set (gethash key vi))
            (match-eid nil))
       ;; O(1) lookup via inverted index
       (when set

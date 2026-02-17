@@ -2,6 +2,8 @@
 ;;;;
 ;;;; Central class that ties together indexes, hooks, and transact!.
 ;;;; Phase 1 uses in-memory hash tables. Phase 2 wires LMDB underneath.
+;;;;
+;;;; All mutable state is accessed through the *substrate* context object.
 
 (in-package #:autopoiesis.substrate)
 
@@ -129,7 +131,8 @@
       (return-from transact! nil))
     (let ((tx-id nil)
           (committed-datoms nil)
-          (hooks-snapshot nil))
+          (hooks-snapshot nil)
+          (cache (get-entity-cache)))
       ;; Phase 1: Write under lock
       (bt:with-lock-held ((store-lock store))
         (setf tx-id (incf (store-tx-counter store)))
@@ -149,7 +152,7 @@
           ;; retract the OLD value from the value index first.
           (when (d-added datom)
             (multiple-value-bind (old-value found-p)
-                (gethash (cons (d-entity datom) (d-attribute datom)) *entity-cache*)
+                (gethash (cons (d-entity datom) (d-attribute datom)) cache)
               (when (and found-p (not (equal old-value (d-value datom))))
                 (update-value-index (%make-datom :entity (d-entity datom)
                                                  :attribute (d-attribute datom)
@@ -184,12 +187,18 @@
   "Open a substrate store. PATH is for LMDB (Phase 2).
    Without PATH, uses in-memory storage."
   (declare (ignore path))
-  ;; Reset shared state for a clean store
-  (reset-intern-tables)
-  (reset-entity-cache)
-  (reset-value-index)
-  (let ((store (make-instance 'substrate-store)))
+  (let* ((ctx (or *substrate* (make-substrate-context)))
+         (store (make-instance 'substrate-store)))
     (register-default-indexes store)
+    (setf (substrate-context-store ctx) store)
+    ;; Reset context tables for a clean store
+    (clrhash (substrate-context-intern-table ctx))
+    (clrhash (substrate-context-resolve-table ctx))
+    (clrhash (substrate-context-entity-cache ctx))
+    (clrhash (substrate-context-value-index ctx))
+    (setf (substrate-context-next-entity-id ctx) 1)
+    (setf (substrate-context-next-attribute-id ctx) 1)
+    (setf *substrate* ctx)
     (setf *store* store)
     store))
 
@@ -202,16 +211,22 @@
     (setf *store* nil)))
 
 (defmacro with-store ((&key path) &body body)
-  "Execute BODY with a fresh substrate store. Cleans up on exit."
-  `(let ((*store* nil)
-         (*entity-cache* (make-hash-table :test 'equal))
-         (*value-index* (make-hash-table :test 'equal))
-         (*intern-table* (make-hash-table :test 'equal))
-         (*resolve-table* (make-hash-table :test 'eql))
-         (*next-entity-id* 1)
-         (*next-attribute-id* 1))
+  "Execute BODY with a fresh substrate store. Cleans up on exit.
+   Binds *substrate* context with fresh tables and *store* for backward compat."
+  `(let* ((*substrate* (make-substrate-context))
+          (*store* nil)
+          ;; Keep old specials bound for any code still referencing them directly
+          (*entity-cache* (substrate-context-entity-cache *substrate*))
+          (*value-index* (substrate-context-value-index *substrate*))
+          (*intern-table* (substrate-context-intern-table *substrate*))
+          (*resolve-table* (substrate-context-resolve-table *substrate*))
+          (*next-entity-id* (substrate-context-next-entity-id *substrate*))
+          (*next-attribute-id* (substrate-context-next-attribute-id *substrate*)))
+     (declare (ignorable *entity-cache* *value-index* *intern-table*
+                         *resolve-table* *next-entity-id* *next-attribute-id*))
      (let ((store (make-instance 'substrate-store)))
        (register-default-indexes store)
+       (setf (substrate-context-store *substrate*) store)
        (setf *store* store)
        (unwind-protect (progn ,@body)
          (close-store :store store)))))

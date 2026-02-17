@@ -43,6 +43,7 @@
       :components
       ((:file "packages")
        (:file "conditions")
+       (:file "context")
        (:file "intern")
        (:file "encoding")
        (:file "datom")

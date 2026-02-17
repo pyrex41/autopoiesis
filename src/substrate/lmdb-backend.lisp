@@ -3,6 +3,8 @@
 ;;;; Wires LMDB underneath the in-memory substrate store.
 ;;;; open-lmdb-store creates an LMDB-backed store; in-memory store
 ;;;; remains the default for testing.
+;;;;
+;;;; All state accessed through *substrate* context object.
 
 (in-package #:autopoiesis.substrate)
 
@@ -13,7 +15,10 @@
 (defun open-lmdb-store (path &key (map-size (* 256 1024 1024)))
   "Open substrate store backed by LMDB at PATH.
    MAP-SIZE is the maximum database size (default 256MB)."
-  ;; Reset shared state
+  ;; Ensure context exists
+  (unless *substrate*
+    (setf *substrate* (make-substrate-context)))
+  ;; Reset state via context
   (reset-intern-tables)
   (reset-entity-cache)
   (reset-value-index)
@@ -67,6 +72,7 @@
         (setf (slot-value store 'meta-db) meta-db))
       ;; Restore entity cache from EA-CURRENT database
       (restore-entity-cache store))
+    (setf (substrate-context-store *substrate*) store)
     (setf *store* store)
     store))
 
@@ -86,40 +92,50 @@
 ;;; ===================================================================
 
 (defun restore-intern-tables (intern-db resolve-db meta-db)
-  "Restore intern tables from LMDB."
-  ;; Restore counters
-  (lmdb:with-txn (:write nil)
-    (let ((eid-counter (lmdb:g3t meta-db "next-entity-id"))
-          (aid-counter (lmdb:g3t meta-db "next-attribute-id"))
-          (tx-counter (lmdb:g3t meta-db "tx-counter")))
-      (when eid-counter
-        (setf *next-entity-id* eid-counter))
-      (when aid-counter
-        (setf *next-attribute-id* aid-counter))
-      (when tx-counter
-        ;; Will be set on the store after it's fully initialized
-        ))
-    ;; Restore intern table
-    (lmdb:do-db (key value intern-db)
-      (setf (gethash key *intern-table*) value))
-    ;; Restore resolve table
-    (lmdb:do-db (key value resolve-db)
-      (setf (gethash key *resolve-table*) value))))
+  "Restore intern tables from LMDB into the current *substrate* context."
+  (let* ((ctx *substrate*)
+         (intern-tbl (substrate-context-intern-table ctx))
+         (resolve-tbl (substrate-context-resolve-table ctx)))
+    ;; Restore counters
+    (lmdb:with-txn (:write nil)
+      (let ((eid-counter (lmdb:g3t meta-db "next-entity-id"))
+            (aid-counter (lmdb:g3t meta-db "next-attribute-id"))
+            (tx-counter (lmdb:g3t meta-db "tx-counter")))
+        (when eid-counter
+          (setf (substrate-context-next-entity-id ctx) eid-counter))
+        (when aid-counter
+          (setf (substrate-context-next-attribute-id ctx) aid-counter))
+        (when tx-counter
+          ;; Will be set on the store after it's fully initialized
+          ))
+      ;; Restore intern table
+      (lmdb:do-db (key value intern-db)
+        (setf (gethash key intern-tbl) value))
+      ;; Restore resolve table
+      (lmdb:do-db (key value resolve-db)
+        (setf (gethash key resolve-tbl) value)))))
 
 (defun persist-intern-entry (store term id width)
   "Persist a single intern entry to LMDB."
   (when (store-lmdb-env store)
     (let ((intern-db (slot-value store 'intern-db))
           (resolve-db (slot-value store 'resolve-db))
-          (meta-db (slot-value store 'meta-db)))
+          (meta-db (slot-value store 'meta-db))
+          (ctx *substrate*))
       (when (and intern-db resolve-db meta-db)
         (lmdb:with-txn (:write t)
           (lmdb:put intern-db (prin1-to-string term) id)
           (lmdb:put resolve-db id (prin1-to-string term))
-          ;; Update counter
+          ;; Update counter from context
           (ecase width
-            (:entity (lmdb:put meta-db "next-entity-id" *next-entity-id*))
-            (:attribute (lmdb:put meta-db "next-attribute-id" *next-attribute-id*))))))))
+            (:entity (lmdb:put meta-db "next-entity-id"
+                               (if ctx
+                                   (substrate-context-next-entity-id ctx)
+                                   *next-entity-id*)))
+            (:attribute (lmdb:put meta-db "next-attribute-id"
+                                  (if ctx
+                                      (substrate-context-next-attribute-id ctx)
+                                      *next-attribute-id*)))))))))
 
 (defun persist-tx-counter (store tx-id)
   "Persist the tx counter to LMDB."
@@ -135,7 +151,10 @@
 
 (defun restore-entity-cache (store)
   "Restore entity cache from EA-CURRENT LMDB database."
-  (let ((ea-entry (assoc :ea-current (store-indexes store))))
+  (let* ((ctx *substrate*)
+         (cache (if ctx (substrate-context-entity-cache ctx) *entity-cache*))
+         (vi (if ctx (substrate-context-value-index ctx) *value-index*))
+         (ea-entry (assoc :ea-current (store-indexes store))))
     (when ea-entry
       (let ((db (getf (cdr ea-entry) :db)))
         (when db
@@ -146,11 +165,11 @@
                 (let ((eid (decode-u64-be key 0))
                       (aid (decode-u32-be key 8))
                       (val (deserialize-value value)))
-                  (setf (gethash (cons eid aid) *entity-cache*) val)
+                  (setf (gethash (cons eid aid) cache) val)
                   ;; Also update value index
                   (let ((vi-key (cons aid val)))
-                    (let ((set (or (gethash vi-key *value-index*)
-                                   (setf (gethash vi-key *value-index*)
+                    (let ((set (or (gethash vi-key vi)
+                                   (setf (gethash vi-key vi)
                                          (make-hash-table :test 'eql)))))
                       (setf (gethash eid set) t))))))))))))
 

@@ -466,26 +466,20 @@
                            (or name "agent")
                            (autopoiesis.core:make-uuid)))
          (agent-eid (autopoiesis.substrate:intern-id agent-id))
-         ;; Capture substrate bindings for the spawned thread
-         (captured-store autopoiesis.substrate:*store*)
-         (captured-cache autopoiesis.substrate:*entity-cache*)
-         (captured-vi autopoiesis.substrate:*value-index*)
-         (captured-intern autopoiesis.substrate::*intern-table*)
-         (captured-resolve autopoiesis.substrate::*resolve-table*))
+         ;; Single context capture replaces 5 individual variable captures
+         (captured-substrate autopoiesis.substrate:*substrate*)
+         (captured-store autopoiesis.substrate:*store*))
     ;; Record agent as datoms in substrate
     (autopoiesis.substrate:transact!
      (list (autopoiesis.substrate:make-datom agent-eid :agent/name (or name "sub-agent"))
            (autopoiesis.substrate:make-datom agent-eid :agent/task (or task ""))
            (autopoiesis.substrate:make-datom agent-eid :agent/status :running)
            (autopoiesis.substrate:make-datom agent-eid :agent/started-at (get-universal-time))))
-    ;; Spawn thread with substrate bindings
+    ;; Spawn thread with substrate context
     (bt:make-thread
      (lambda ()
-       (let ((autopoiesis.substrate:*store* captured-store)
-             (autopoiesis.substrate:*entity-cache* captured-cache)
-             (autopoiesis.substrate:*value-index* captured-vi)
-             (autopoiesis.substrate::*intern-table* captured-intern)
-             (autopoiesis.substrate::*resolve-table* captured-resolve))
+       (let ((autopoiesis.substrate:*substrate* captured-substrate)
+             (autopoiesis.substrate:*store* captured-store))
          (handler-case
              (let ((result (funcall-agent-task agent-id task)))
                (autopoiesis.substrate:transact!

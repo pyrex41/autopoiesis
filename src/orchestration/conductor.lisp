@@ -250,33 +250,19 @@
 
 (defun start-conductor (&key (store *store*))
   "Start the conductor. Returns the conductor instance.
-   Captures current substrate bindings so the tick thread sees the same store."
+   Captures current *substrate* context so the tick thread sees the same store."
   (when (and *conductor* (conductor-running-p *conductor*))
     (error "Conductor already running"))
   (let ((conductor (make-instance 'conductor))
-        ;; Capture ALL substrate bindings for the tick thread.
-        ;; with-store rebinds these per-thread, so the tick thread
-        ;; must inherit them to see the same store.
-        ;; NOTE: These use fully-qualified names because intern tables
-        ;; and counters are NOT exported from the substrate package.
-        (captured-store store)
-        (captured-cache *entity-cache*)
-        (captured-value-index *value-index*)
-        (captured-intern autopoiesis.substrate::*intern-table*)
-        (captured-resolve autopoiesis.substrate::*resolve-table*)
-        (captured-next-eid autopoiesis.substrate::*next-entity-id*)
-        (captured-next-aid autopoiesis.substrate::*next-attribute-id*))
+        ;; Single context capture replaces 7 individual variable captures.
+        (captured-substrate autopoiesis.substrate:*substrate*)
+        (captured-store store))
     (setf (conductor-running-p conductor) t)
     (setf (conductor-tick-thread conductor)
           (bt:make-thread
            (lambda ()
-             (let ((*store* captured-store)
-                   (*entity-cache* captured-cache)
-                   (*value-index* captured-value-index)
-                   (autopoiesis.substrate::*intern-table* captured-intern)
-                   (autopoiesis.substrate::*resolve-table* captured-resolve)
-                   (autopoiesis.substrate::*next-entity-id* captured-next-eid)
-                   (autopoiesis.substrate::*next-attribute-id* captured-next-aid))
+             (let ((autopoiesis.substrate:*substrate* captured-substrate)
+                   (*store* captured-store))
                (conductor-tick-loop conductor)))
            :name "conductor-tick"))
     (setf *conductor* conductor)

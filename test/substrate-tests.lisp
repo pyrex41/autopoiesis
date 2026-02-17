@@ -602,3 +602,70 @@
       (autopoiesis.substrate::encode-u32-be buf 0 val)
       (is (= val (autopoiesis.substrate::decode-u32-be buf 0))
           "Round-trip failed for ~A" val))))
+
+;;; ===================================================================
+;;; Context object tests
+;;; ===================================================================
+
+(test context-object-exists
+  "with-store binds *substrate* as a substrate-context."
+  (autopoiesis.substrate:with-store ()
+    (is (not (null autopoiesis.substrate:*substrate*)))
+    (is (typep autopoiesis.substrate:*substrate*
+               'autopoiesis.substrate:substrate-context))))
+
+(test context-object-has-store
+  "*substrate* context holds the active store."
+  (autopoiesis.substrate:with-store ()
+    (is (eq autopoiesis.substrate:*store*
+            (autopoiesis.substrate:substrate-context-store
+             autopoiesis.substrate:*substrate*)))))
+
+(test context-thread-isolation
+  "Two threads with separate with-store contexts cannot see each other's data."
+  (let ((results (make-array 2 :initial-element nil))
+        (barrier (bt:make-lock "barrier"))
+        (ready-count 0)
+        (ready-cv (bt:make-condition-variable)))
+    ;; Thread A: writes :agent-a, checks :agent-b is absent
+    (bt:make-thread
+     (lambda ()
+       (autopoiesis.substrate:with-store ()
+         (autopoiesis.substrate:transact!
+          (list (autopoiesis.substrate:make-datom :agent-a :agent/name "thread-a")))
+         ;; Signal ready
+         (bt:with-lock-held (barrier)
+           (incf ready-count)
+           (bt:condition-notify ready-cv))
+         ;; Wait for other thread
+         (bt:with-lock-held (barrier)
+           (loop until (>= ready-count 2)
+                 do (bt:condition-wait ready-cv barrier)))
+         ;; Check: should see own data, not other thread's
+         (setf (aref results 0)
+               (and (equal "thread-a" (autopoiesis.substrate:entity-attr :agent-a :agent/name))
+                    (null (autopoiesis.substrate:entity-attr :agent-b :agent/name))))))
+     :name "isolation-thread-a")
+    ;; Thread B: writes :agent-b, checks :agent-a is absent
+    (bt:make-thread
+     (lambda ()
+       (autopoiesis.substrate:with-store ()
+         (autopoiesis.substrate:transact!
+          (list (autopoiesis.substrate:make-datom :agent-b :agent/name "thread-b")))
+         ;; Signal ready
+         (bt:with-lock-held (barrier)
+           (incf ready-count)
+           (bt:condition-notify ready-cv))
+         ;; Wait for other thread
+         (bt:with-lock-held (barrier)
+           (loop until (>= ready-count 2)
+                 do (bt:condition-wait ready-cv barrier)))
+         ;; Check: should see own data, not other thread's
+         (setf (aref results 1)
+               (and (equal "thread-b" (autopoiesis.substrate:entity-attr :agent-b :agent/name))
+                    (null (autopoiesis.substrate:entity-attr :agent-a :agent/name))))))
+     :name "isolation-thread-b")
+    ;; Wait for both threads to finish
+    (sleep 2)
+    (is (aref results 0) "Thread A should see its own data and not thread B's")
+    (is (aref results 1) "Thread B should see its own data and not thread A's")))
