@@ -1,1 +1,6 @@
 repomix-output.xml
+
+# Rust / Cargo
+holodeck/target/
+**/*.rs.bk
+*.pdb
