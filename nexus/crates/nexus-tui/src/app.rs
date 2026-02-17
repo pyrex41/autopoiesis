@@ -2,7 +2,7 @@ use std::io;
 use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -13,11 +13,13 @@ use nexus_protocol::types::*;
 use nexus_protocol::ws::WsHandle;
 
 use crate::input::{self, Action};
-use crate::layout::AppLayout;
+use crate::keybinds::{LeaderAction, LeaderState};
+use crate::layout::{AppLayout, FocusedPane};
+use crate::notifications::{NotificationLevel, NotificationStack};
 use crate::state::{AppState, ConnectionStatus, InputMode};
 use crate::widgets::{
-    agent_detail::AgentDetail, agent_list::AgentList, command_bar::CommandBar,
-    status_bar::StatusBar, thought_stream::ThoughtStream,
+    agent_detail::AgentDetail, agent_list::AgentList, blocking_prompt::BlockingPrompt,
+    chat::Chat, command_bar::CommandBar, status_bar::StatusBar, thought_stream::ThoughtStream,
 };
 
 const TICK_RATE: Duration = Duration::from_millis(16); // ~60fps
@@ -26,6 +28,10 @@ pub struct App {
     pub state: AppState,
     ws_handle: Option<WsHandle>,
     ws_rx: Option<broadcast::Receiver<ServerMessage>>,
+    leader_state: LeaderState,
+    blocking_selected_option: usize,
+    blocking_custom_input: String,
+    blocking_is_typing_custom: bool,
 }
 
 impl Default for App {
@@ -40,6 +46,10 @@ impl App {
             state: AppState::default(),
             ws_handle: None,
             ws_rx: None,
+            leader_state: LeaderState::default(),
+            blocking_selected_option: 0,
+            blocking_custom_input: String::new(),
+            blocking_is_typing_custom: false,
         }
     }
 
@@ -90,6 +100,7 @@ impl App {
 
             tokio::select! {
                 _ = tokio::time::sleep(TICK_RATE) => {
+                    self.state.prune_notifications();
                     while event::poll(Duration::ZERO)? {
                         if let Event::Key(key) = event::read()? {
                             if key.kind == KeyEventKind::Press {
@@ -120,18 +131,253 @@ impl App {
     }
 
     fn render(&self, frame: &mut ratatui::Frame) {
-        let layout = AppLayout::new(frame.area());
+        let has_blocking = !self.state.blocking_requests.is_empty();
+        let layout = AppLayout::with_mode(frame.area(), self.state.layout_mode, has_blocking);
+
         frame.render_widget(StatusBar::new(&self.state), layout.status_bar);
         frame.render_widget(AgentList::new(&self.state), layout.agent_list);
         frame.render_widget(AgentDetail::new(&self.state), layout.agent_detail);
         frame.render_widget(ThoughtStream::new(&self.state), layout.thought_stream);
         frame.render_widget(CommandBar::new(&self.state), layout.command_bar);
+
+        // Blocking prompt overlay
+        if let Some(blocking_area) = layout.blocking_prompt {
+            if let Some(request) = self.state.blocking_requests.first() {
+                frame.render_widget(
+                    BlockingPrompt::new(
+                        request,
+                        self.blocking_selected_option,
+                        &self.blocking_custom_input,
+                        self.blocking_is_typing_custom,
+                    ),
+                    blocking_area,
+                );
+            }
+        }
+
+        // Chat panel (only in Focused mode)
+        if let Some(chat_area) = layout.chat_area {
+            let is_active = self.state.focused_pane == FocusedPane::Chat;
+            frame.render_widget(
+                Chat::new(&self.state.chat_messages, &self.state.chat_input, is_active),
+                chat_area,
+            );
+        }
+
+        // Notifications always render
+        frame.render_widget(
+            NotificationStack::new(&self.state.notifications),
+            layout.notification_area,
+        );
     }
 
     fn handle_input(&mut self, key: crossterm::event::KeyEvent) {
-        let action =
-            input::handle_key_event(key, &self.state.input_mode, &self.state.command_input);
+        // Handle blocking prompt focus
+        if self.state.focused_pane == FocusedPane::BlockingPrompt {
+            self.handle_blocking_input(key);
+            return;
+        }
 
+        // Handle chat focus
+        if self.state.focused_pane == FocusedPane::Chat {
+            self.handle_chat_input(key);
+            return;
+        }
+
+        // In command mode, delegate to the existing input handler
+        if self.state.input_mode == InputMode::Command {
+            let action =
+                input::handle_key_event(key, &self.state.input_mode, &self.state.command_input);
+            self.dispatch_action(action);
+            return;
+        }
+
+        // Normal mode: try leader-key system first
+        let (new_leader, leader_action) = self.leader_state.process(key);
+        self.leader_state = new_leader;
+
+        // Update state for status bar indicator
+        self.state.leader_key_active = self.leader_state != LeaderState::Idle;
+        self.state.leader_key_prefix = match &self.leader_state {
+            LeaderState::WaitingForAction(ch) => Some(*ch),
+            _ => None,
+        };
+
+        match leader_action {
+            LeaderAction::Quit => self.state.should_quit = true,
+            LeaderAction::CycleLayout => {
+                self.state.cycle_layout_mode();
+                let mode_name = match self.state.layout_mode {
+                    crate::layout::LayoutMode::Cockpit => "Cockpit",
+                    crate::layout::LayoutMode::Focused => "Focused",
+                    crate::layout::LayoutMode::Monitor => "Monitor",
+                };
+                self.state
+                    .push_notification(&format!("Layout: {mode_name}"), NotificationLevel::Info);
+            }
+            LeaderAction::ToggleHelp | LeaderAction::Help => {
+                self.state.toggle_help();
+            }
+            LeaderAction::FocusNext => {
+                self.state.focused_pane = self.state.focused_pane.next();
+            }
+            LeaderAction::FocusPrev => {
+                self.state.focused_pane = self.state.focused_pane.prev();
+            }
+            LeaderAction::AgentCreate => {
+                self.state.input_mode = InputMode::Command;
+                self.state.command_input = "create agent ".to_string();
+            }
+            LeaderAction::AgentStep => {
+                if let Some(id) = self.state.selected_agent_id() {
+                    self.send_ws(ClientMessage::StepAgent {
+                        agent_id: id,
+                        environment: None,
+                    });
+                }
+            }
+            LeaderAction::AgentStart => {
+                if let Some(id) = self.state.selected_agent_id() {
+                    self.send_ws(ClientMessage::AgentAction {
+                        agent_id: id,
+                        action: "start".to_string(),
+                    });
+                }
+            }
+            LeaderAction::AgentPause => {
+                if let Some(id) = self.state.selected_agent_id() {
+                    self.send_ws(ClientMessage::AgentAction {
+                        agent_id: id,
+                        action: "pause".to_string(),
+                    });
+                }
+            }
+            LeaderAction::AgentStop => {
+                if let Some(id) = self.state.selected_agent_id() {
+                    self.send_ws(ClientMessage::AgentAction {
+                        agent_id: id,
+                        action: "stop".to_string(),
+                    });
+                }
+            }
+            LeaderAction::AgentInjectThought => {
+                self.state.input_mode = InputMode::Command;
+                self.state.command_input.clear();
+            }
+            LeaderAction::AgentMenu | LeaderAction::SnapshotMenu | LeaderAction::BranchMenu => {
+                // These are intermediate states — waiting for next key
+            }
+            LeaderAction::Cancelled => {
+                // Leader sequence cancelled, do nothing
+            }
+            LeaderAction::None => {
+                // No leader action consumed the key — fall through to normal input
+                let action = input::handle_key_event(
+                    key,
+                    &self.state.input_mode,
+                    &self.state.command_input,
+                );
+                self.dispatch_action(action);
+            }
+        }
+    }
+
+    fn handle_blocking_input(&mut self, key: crossterm::event::KeyEvent) {
+        let option_count = self
+            .state
+            .blocking_requests
+            .first()
+            .map(|r| r.options.len())
+            .unwrap_or(0);
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                if !self.blocking_is_typing_custom && option_count > 0 {
+                    self.blocking_selected_option =
+                        (self.blocking_selected_option + 1) % option_count;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if !self.blocking_is_typing_custom && option_count > 0 {
+                    self.blocking_selected_option = if self.blocking_selected_option == 0 {
+                        option_count.saturating_sub(1)
+                    } else {
+                        self.blocking_selected_option - 1
+                    };
+                }
+            }
+            KeyCode::Tab => {
+                self.blocking_is_typing_custom = !self.blocking_is_typing_custom;
+            }
+            KeyCode::Enter => {
+                let response = if self.blocking_is_typing_custom {
+                    self.blocking_custom_input.clone()
+                } else if let Some(request) = self.state.blocking_requests.first() {
+                    request
+                        .options
+                        .get(self.blocking_selected_option)
+                        .cloned()
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
+                if let Some(request) = self.state.blocking_requests.first() {
+                    let request_id = request.id.clone();
+                    self.send_ws(ClientMessage::RespondBlocking {
+                        blocking_request_id: request_id,
+                        response,
+                    });
+                }
+
+                // Reset blocking state
+                self.blocking_selected_option = 0;
+                self.blocking_custom_input.clear();
+                self.blocking_is_typing_custom = false;
+                self.state.focused_pane = FocusedPane::AgentList;
+            }
+            KeyCode::Esc => {
+                self.state.focused_pane = FocusedPane::AgentList;
+                self.blocking_is_typing_custom = false;
+            }
+            KeyCode::Backspace if self.blocking_is_typing_custom => {
+                self.blocking_custom_input.pop();
+            }
+            KeyCode::Char(c) if self.blocking_is_typing_custom => {
+                self.blocking_custom_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_chat_input(&mut self, key: crossterm::event::KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.focused_pane = FocusedPane::AgentList;
+            }
+            KeyCode::Enter => {
+                if !self.state.chat_input.is_empty() {
+                    let content = self.state.chat_input.clone();
+                    self.state.chat_messages.push(
+                        crate::widgets::chat::ChatMessage {
+                            sender: crate::widgets::chat::ChatSender::User,
+                            content,
+                        },
+                    );
+                    self.state.chat_input.clear();
+                }
+            }
+            KeyCode::Backspace => {
+                self.state.chat_input.pop();
+            }
+            KeyCode::Char(c) => {
+                self.state.chat_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn dispatch_action(&mut self, action: Action) {
         match action {
             Action::Quit => self.state.should_quit = true,
             Action::SelectNextAgent => {
@@ -233,12 +479,22 @@ impl App {
                 self.upsert_agent(agent);
             }
             ServerMessage::AgentCreated { agent } => {
+                let name = agent.name.clone();
                 self.upsert_agent(agent);
+                self.state.push_notification(
+                    &format!("Agent '{name}' created"),
+                    NotificationLevel::Success,
+                );
             }
             ServerMessage::AgentStateChanged { agent_id, state } => {
+                let state_label = format!("{state:?}");
                 if let Some(a) = self.state.agents.iter_mut().find(|a| a.id == agent_id) {
                     a.state = state;
                 }
+                self.state.push_notification(
+                    &format!("Agent state -> {state_label}"),
+                    NotificationLevel::Info,
+                );
             }
             ServerMessage::StepComplete { .. } => {}
             ServerMessage::Thoughts { thoughts, .. } => {
@@ -263,7 +519,16 @@ impl App {
                 self.state.blocking_requests = requests;
             }
             ServerMessage::BlockingRequest { request } => {
+                let prompt_preview: String = request.prompt.chars().take(40).collect();
                 self.state.blocking_requests.push(request);
+                self.state.push_notification(
+                    &format!("Blocking: {prompt_preview}"),
+                    NotificationLevel::Warning,
+                );
+                self.state.focused_pane = FocusedPane::BlockingPrompt;
+                self.blocking_selected_option = 0;
+                self.blocking_custom_input.clear();
+                self.blocking_is_typing_custom = false;
             }
             ServerMessage::BlockingResponded {
                 blocking_request_id,
@@ -271,6 +536,8 @@ impl App {
                 self.state
                     .blocking_requests
                     .retain(|r| r.id != blocking_request_id);
+                self.state
+                    .push_notification("Request resolved", NotificationLevel::Info);
             }
             ServerMessage::Events { .. } => {}
             ServerMessage::Event { .. } => {}
@@ -331,6 +598,18 @@ mod tests {
         }
     }
 
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
+    fn shift_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::SHIFT)
+    }
+
     #[test]
     fn test_app_new_default_state() {
         let app = App::new();
@@ -339,6 +618,10 @@ mod tests {
         assert!(app.ws_handle.is_none());
         assert!(app.ws_rx.is_none());
         assert!(!app.state.should_quit);
+        assert_eq!(app.leader_state, LeaderState::Idle);
+        assert_eq!(app.blocking_selected_option, 0);
+        assert!(app.blocking_custom_input.is_empty());
+        assert!(!app.blocking_is_typing_custom);
     }
 
     #[test]
@@ -714,5 +997,329 @@ mod tests {
         let mut app = App::new();
         app.dispatch_server_message(ServerMessage::StreamFormatSet);
         assert_eq!(app.state.connection, ConnectionStatus::Connected);
+    }
+
+    // === Phase 2 tests ===
+
+    #[test]
+    fn test_leader_key_space_l_cycles_layout() {
+        let mut app = App::new();
+        assert_eq!(app.state.layout_mode, crate::layout::LayoutMode::Cockpit);
+
+        // Space
+        app.handle_input(key(KeyCode::Char(' ')));
+        assert!(app.state.leader_key_active);
+
+        // l
+        app.handle_input(key(KeyCode::Char('l')));
+        assert_eq!(app.state.layout_mode, crate::layout::LayoutMode::Focused);
+        assert!(!app.state.leader_key_active);
+        assert_eq!(app.state.notifications.len(), 1);
+    }
+
+    #[test]
+    fn test_leader_key_space_h_toggles_help() {
+        let mut app = App::new();
+        assert!(!app.state.show_help);
+
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('h')));
+        assert!(app.state.show_help);
+
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('h')));
+        assert!(!app.state.show_help);
+    }
+
+    #[test]
+    fn test_tab_cycles_focus() {
+        let mut app = App::new();
+        assert_eq!(app.state.focused_pane, FocusedPane::AgentList);
+
+        app.handle_input(key(KeyCode::Tab));
+        assert_eq!(app.state.focused_pane, FocusedPane::PrimaryDetail);
+    }
+
+    #[test]
+    fn test_shift_tab_cycles_focus_reverse() {
+        let mut app = App::new();
+        assert_eq!(app.state.focused_pane, FocusedPane::AgentList);
+
+        app.handle_input(shift_key(KeyCode::Tab));
+        assert_eq!(app.state.focused_pane, FocusedPane::CommandBar);
+    }
+
+    #[test]
+    fn test_ctrl_q_quits() {
+        let mut app = App::new();
+        app.handle_input(ctrl_key(KeyCode::Char('q')));
+        assert!(app.state.should_quit);
+    }
+
+    #[test]
+    fn test_agent_created_emits_notification() {
+        let mut app = App::new();
+        let agent = make_agent("test-bot");
+        app.dispatch_server_message(ServerMessage::AgentCreated {
+            agent: agent.clone(),
+        });
+        assert_eq!(app.state.notifications.len(), 1);
+        assert!(app.state.notifications[0].message.contains("test-bot"));
+        assert_eq!(
+            app.state.notifications[0].level,
+            NotificationLevel::Success
+        );
+    }
+
+    #[test]
+    fn test_agent_state_changed_emits_notification() {
+        let mut app = App::new();
+        let id = Uuid::new_v4();
+        app.state.agents = vec![make_agent_with_id(id, "test")];
+
+        app.dispatch_server_message(ServerMessage::AgentStateChanged {
+            agent_id: id,
+            state: AgentState::Paused,
+        });
+        assert_eq!(app.state.notifications.len(), 1);
+        assert!(app.state.notifications[0].message.contains("Paused"));
+    }
+
+    #[test]
+    fn test_blocking_request_emits_notification_and_focuses() {
+        let mut app = App::new();
+        let request = BlockingRequestData {
+            id: "req-1".to_string(),
+            prompt: "Should I continue?".to_string(),
+            context: None,
+            options: vec!["yes".to_string(), "no".to_string()],
+            default_value: None,
+            status: None,
+            created_at: None,
+        };
+        app.dispatch_server_message(ServerMessage::BlockingRequest { request });
+        assert_eq!(app.state.focused_pane, FocusedPane::BlockingPrompt);
+        assert_eq!(app.state.notifications.len(), 1);
+        assert_eq!(
+            app.state.notifications[0].level,
+            NotificationLevel::Warning
+        );
+    }
+
+    #[test]
+    fn test_blocking_responded_emits_notification() {
+        let mut app = App::new();
+        app.state.blocking_requests = vec![BlockingRequestData {
+            id: "req-1".to_string(),
+            prompt: "test".to_string(),
+            context: None,
+            options: vec![],
+            default_value: None,
+            status: None,
+            created_at: None,
+        }];
+        app.dispatch_server_message(ServerMessage::BlockingResponded {
+            blocking_request_id: "req-1".to_string(),
+        });
+        assert_eq!(app.state.notifications.len(), 1);
+        assert!(app.state.notifications[0]
+            .message
+            .contains("Request resolved"));
+    }
+
+    #[test]
+    fn test_blocking_prompt_option_navigation() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::BlockingPrompt;
+        app.state.blocking_requests = vec![BlockingRequestData {
+            id: "req-1".to_string(),
+            prompt: "Choose".to_string(),
+            context: None,
+            options: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            default_value: None,
+            status: None,
+            created_at: None,
+        }];
+
+        assert_eq!(app.blocking_selected_option, 0);
+        app.handle_input(key(KeyCode::Char('j')));
+        assert_eq!(app.blocking_selected_option, 1);
+        app.handle_input(key(KeyCode::Char('j')));
+        assert_eq!(app.blocking_selected_option, 2);
+        app.handle_input(key(KeyCode::Char('j')));
+        assert_eq!(app.blocking_selected_option, 0); // wraps
+
+        app.handle_input(key(KeyCode::Char('k')));
+        assert_eq!(app.blocking_selected_option, 2); // wraps back
+    }
+
+    #[test]
+    fn test_blocking_prompt_tab_toggles_custom() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::BlockingPrompt;
+        app.state.blocking_requests = vec![BlockingRequestData {
+            id: "req-1".to_string(),
+            prompt: "Choose".to_string(),
+            context: None,
+            options: vec!["a".to_string()],
+            default_value: None,
+            status: None,
+            created_at: None,
+        }];
+
+        assert!(!app.blocking_is_typing_custom);
+        app.handle_input(key(KeyCode::Tab));
+        assert!(app.blocking_is_typing_custom);
+        app.handle_input(key(KeyCode::Tab));
+        assert!(!app.blocking_is_typing_custom);
+    }
+
+    #[test]
+    fn test_blocking_prompt_custom_typing() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::BlockingPrompt;
+        app.blocking_is_typing_custom = true;
+        app.state.blocking_requests = vec![BlockingRequestData {
+            id: "req-1".to_string(),
+            prompt: "Choose".to_string(),
+            context: None,
+            options: vec![],
+            default_value: None,
+            status: None,
+            created_at: None,
+        }];
+
+        app.handle_input(key(KeyCode::Char('h')));
+        app.handle_input(key(KeyCode::Char('i')));
+        assert_eq!(app.blocking_custom_input, "hi");
+
+        app.handle_input(key(KeyCode::Backspace));
+        assert_eq!(app.blocking_custom_input, "h");
+    }
+
+    #[test]
+    fn test_blocking_prompt_esc_returns_focus() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::BlockingPrompt;
+        app.state.blocking_requests = vec![BlockingRequestData {
+            id: "req-1".to_string(),
+            prompt: "Choose".to_string(),
+            context: None,
+            options: vec![],
+            default_value: None,
+            status: None,
+            created_at: None,
+        }];
+
+        app.handle_input(key(KeyCode::Esc));
+        assert_eq!(app.state.focused_pane, FocusedPane::AgentList);
+    }
+
+    #[test]
+    fn test_chat_input_esc_returns_focus() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::Chat;
+
+        app.handle_input(key(KeyCode::Esc));
+        assert_eq!(app.state.focused_pane, FocusedPane::AgentList);
+    }
+
+    #[test]
+    fn test_chat_typing_and_submit() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::Chat;
+
+        app.handle_input(key(KeyCode::Char('h')));
+        app.handle_input(key(KeyCode::Char('i')));
+        assert_eq!(app.state.chat_input, "hi");
+
+        app.handle_input(key(KeyCode::Enter));
+        assert!(app.state.chat_input.is_empty());
+        assert_eq!(app.state.chat_messages.len(), 1);
+        assert_eq!(app.state.chat_messages[0].content, "hi");
+    }
+
+    #[test]
+    fn test_leader_key_space_a_c_enters_command_mode() {
+        let mut app = App::new();
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('a')));
+        app.handle_input(key(KeyCode::Char('c')));
+        assert_eq!(app.state.input_mode, InputMode::Command);
+        assert_eq!(app.state.command_input, "create agent ");
+    }
+
+    #[test]
+    fn test_render_with_layout_modes() {
+        use ratatui::backend::TestBackend;
+
+        let app = App::new();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        // Cockpit mode
+        terminal
+            .draw(|f| {
+                app.render(f);
+            })
+            .unwrap();
+
+        // Focused mode
+        let mut app = App::new();
+        app.state.layout_mode = crate::layout::LayoutMode::Focused;
+        terminal
+            .draw(|f| {
+                app.render(f);
+            })
+            .unwrap();
+
+        // Monitor mode
+        app.state.layout_mode = crate::layout::LayoutMode::Monitor;
+        terminal
+            .draw(|f| {
+                app.render(f);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_render_with_blocking_request() {
+        use ratatui::backend::TestBackend;
+
+        let mut app = App::new();
+        app.state.blocking_requests = vec![BlockingRequestData {
+            id: "req-1".to_string(),
+            prompt: "Continue?".to_string(),
+            context: None,
+            options: vec!["yes".to_string(), "no".to_string()],
+            default_value: None,
+            status: None,
+            created_at: None,
+        }];
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                app.render(f);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_render_with_notifications() {
+        use ratatui::backend::TestBackend;
+
+        let mut app = App::new();
+        app.state
+            .push_notification("Test notification", NotificationLevel::Info);
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                app.render(f);
+            })
+            .unwrap();
     }
 }

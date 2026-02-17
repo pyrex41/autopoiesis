@@ -22,10 +22,10 @@ impl<'a> ThoughtStream<'a> {
 
 fn badge(tt: &ThoughtType) -> (&'static str, ratatui::style::Color) {
     match tt {
-        ThoughtType::Observation => ("[OBS]", theme::COLOR_THOUGHT_OBS),
-        ThoughtType::Decision => ("[DEC]", theme::COLOR_THOUGHT_DEC),
-        ThoughtType::Action => ("[ACT]", theme::COLOR_THOUGHT_ACT),
-        ThoughtType::Reflection => ("[REF]", theme::COLOR_THOUGHT_REF),
+        ThoughtType::Observation => ("◉ OBS", theme::COLOR_THOUGHT_OBS),
+        ThoughtType::Decision => ("◆ DEC", theme::COLOR_THOUGHT_DEC),
+        ThoughtType::Action => ("▶ ACT", theme::COLOR_THOUGHT_ACT),
+        ThoughtType::Reflection => ("◈ REF", theme::COLOR_THOUGHT_REF),
     }
 }
 
@@ -152,25 +152,25 @@ mod tests {
                 all_text.push_str(buf.cell((x, y)).unwrap().symbol());
             }
         }
-        assert!(all_text.contains("[OBS]"));
-        assert!(all_text.contains("[DEC]"));
-        assert!(all_text.contains("[ACT]"));
-        assert!(all_text.contains("[REF]"));
+        assert!(all_text.contains("OBS"));
+        assert!(all_text.contains("DEC"));
+        assert!(all_text.contains("ACT"));
+        assert!(all_text.contains("REF"));
         assert!(all_text.contains("Analyzing auth module"));
     }
 
     #[test]
     fn test_badge_colors() {
         let (text, _) = badge(&ThoughtType::Observation);
-        assert_eq!(text, "[OBS]");
+        assert_eq!(text, "◉ OBS");
 
         let (text, _) = badge(&ThoughtType::Decision);
-        assert_eq!(text, "[DEC]");
+        assert_eq!(text, "◆ DEC");
 
         let (text, _) = badge(&ThoughtType::Action);
-        assert_eq!(text, "[ACT]");
+        assert_eq!(text, "▶ ACT");
 
         let (text, _) = badge(&ThoughtType::Reflection);
-        assert_eq!(text, "[REF]");
+        assert_eq!(text, "◈ REF");
     }
 }
