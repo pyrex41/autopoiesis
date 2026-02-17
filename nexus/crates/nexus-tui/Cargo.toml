@@ -1,0 +1,13 @@
+[package]
+name = "nexus-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nexus-protocol = { path = "../nexus-protocol" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
