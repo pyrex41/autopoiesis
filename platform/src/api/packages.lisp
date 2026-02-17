@@ -95,4 +95,15 @@
    ;; MCP server
    #:mcp-tool-definitions
    #:handle-mcp-endpoint
-   #:*mcp-sessions*))
+   #:*mcp-sessions*
+
+   ;; Unified operations (defoperation)
+   #:defoperation
+   #:*operations*
+   #:find-operation
+   #:list-operations
+   #:register-operation
+   #:dispatch-operation
+   #:dispatch-operation-rest
+   #:dispatch-operation-mcp
+   #:operation-mcp-tool-definitions))
