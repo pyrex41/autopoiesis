@@ -74,13 +74,14 @@
 ;;; Hooks
 ;;; ===================================================================
 
-(defun register-hook (store name hook-fn)
+(defun register-hook (store name hook-fn &key (priority 0))
   "Register a hook that fires after every TRANSACT! with (datoms tx-id).
-   Hooks fire AFTER the transaction commits."
+   Hooks fire AFTER the transaction commits, ordered by PRIORITY (lower first).
+   Hooks with equal priority fire in registration order."
   ;; Remove existing hook with same name
   (setf (store-hooks store)
         (remove name (store-hooks store) :key #'car))
-  (push (cons name hook-fn) (store-hooks store))
+  (push (list name hook-fn priority) (store-hooks store))
   name)
 
 (defun unregister-hook (store name)
@@ -182,13 +183,15 @@
         (persist-tx-counter store tx-id))
       ;; Snapshot datoms and hooks for firing outside lock
       (setf committed-datoms (copy-list datoms))
-      (setf hooks-snapshot (copy-list (store-hooks store))))
+      ;; Sort hooks by priority (lower = first), stable sort preserves registration order
+      (setf hooks-snapshot (stable-sort (copy-list (store-hooks store))
+                                         #'< :key #'third)))
     ;; Phase 2: Fire hooks OUTSIDE the lock
     (dolist (hook-entry hooks-snapshot)
       (handler-case
-          (funcall (cdr hook-entry) committed-datoms tx-id)
+          (funcall (second hook-entry) committed-datoms tx-id)
         (error (e)
-          (warn "Hook ~A error: ~A" (car hook-entry) e))))
+          (warn "Hook ~A error: ~A" (first hook-entry) e))))
     tx-id))
 
 ;;; ===================================================================

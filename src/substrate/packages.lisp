@@ -79,6 +79,7 @@
    #:substrate-error
    #:substrate-validation-error
    #:unknown-entity-type
+   #:circular-system-dependency
    ;; Blob store (Phase 2)
    #:store-blob
    #:load-blob

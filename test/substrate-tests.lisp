@@ -882,3 +882,78 @@
       ;; Both should find alice
       (is (equal "alice" (cdr (assoc :?name (first compiled-results)))))
       (is (equal "alice" (cdr (assoc :?name (first interp-results))))))))
+
+;;; ===================================================================
+;;; Hook ordering tests (Phase 9)
+;;; ===================================================================
+
+(test hook-priority-ordering
+  "Hooks fire in priority order (lower number first)."
+  (autopoiesis.substrate:with-store ()
+    (let ((order nil))
+      (autopoiesis.substrate:register-hook
+       autopoiesis.substrate:*store* :hook-c
+       (lambda (datoms tx-id)
+         (declare (ignore datoms tx-id))
+         (push :c order))
+       :priority 2)
+      (autopoiesis.substrate:register-hook
+       autopoiesis.substrate:*store* :hook-a
+       (lambda (datoms tx-id)
+         (declare (ignore datoms tx-id))
+         (push :a order))
+       :priority 0)
+      (autopoiesis.substrate:register-hook
+       autopoiesis.substrate:*store* :hook-b
+       (lambda (datoms tx-id)
+         (declare (ignore datoms tx-id))
+         (push :b order))
+       :priority 1)
+      (autopoiesis.substrate:transact!
+       (list (autopoiesis.substrate:make-datom :e1 :x 1)))
+      ;; Order is reversed because we push, so check nreverse
+      (setf order (nreverse order))
+      (is (equal '(:a :b :c) order)
+          "Hooks should fire in priority order: a(0) b(1) c(2)"))))
+
+(defvar *system-test-order* nil "Dynamic var for system ordering test.")
+
+(test system-after-ordering
+  "System with :after fires after its dependency."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-system-state)
+    (setf *system-test-order* nil)
+    (eval `(autopoiesis.substrate:defsystem :sys-cache
+             (:watches (:test/val)
+              :access :read-only)
+             (push :cache autopoiesis.test::*system-test-order*)))
+    (eval `(autopoiesis.substrate:defsystem :sys-derived
+             (:watches (:test/val)
+              :after (:sys-cache)
+              :access :read-only)
+             (push :derived autopoiesis.test::*system-test-order*)))
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :e1 :test/val 42)))
+    (let ((order (nreverse *system-test-order*)))
+      (is (equal '(:cache :derived) order)
+          "System :sys-derived should fire after :sys-cache"))
+    (autopoiesis.substrate::reset-system-state)))
+
+(test circular-system-dependency-detected
+  "Circular dependencies signal circular-system-dependency condition."
+  (let ((sys-a (make-instance 'autopoiesis.substrate::system-descriptor
+                              :name :sys-a
+                              :entity-type nil
+                              :watches nil
+                              :access :read-only
+                              :after '(:sys-b)
+                              :handler (lambda (e d tx) (declare (ignore e d tx)))))
+        (sys-b (make-instance 'autopoiesis.substrate::system-descriptor
+                              :name :sys-b
+                              :entity-type nil
+                              :watches nil
+                              :access :read-only
+                              :after '(:sys-a)
+                              :handler (lambda (e d tx) (declare (ignore e d tx))))))
+    (signals autopoiesis.substrate:circular-system-dependency
+      (autopoiesis.substrate::topological-sort-systems (list sys-a sys-b)))))
