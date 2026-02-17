@@ -9,8 +9,7 @@
   :license "MIT"
   :version "0.1.0"
   :serial t
-  :depends-on (#:substrate          ; Standalone datom store (substrate.asd)
-               #:alexandria
+  :depends-on (#:alexandria
                #:bordeaux-threads
                #:cl-json
                #:local-time
@@ -21,7 +20,8 @@
                #:babel           ; For UTF-8 encoding
                #:dexador         ; For HTTP client
                #:cl-charms       ; For ncurses terminal UI
-               #:hunchentoot)    ; For HTTP server (monitoring endpoints)
+               #:hunchentoot     ; For HTTP server (monitoring endpoints)
+               #:lmdb)           ; For LMDB persistent storage (substrate)
   :components
   ((:module "src"
     :components
@@ -41,7 +41,22 @@
       :serial t
       :depends-on ("core")
       :components
-      ((:file "builtin-types")
+      ((:file "packages")
+       (:file "conditions")
+       (:file "context")
+       (:file "intern")
+       (:file "encoding")
+       (:file "datom")
+       (:file "entity")
+       (:file "query")
+       (:file "store")
+       (:file "linda")
+       (:file "datalog")
+       (:file "entity-type")
+       (:file "system")
+       (:file "builtin-types")
+       (:file "lmdb-backend")
+       (:file "blob")
        (:file "migration")))
      (:module "orchestration"
       :serial t
@@ -158,8 +173,6 @@
        (:file "auth")
        (:file "serialization")
        (:file "sse")
-       (:file "operations")
-       (:file "op-definitions")
        (:file "routes")
        (:file "mcp-server")
        (:file "rest-server")))

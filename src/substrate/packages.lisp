@@ -8,7 +8,6 @@
 (in-package #:cl-user)
 
 (defpackage #:autopoiesis.substrate
-  (:nicknames #:substrate)
   (:use #:cl #:alexandria)
   (:export
    ;; Context object (replaces individual specials)
