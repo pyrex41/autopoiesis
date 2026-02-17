@@ -372,3 +372,141 @@
     (let* ((d (autopoiesis.substrate:make-datom :e1 :a/x "v"))
            (key (autopoiesis.substrate::encode-eavt-key d)))
       (is (= 20 (length key))))))
+
+;;; ===================================================================
+;;; Phase 1.5: define-entity-type
+;;; ===================================================================
+
+(test define-entity-type-creates-class
+  "define-entity-type registers in registry and creates a CLOS class."
+  (is (not (null (gethash :event autopoiesis.substrate:*entity-type-registry*))))
+  (is (not (null (gethash :worker autopoiesis.substrate:*entity-type-registry*))))
+  (is (not (null (gethash :agent autopoiesis.substrate:*entity-type-registry*))))
+  (is (not (null (gethash :session autopoiesis.substrate:*entity-type-registry*))))
+  (is (not (null (gethash :snapshot autopoiesis.substrate:*entity-type-registry*))))
+  (is (not (null (gethash :turn autopoiesis.substrate:*entity-type-registry*))))
+  (is (not (null (gethash :context autopoiesis.substrate:*entity-type-registry*)))))
+
+(test make-typed-entity-creates-wrapper
+  "make-typed-entity creates a CLOS object with entity-id."
+  (autopoiesis.substrate:with-store ()
+    (let* ((eid (autopoiesis.substrate:intern-id :test-agent-1))
+           (entity (autopoiesis.substrate:make-typed-entity :agent eid)))
+      (is (not (null entity)))
+      (is (= eid (autopoiesis.substrate:entity-id entity))))))
+
+(test typed-entity-slot-unbound-loads-from-substrate
+  "Slot access on typed entity loads value from substrate via slot-unbound."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :my-agent :agent/name "Test Agent")
+           (autopoiesis.substrate:make-datom :my-agent :agent/status :running)))
+    (let* ((eid (autopoiesis.substrate:intern-id :my-agent))
+           (entity (autopoiesis.substrate:make-typed-entity :agent eid)))
+      (is (equal "Test Agent" (slot-value entity 'autopoiesis.substrate::name)))
+      (is (eq :running (slot-value entity 'autopoiesis.substrate::status))))))
+
+(test typed-entity-unset-attribute-returns-nil
+  "Slot-unbound returns nil for unset attributes."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :my-agent :agent/name "Test")))
+    (let* ((eid (autopoiesis.substrate:intern-id :my-agent))
+           (entity (autopoiesis.substrate:make-typed-entity :agent eid)))
+      ;; :agent/result was never set
+      (is (null (slot-value entity 'autopoiesis.substrate::result))))))
+
+(test unknown-entity-type-signaled-for-unregistered
+  "make-typed-entity signals unknown-entity-type for unregistered types."
+  (autopoiesis.substrate:with-store ()
+    (handler-case
+        (progn
+          (autopoiesis.substrate:make-typed-entity :nonexistent 42)
+          (fail "Should have signaled"))
+      (autopoiesis.substrate:unknown-entity-type (c)
+        (is (= 42 (autopoiesis.substrate::condition-entity-id c)))))))
+
+(test all-seven-builtin-types-registered
+  "All 7 pre-defined entity types are registered."
+  (let ((types '(:event :worker :agent :session :snapshot :turn :context)))
+    (dolist (type types)
+      (is (not (null (gethash type autopoiesis.substrate:*entity-type-registry*)))
+          "Type ~A should be registered" type))))
+
+;;; ===================================================================
+;;; Phase 1.5: defsystem
+;;; ===================================================================
+
+(test defsystem-registers-in-registry
+  "defsystem registers in system registry."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-system-state)
+    (autopoiesis.substrate:defsystem :test-sys
+      (:entity-type nil :watches (:a/test-attr))
+      (declare (ignore entity datoms tx-id)))
+    (is (not (null (gethash :test-sys autopoiesis.substrate:*system-registry*))))))
+
+(test defsystem-handler-fires-on-watched-attr
+  "defsystem handler fires when watched attribute changes."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-system-state)
+    (let ((fired nil))
+      (autopoiesis.substrate:defsystem :watch-test
+        (:entity-type nil :watches (:a/watched))
+        (declare (ignore datoms tx-id))
+        (setf fired t))
+      (autopoiesis.substrate:transact!
+       (list (autopoiesis.substrate:make-datom :e1 :a/watched "yes")))
+      (is (not (null fired))))))
+
+(test defsystem-handler-does-not-fire-for-unwatched
+  "defsystem handler does NOT fire for unwatched attributes."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-system-state)
+    (let ((fired nil))
+      (autopoiesis.substrate:defsystem :no-fire-test
+        (:entity-type nil :watches (:a/watched))
+        (declare (ignore datoms tx-id))
+        (setf fired t))
+      (autopoiesis.substrate:transact!
+       (list (autopoiesis.substrate:make-datom :e1 :a/unwatched "no")))
+      (is (null fired)))))
+
+(test defsystem-entity-type-filter
+  "defsystem with entity-type filter only fires for matching entities."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-system-state)
+    (let ((fired-count 0))
+      (autopoiesis.substrate:defsystem :typed-sys
+        (:entity-type :agent :watches (:agent/status))
+        (declare (ignore datoms tx-id))
+        (incf fired-count))
+      ;; Write entity type first, then status
+      (autopoiesis.substrate:transact!
+       (list (autopoiesis.substrate:make-datom :a1 :entity/type :agent)
+             (autopoiesis.substrate:make-datom :a1 :agent/status :running)))
+      ;; Write a non-agent with status
+      (autopoiesis.substrate:transact!
+       (list (autopoiesis.substrate:make-datom :e1 :entity/type :event)
+             (autopoiesis.substrate:make-datom :e1 :agent/status :running)))
+      (is (= 1 fired-count)))))
+
+(test multiple-defsystems-dispatch-correctly
+  "Multiple defsystems with different watches dispatch to the right ones."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate::reset-system-state)
+    (let ((sys1-fired nil)
+          (sys2-fired nil))
+      (autopoiesis.substrate:defsystem :sys1
+        (:entity-type nil :watches (:a/alpha))
+        (declare (ignore datoms tx-id))
+        (setf sys1-fired t))
+      (autopoiesis.substrate:defsystem :sys2
+        (:entity-type nil :watches (:a/beta))
+        (declare (ignore datoms tx-id))
+        (setf sys2-fired t))
+      ;; Only trigger :a/alpha
+      (autopoiesis.substrate:transact!
+       (list (autopoiesis.substrate:make-datom :e1 :a/alpha 1)))
+      (is (not (null sys1-fired)))
+      (is (null sys2-fired)))))

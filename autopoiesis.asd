@@ -48,7 +48,10 @@
        (:file "entity")
        (:file "query")
        (:file "store")
-       (:file "linda")))
+       (:file "linda")
+       (:file "entity-type")
+       (:file "system")
+       (:file "builtin-types")))
      (:module "agent"
       :serial t
       :depends-on ("core")
