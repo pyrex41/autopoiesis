@@ -56,6 +56,13 @@
        (:file "lmdb-backend")
        (:file "blob")
        (:file "migration")))
+     (:module "orchestration"
+      :serial t
+      :depends-on ("core" "substrate")
+      :components
+      ((:file "packages")
+       (:file "conductor")
+       (:file "claude-worker")))
      (:module "agent"
       :serial t
       :depends-on ("core")
@@ -98,9 +105,16 @@
        (:file "blocking")
        (:file "session")
        (:file "protocol")))
+     (:module "conversation"
+      :serial t
+      :depends-on ("core" "substrate")
+      :components
+      ((:file "packages")
+       (:file "turn")
+       (:file "context")))
      (:module "integration"
       :serial t
-      :depends-on ("core" "agent")
+      :depends-on ("core" "substrate" "agent")
       :components
       ((:file "packages")
        (:file "events")
@@ -159,7 +173,7 @@
        (:file "mcp-server")
        (:file "rest-server")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "agent" "snapshot" "interface" "integration" "viz" "security" "monitoring" "api")))))
+     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "viz" "security" "monitoring" "api")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; WebSocket API server (Clack/Lack/Woo)
@@ -254,6 +268,8 @@
     :components
     ((:file "packages")
      (:file "substrate-tests")
+     (:file "orchestration-tests")
+     (:file "conversation-tests")
      (:file "core-tests")
      (:file "agent-tests")
      (:file "snapshot-tests")

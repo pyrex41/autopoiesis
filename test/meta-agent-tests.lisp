@@ -1,11 +1,8 @@
 ;;;; meta-agent-tests.lisp - Tests for Phase 5 meta-agent orchestration
 ;;;;
-;;;; Tests the CL-side orchestration tools: sub-agent spawning, queuing,
-;;;; cognitive branching, session management, and the request drain mechanism.
-;;;;
-;;;; Note: Full bridge handlers live in scripts/agent-worker.lisp (standalone).
-;;;; These tests cover the underlying tool functions and state management.
-;;;; Capabilities are invoked via invoke-capability, not as direct functions.
+;;;; Tests the CL-side orchestration tools: sub-agent spawning via substrate,
+;;;; cognitive branching, session management via substrate datoms.
+;;;; All state is now in the substrate (no legacy hash tables or queues).
 
 (in-package #:autopoiesis.test)
 
@@ -20,57 +17,28 @@
 (in-suite meta-agent-tests)
 
 ;;; ===================================================================
-;;; Orchestration Request Queue Tests
+;;; Sub-Agent Registry Tests (substrate-backed)
 ;;; ===================================================================
 
-(test orchestration-queue-initially-empty
-  "orchestration-requests starts as nil."
-  (let ((autopoiesis.integration::*orchestration-requests* nil))
-    (is (null (autopoiesis.integration:drain-orchestration-requests)))))
-
-(test orchestration-queue-fifo
-  "Queued requests drain in FIFO order."
-  (let ((autopoiesis.integration::*orchestration-requests* nil))
-    (autopoiesis.integration:queue-orchestration-request '(:type :spawn :id "a"))
-    (autopoiesis.integration:queue-orchestration-request '(:type :spawn :id "b"))
-    (autopoiesis.integration:queue-orchestration-request '(:type :save :id "c"))
-    (let ((drained (autopoiesis.integration:drain-orchestration-requests)))
-      (is (= 3 (length drained)))
-      ;; FIFO: first queued = first drained
-      (is (equal "a" (getf (first drained) :id)))
-      (is (equal "c" (getf (third drained) :id))))))
-
-(test orchestration-queue-clears-after-drain
-  "Draining clears the queue."
-  (let ((autopoiesis.integration::*orchestration-requests* nil))
-    (autopoiesis.integration:queue-orchestration-request '(:type :test))
-    (autopoiesis.integration:drain-orchestration-requests)
-    (is (null (autopoiesis.integration:drain-orchestration-requests)))))
-
-;;; ===================================================================
-;;; Sub-Agent Registry Tests
-;;; ===================================================================
-
-(test sub-agent-registry-update
-  "update-sub-agent creates and updates registry entries."
-  (let ((autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+(test sub-agent-update-creates-datoms
+  "update-sub-agent writes datoms to the substrate."
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.integration:update-sub-agent "test-agent-1"
       :status :running :task "analyze logs")
-    (let ((entry (gethash "test-agent-1" autopoiesis.integration::*sub-agents*)))
-      (is (not (null entry)))
-      (is (eq :running (getf entry :status)))
-      (is (equal "analyze logs" (getf entry :task))))))
+    (let ((eid (autopoiesis.substrate:intern-id "test-agent-1")))
+      (is (eq :running (autopoiesis.substrate:entity-attr eid :agent/status)))
+      (is (equal "analyze logs" (autopoiesis.substrate:entity-attr eid :agent/task))))))
 
-(test sub-agent-registry-update-merges
-  "update-sub-agent merges new properties with existing."
-  (let ((autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+(test sub-agent-update-merges
+  "update-sub-agent merges new properties with existing datoms."
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.integration:update-sub-agent "agent-2"
       :status :running :task "test")
     (autopoiesis.integration:update-sub-agent "agent-2"
       :status :complete :result "done")
-    (let ((entry (gethash "agent-2" autopoiesis.integration::*sub-agents*)))
-      (is (eq :complete (getf entry :status)))
-      (is (equal "done" (getf entry :result))))))
+    (let ((eid (autopoiesis.substrate:intern-id "agent-2")))
+      (is (eq :complete (autopoiesis.substrate:entity-attr eid :agent/status)))
+      (is (equal "done" (autopoiesis.substrate:entity-attr eid :agent/result))))))
 
 ;;; ===================================================================
 ;;; Capability Registration Tests
@@ -112,48 +80,42 @@
                    'autopoiesis.integration::resume-session)))))
 
 ;;; ===================================================================
-;;; Spawn-Agent Tool Tests
+;;; Spawn-Agent Tool Tests (substrate-backed)
 ;;; ===================================================================
 
-(test spawn-agent-queues-request
-  "spawn-agent tool queues an orchestration request."
-  (let ((autopoiesis.integration::*orchestration-requests* nil)
-        (autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+(test spawn-agent-creates-datoms
+  "spawn-agent creates agent datoms in the substrate."
+  (autopoiesis.substrate:with-store ()
     (let ((result (autopoiesis.agent:invoke-capability
                     'autopoiesis.integration::spawn-agent
                     :name "test-worker" :task "do something")))
-      ;; Returns an agent-id string
+      ;; Returns a string with the agent-id
       (is (stringp result))
-      ;; Should have queued a request
-      (let ((reqs (autopoiesis.integration:drain-orchestration-requests)))
-        (is (= 1 (length reqs)))
-        (is (eq :spawn-agent (getf (first reqs) :type)))))))
+      (is (search "Spawning" result))
+      ;; Find the agent in the substrate
+      (let ((agents (autopoiesis.substrate:find-entities :agent/status :running)))
+        (is (>= (length agents) 1))))))
 
-(test spawn-agent-registers-in-sub-agents
-  "spawn-agent registers the new agent as spawning in *sub-agents*."
-  (let ((autopoiesis.integration::*orchestration-requests* nil)
-        (autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+(test spawn-agent-records-name-and-task
+  "spawn-agent records agent name and task as datoms."
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.agent:invoke-capability
       'autopoiesis.integration::spawn-agent
       :name "worker-1" :task "check status")
-    ;; Should have exactly one entry in sub-agents
-    (is (= 1 (hash-table-count autopoiesis.integration::*sub-agents*)))
-    ;; The entry should have :spawning status
-    (let ((entry (block found
-                   (maphash (lambda (k v)
-                              (declare (ignore k))
-                              (return-from found v))
-                            autopoiesis.integration::*sub-agents*))))
-      (is (not (null entry)))
-      (is (eq :spawning (getf entry :status))))))
+    ;; Find running agents and check their attributes
+    (let ((agents (autopoiesis.substrate:find-entities :agent/status :running)))
+      (is (>= (length agents) 1))
+      (let ((eid (first agents)))
+        (is (equal "worker-1" (autopoiesis.substrate:entity-attr eid :agent/name)))
+        (is (equal "check status" (autopoiesis.substrate:entity-attr eid :agent/task)))))))
 
 ;;; ===================================================================
-;;; Query-Agent Tool Tests
+;;; Query-Agent Tool Tests (substrate-backed)
 ;;; ===================================================================
 
 (test query-agent-found
   "query-agent returns status for known agent."
-  (let ((autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.integration:update-sub-agent "qa-1"
       :status :running :task "test")
     (let ((result (autopoiesis.agent:invoke-capability
@@ -164,7 +126,7 @@
 
 (test query-agent-not-found
   "query-agent returns message for unknown agent."
-  (let ((autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+  (autopoiesis.substrate:with-store ()
     (let ((result (autopoiesis.agent:invoke-capability
                     'autopoiesis.integration::query-agent
                     :agent-id "nonexistent")))
@@ -172,12 +134,12 @@
       (is (search "not found" result)))))
 
 ;;; ===================================================================
-;;; Await-Agent Tool Tests
+;;; Await-Agent Tool Tests (substrate-backed)
 ;;; ===================================================================
 
 (test await-agent-already-complete
   "await-agent returns immediately if agent is already complete."
-  (let ((autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.integration:update-sub-agent "await-1"
       :status :complete :result "all done")
     (let ((result (autopoiesis.agent:invoke-capability
@@ -188,7 +150,7 @@
 
 (test await-agent-already-failed
   "await-agent returns immediately if agent has failed."
-  (let ((autopoiesis.integration::*sub-agents* (make-hash-table :test 'equal)))
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.integration:update-sub-agent "await-2"
       :status :failed :error "crash")
     (let ((result (autopoiesis.agent:invoke-capability
@@ -211,7 +173,6 @@
                       'autopoiesis.integration::fork-branch
                       :name "experiment")))
         (is (stringp result))
-        ;; Should mention the branch name
         (is (search "experiment" result))))))
 
 ;;; ===================================================================
@@ -230,42 +191,41 @@
         (is (stringp result))))))
 
 ;;; ===================================================================
-;;; Session Directory Tests
+;;; Save/Resume Session Tool Tests (substrate-backed)
 ;;; ===================================================================
 
-(test ensure-session-directory-creates
-  "ensure-session-directory creates the directory."
-  (let ((autopoiesis.integration::*session-directory*
-          (merge-pathnames "test-meta-sessions/"
-                           (uiop:temporary-directory))))
-    (let ((dir (autopoiesis.integration:ensure-session-directory)))
-      (is (not (null dir)))
-      (is (uiop:directory-exists-p dir)))))
-
-;;; ===================================================================
-;;; Save/Resume Session Tool Tests
-;;; ===================================================================
-
-(test save-session-queues-request
-  "save-session queues an orchestration request."
-  (let ((autopoiesis.integration::*orchestration-requests* nil)
-        (autopoiesis.integration::*session-directory*
-          (merge-pathnames "test-meta-save/" (uiop:temporary-directory))))
+(test save-session-creates-datoms
+  "save-session creates session datoms in the substrate."
+  (autopoiesis.substrate:with-store ()
     (let ((result (autopoiesis.agent:invoke-capability
                     'autopoiesis.integration::save-session
                     :name "my-session")))
       (is (stringp result))
-      (let ((reqs (autopoiesis.integration:drain-orchestration-requests)))
-        (is (= 1 (length reqs)))
-        (is (eq :save-session (getf (first reqs) :type)))))))
+      (is (search "my-session" result))
+      ;; Verify datoms exist
+      (let ((eid (autopoiesis.substrate:intern-id "my-session")))
+        (is (equal "my-session" (autopoiesis.substrate:entity-attr eid :session/name)))
+        (is (integerp (autopoiesis.substrate:entity-attr eid :session/saved-at)))))))
 
-(test resume-session-queues-request
-  "resume-session queues an orchestration request."
-  (let ((autopoiesis.integration::*orchestration-requests* nil))
+(test resume-session-reads-substrate
+  "resume-session reads session from the substrate."
+  (autopoiesis.substrate:with-store ()
+    ;; Save first
+    (autopoiesis.agent:invoke-capability
+      'autopoiesis.integration::save-session
+      :name "resume-test")
+    ;; Then resume
     (let ((result (autopoiesis.agent:invoke-capability
                     'autopoiesis.integration::resume-session
-                    :name "my-session")))
+                    :name "resume-test")))
       (is (stringp result))
-      (let ((reqs (autopoiesis.integration:drain-orchestration-requests)))
-        (is (= 1 (length reqs)))
-        (is (eq :resume-session (getf (first reqs) :type)))))))
+      (is (search "resumed" result)))))
+
+(test resume-session-not-found
+  "resume-session handles missing session."
+  (autopoiesis.substrate:with-store ()
+    (let ((result (autopoiesis.agent:invoke-capability
+                    'autopoiesis.integration::resume-session
+                    :name "nonexistent-session")))
+      (is (stringp result))
+      (is (search "not found" result)))))

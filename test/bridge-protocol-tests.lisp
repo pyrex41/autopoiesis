@@ -1,11 +1,8 @@
-;;;; bridge-protocol-tests.lisp - Tests for Phase 4 bridge protocol support
+;;;; bridge-protocol-tests.lisp - Tests for bridge protocol support functions
 ;;;;
-;;;; Tests the CL-side functions that the bridge protocol relies on:
-;;;; thought stream queries, capability resolution, snapshot operations,
-;;;; and the thought-to-sexpr serialization format.
-;;;;
-;;;; Note: The full bridge handler functions live in scripts/agent-worker.lisp
-;;;; (a standalone script), so we test the underlying API functions they call.
+;;;; Tests the CL-side functions: thought stream queries, capability resolution,
+;;;; snapshot operations, and the thought-to-sexpr serialization format.
+;;;; These test the underlying API functions used by the orchestration layer.
 
 (in-package #:autopoiesis.test)
 

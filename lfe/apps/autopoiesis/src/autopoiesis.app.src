@@ -1,7 +1,0 @@
-{application,autopoiesis,
-             [{description,"Autopoiesis - Self-configuring agent platform"},
-              {vsn,"0.1.0"},
-              {registered,[conductor,'webhook-server','claude-sup']},
-              {applications,[kernel,stdlib,lfe,cowboy,ranch,jsx]},
-              {mod,{'autopoiesis-app',[]}},
-              {env,[{http_port, 4007}]}]}.

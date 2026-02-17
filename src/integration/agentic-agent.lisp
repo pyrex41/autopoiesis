@@ -31,6 +31,10 @@
                          :accessor agent-conversation-history
                          :initform nil
                          :documentation "Accumulated messages across cycles")
+   (conversation-context :initarg :conversation-context
+                         :accessor agent-conversation-context
+                         :initform nil
+                         :documentation "Substrate context entity ID for persistent turn recording")
    (tool-capabilities :initarg :tool-capabilities
                       :accessor agent-tool-capabilities
                       :initform nil
@@ -88,7 +92,9 @@ claude-client directly."))
 ;;; ===================================================================
 
 (defmethod autopoiesis.agent:perceive ((agent agentic-agent) environment)
-  "Coerce environment to a list of messages for the API."
+  "Coerce environment to a list of messages for the API.
+   When a conversation-context is set and a substrate store is active,
+   records each user message as a turn in the substrate."
   (let ((messages (etypecase environment
                     (string (list `(("role" . "user") ("content" . ,environment))))
                     (list (if (and (consp (first environment))
@@ -106,7 +112,10 @@ claude-client directly."))
           (if (> (length text) 100)
               (format nil "Received prompt: ~a..." (subseq text 0 100))
               (format nil "Received prompt: ~a" text)))
-        :source "user-input")))
+        :source "user-input"))
+      ;; Record user turn in substrate when context is available
+      (record-turn-if-context agent :user
+                              (cdr (assoc "content" (first messages) :test #'string=))))
     messages))
 
 (defmethod autopoiesis.agent:reason ((agent agentic-agent) observations)
@@ -164,25 +173,39 @@ claude-client directly."))
                             :source "agentic-loop")))))))
     ;; When using an inference-provider, bind the complete function
     ;; so the agentic loop uses the right API backend
-    (let ((*claude-complete-function*
-            (or *claude-complete-function*
-                (when provider
-                  (or (provider-complete-function provider)
-                      (ecase (provider-api-format provider)
-                        (:anthropic nil)  ; use default claude-complete
-                        (:openai #'openai-complete)))))))
-      (multiple-value-bind (final-response all-messages turn-count)
-          (agentic-loop (agent-client agent) messages capabilities
-                        :system system
-                        :max-turns (agent-max-turns agent)
-                        :on-thought on-thought)
-        (declare (ignore turn-count))
-        ;; Update conversation history with the full exchange
-        (setf (agent-conversation-history agent) all-messages)
-        ;; Return the final response text
-        (if (consp final-response)
-            (response-text final-response)
-            final-response)))))
+    (let* ((ctx (agent-conversation-context agent))
+           (model-kw (when provider (intern (string-upcase (provider-name provider)) :keyword)))
+           (wrapped-on-thought
+             (lambda (type data)
+               ;; Record turns in substrate when context available
+               (when ctx
+                 (case type
+                   (:llm-response
+                    (when (and data (stringp data) (> (length data) 0))
+                      (record-turn-if-context agent :assistant data :model model-kw)))
+                   (:tool-result
+                    (record-turn-if-context agent :tool (format nil "~a" data)))))
+               ;; Delegate to the original on-thought callback
+               (funcall on-thought type data))))
+      (let ((*claude-complete-function*
+              (or *claude-complete-function*
+                  (when provider
+                    (or (provider-complete-function provider)
+                        (ecase (provider-api-format provider)
+                          (:anthropic nil)  ; use default claude-complete
+                          (:openai #'openai-complete)))))))
+        (multiple-value-bind (final-response all-messages turn-count)
+            (agentic-loop (agent-client agent) messages capabilities
+                          :system system
+                          :max-turns (agent-max-turns agent)
+                          :on-thought wrapped-on-thought)
+          (declare (ignore turn-count))
+          ;; Update conversation history with the full exchange
+          (setf (agent-conversation-history agent) all-messages)
+          ;; Return the final response text
+          (if (consp final-response)
+              (response-text final-response)
+              final-response))))))
 
 (defmethod autopoiesis.agent:reflect ((agent agentic-agent) action-result)
   "Record a reflection on the agentic loop outcome."
@@ -196,6 +219,45 @@ claude-client directly."))
                   (length action-result))
           "Agentic loop produced no response")
       :modification (unless success :retry-suggested)))))
+
+;;; ===================================================================
+;;; Substrate Conversation Integration (Phase 7)
+;;; ===================================================================
+
+(defun record-turn-if-context (agent role content &key model tokens tool-use)
+  "Record a turn in the substrate if agent has a conversation-context
+   and a substrate store is active. Silently skips otherwise."
+  (let ((ctx (agent-conversation-context agent)))
+    (when (and ctx
+               autopoiesis.substrate:*store*
+               content
+               (stringp content)
+               (> (length content) 0))
+      (handler-case
+          (autopoiesis.conversation:append-turn ctx role content
+                                                 :model model
+                                                 :tokens tokens
+                                                 :tool-use tool-use)
+        (error (e)
+          (warn "Failed to record turn in substrate: ~a" e))))))
+
+(defun init-conversation-context (agent &key name)
+  "Initialize a conversation context for an agentic agent.
+   Requires an active substrate store. Returns the context entity ID."
+  (when autopoiesis.substrate:*store*
+    (let* ((agent-name (autopoiesis.agent:agent-name agent))
+           (ctx-name (or name (format nil "conv-~a" agent-name)))
+           (ctx (autopoiesis.conversation:make-context ctx-name)))
+      (setf (agent-conversation-context agent) ctx)
+      ctx)))
+
+(defun fork-agent-context (agent &key name)
+  "Fork the agent's conversation context. Returns the new context entity ID.
+   The agent continues using the original context; the fork is returned
+   for use by another agent or branch."
+  (let ((ctx (agent-conversation-context agent)))
+    (when (and ctx autopoiesis.substrate:*store*)
+      (autopoiesis.conversation:fork-context ctx :name name))))
 
 ;;; ===================================================================
 ;;; Convenience API

@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "cortex": {
-      "command": "uv",
-      "args": ["run", "--directory", "/Users/reuben/projects/cortex", "python", "-m", "cortex.mcp_server"],
-      "env": {}
-    }
-  }
-}

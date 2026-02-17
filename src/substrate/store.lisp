@@ -145,6 +145,16 @@
                 (write-to-index store (car index-entry) key-fn datom)))))
         ;; Update entity cache (write-through over EA-CURRENT) + value index
         (dolist (datom datoms)
+          ;; When asserting a value that overwrites an existing one,
+          ;; retract the OLD value from the value index first.
+          (when (d-added datom)
+            (multiple-value-bind (old-value found-p)
+                (gethash (cons (d-entity datom) (d-attribute datom)) *entity-cache*)
+              (when (and found-p (not (equal old-value (d-value datom))))
+                (update-value-index (%make-datom :entity (d-entity datom)
+                                                 :attribute (d-attribute datom)
+                                                 :value old-value
+                                                 :added nil)))))
           (update-entity-cache store datom)
           (update-value-index datom))
         ;; Write to LMDB if available (inside lock for atomicity)

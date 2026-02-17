@@ -12,6 +12,8 @@
    #:run-all-tests
    #:run-e2e-tests
    #:substrate-tests
+   #:orchestration-tests
+   #:conversation-tests
    #:core-tests
    #:agent-tests
    #:snapshot-tests

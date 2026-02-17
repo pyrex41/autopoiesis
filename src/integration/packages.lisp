@@ -139,19 +139,14 @@
    #:spawn-agent
    #:query-agent
    #:await-agent
-   #:*sub-agents*
-   #:*orchestration-requests*
-   #:queue-orchestration-request
-   #:drain-orchestration-requests
    #:update-sub-agent
+   #:funcall-agent-task
    ;; Cognitive branching tools (Phase 5)
    #:fork-branch
    #:compare-branches
    ;; Session management tools (Phase 5)
    #:save-session
    #:resume-session
-   #:*session-directory*
-   #:ensure-session-directory
 
    ;; Provider protocol
    #:provider
@@ -251,9 +246,13 @@
    #:agent-inference-provider
    #:agent-max-turns
    #:agent-conversation-history
+   #:agent-conversation-context
    #:agent-tool-capabilities
    #:agentic-agent-prompt
    #:agentic-agent-to-sexpr
+   #:init-conversation-context
+   #:fork-agent-context
+   #:record-turn-if-context
 
    ;; OpenAI bridge
    #:openai-client

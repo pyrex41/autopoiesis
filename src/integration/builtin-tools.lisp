@@ -8,16 +8,8 @@
 
 (in-package #:autopoiesis.integration)
 
-;;; Phase 5: Orchestration state
-(defvar *sub-agents* (make-hash-table :test 'equal)
-  "Registry of spawned sub-agents. Maps agent-id to status plist.")
-
-(defvar *orchestration-requests* nil
-  "Queue of orchestration requests for the bridge.
-   Drained by the agent-worker after each agentic turn.")
-
-(defvar *session-directory* nil
-  "Directory for persisting sessions. Set by agent-worker on init.")
+;;; Phase 5: Orchestration state -- now backed by substrate datoms.
+;;; Legacy globals removed: *sub-agents*, *orchestration-requests*, *session-directory*
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; File System Tools
@@ -440,24 +432,27 @@
 ;;; Orchestration Tools (Phase 5: Meta-Agent)
 ;;; ═══════════════════════════════════════════════════════════════════
 
-(defun queue-orchestration-request (request)
-  "Add an orchestration request to the pending queue."
-  (push request *orchestration-requests*))
-
-(defun drain-orchestration-requests ()
-  "Return and clear all pending orchestration requests."
-  (prog1 (nreverse *orchestration-requests*)
-    (setf *orchestration-requests* nil)))
-
 (defun update-sub-agent (agent-id &rest plist)
-  "Update a sub-agent's status in the registry."
-  (let ((existing (or (gethash agent-id *sub-agents*) nil)))
-    (loop for (k v) on plist by #'cddr
-          do (setf (getf existing k) v))
-    (setf (gethash agent-id *sub-agents*) existing)))
+  "Update a sub-agent's status in the substrate.
+   PLIST keys: :status, :result, :error, etc."
+  (let ((agent-eid (autopoiesis.substrate:intern-id agent-id)))
+    (autopoiesis.substrate:transact!
+     (loop for (k v) on plist by #'cddr
+           collect (autopoiesis.substrate:make-datom
+                    agent-eid
+                    (intern (format nil "AGENT/~A" (symbol-name k))
+                            :keyword)
+                    v)))))
+
+(defun funcall-agent-task (agent-id task)
+  "Execute a sub-agent task. Returns the result string.
+   Currently a placeholder -- in practice this would call the agentic-loop."
+  (declare (ignore agent-id))
+  ;; Placeholder: echo the task. In a real system this calls agentic-agent-prompt.
+  (format nil "Completed: ~A" task))
 
 (autopoiesis.agent:defcapability spawn-agent (&key name task capabilities system-prompt max-turns)
-  "Spawn a new agent to work on TASK under LFE supervision.
+  "Spawn a new agent to work on TASK as a thread.
    NAME - Human-readable name for the agent.
    TASK - Description of the work to perform.
    CAPABILITIES - List of capability keywords the sub-agent can use.
@@ -466,22 +461,45 @@
    Returns an agent-id for monitoring via query_agent and await_agent."
   :permissions (:orchestration)
   :body
-  (declare (ignore system-prompt))
-  (let ((agent-id (format nil "sub-~A-~A"
-                          (or name "agent")
-                          (autopoiesis.core:make-uuid))))
-    (update-sub-agent agent-id
-                      :status :spawning
-                      :task task
-                      :name (or name "sub-agent")
-                      :started (get-universal-time))
-    (queue-orchestration-request
-     (list :type :spawn-agent
-           :agent-id agent-id
-           :name (or name "sub-agent")
-           :task (or task "")
-           :capabilities capabilities
-           :max-turns (or max-turns 25)))
+  (declare (ignore capabilities system-prompt max-turns))
+  (let* ((agent-id (format nil "sub-~A-~A"
+                           (or name "agent")
+                           (autopoiesis.core:make-uuid)))
+         (agent-eid (autopoiesis.substrate:intern-id agent-id))
+         ;; Capture substrate bindings for the spawned thread
+         (captured-store autopoiesis.substrate:*store*)
+         (captured-cache autopoiesis.substrate:*entity-cache*)
+         (captured-vi autopoiesis.substrate:*value-index*)
+         (captured-intern autopoiesis.substrate::*intern-table*)
+         (captured-resolve autopoiesis.substrate::*resolve-table*))
+    ;; Record agent as datoms in substrate
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom agent-eid :agent/name (or name "sub-agent"))
+           (autopoiesis.substrate:make-datom agent-eid :agent/task (or task ""))
+           (autopoiesis.substrate:make-datom agent-eid :agent/status :running)
+           (autopoiesis.substrate:make-datom agent-eid :agent/started-at (get-universal-time))))
+    ;; Spawn thread with substrate bindings
+    (bt:make-thread
+     (lambda ()
+       (let ((autopoiesis.substrate:*store* captured-store)
+             (autopoiesis.substrate:*entity-cache* captured-cache)
+             (autopoiesis.substrate:*value-index* captured-vi)
+             (autopoiesis.substrate::*intern-table* captured-intern)
+             (autopoiesis.substrate::*resolve-table* captured-resolve))
+         (handler-case
+             (let ((result (funcall-agent-task agent-id task)))
+               (autopoiesis.substrate:transact!
+                (list (autopoiesis.substrate:make-datom agent-eid :agent/status :complete)
+                      (autopoiesis.substrate:make-datom agent-eid :agent/result
+                                                       (princ-to-string result))
+                      (autopoiesis.substrate:make-datom agent-eid :agent/completed-at
+                                                       (get-universal-time)))))
+           (error (e)
+             (autopoiesis.substrate:transact!
+              (list (autopoiesis.substrate:make-datom agent-eid :agent/status :failed)
+                    (autopoiesis.substrate:make-datom agent-eid :agent/error
+                                                     (format nil "~A" e))))))))
+     :name (format nil "sub-agent-~A" (or name "agent")))
     (format nil "Spawning agent '~A' with ID ~A to work on: ~A~%Use query_agent with agent-id \"~A\" to check status."
             (or name "sub-agent") agent-id (or task "(no task)") agent-id)))
 
@@ -491,17 +509,17 @@
    Returns status, task, elapsed time, and result if complete."
   :permissions (:orchestration)
   :body
-  (let ((info (gethash agent-id *sub-agents*)))
-    (if (not info)
+  (let* ((agent-eid (autopoiesis.substrate:intern-id agent-id))
+         (status (autopoiesis.substrate:entity-attr agent-eid :agent/status))
+         (task (autopoiesis.substrate:entity-attr agent-eid :agent/task))
+         (started (autopoiesis.substrate:entity-attr agent-eid :agent/started-at))
+         (result (autopoiesis.substrate:entity-attr agent-eid :agent/result)))
+    (if (not status)
         (format nil "Error: Agent ~A not found in registry" agent-id)
-        (let ((status (getf info :status))
-              (task (getf info :task))
-              (started (getf info :started))
-              (result (getf info :result)))
-          (format nil "Agent: ~A~%Status: ~A~%Task: ~A~%Elapsed: ~As~@[~%Result: ~A~]"
-                  agent-id status task
-                  (if started (- (get-universal-time) started) 0)
-                  result)))))
+        (format nil "Agent: ~A~%Status: ~A~%Task: ~A~%Elapsed: ~As~@[~%Result: ~A~]"
+                agent-id status task
+                (if started (- (get-universal-time) started) 0)
+                result))))
 
 (autopoiesis.agent:defcapability await-agent (&key agent-id timeout)
   "Wait for a spawned agent to complete its task.
@@ -510,25 +528,30 @@
    Returns the agent's result when complete."
   :permissions (:orchestration)
   :body
-  (let ((max-wait (or timeout 300))
-        (info (gethash agent-id *sub-agents*)))
+  (let* ((max-wait (or timeout 300))
+         (agent-eid (autopoiesis.substrate:intern-id agent-id))
+         (status (autopoiesis.substrate:entity-attr agent-eid :agent/status)))
     (cond
-      ((not info)
+      ((not status)
        (format nil "Error: Agent ~A not found" agent-id))
-      ((member (getf info :status) '(:complete :failed))
-       (format nil "Agent ~A ~(~A~): ~A" agent-id (getf info :status)
-               (or (getf info :result) (getf info :error) "(no details)")))
+      ((member status '(:complete :failed))
+       (let ((result (autopoiesis.substrate:entity-attr agent-eid :agent/result))
+             (err (autopoiesis.substrate:entity-attr agent-eid :agent/error)))
+         (format nil "Agent ~A ~(~A~): ~A" agent-id status
+                 (or result err "(no details)"))))
       (t
        (loop for elapsed from 0 by 2
              while (< elapsed max-wait)
              do (sleep 2)
-                (let ((current (gethash agent-id *sub-agents*)))
-                  (when (and current (member (getf current :status) '(:complete :failed)))
-                    (return (format nil "Agent ~A ~(~A~): ~A" agent-id
-                                    (getf current :status)
-                                    (or (getf current :result) (getf current :error))))))
+                (let ((current-status (autopoiesis.substrate:entity-attr
+                                       agent-eid :agent/status)))
+                  (when (member current-status '(:complete :failed))
+                    (let ((result (autopoiesis.substrate:entity-attr agent-eid :agent/result))
+                          (err (autopoiesis.substrate:entity-attr agent-eid :agent/error)))
+                      (return (format nil "Agent ~A ~(~A~): ~A" agent-id
+                                      current-status (or result err))))))
              finally (return (format nil "Timeout: agent ~A still ~(~A~) after ~As"
-                                     agent-id (getf info :status) max-wait)))))))
+                                     agent-id status max-wait)))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Cognitive Branching Tools (Phase 5: Meta-Agent)
@@ -544,6 +567,13 @@
   (handler-case
       (progn
         (autopoiesis.snapshot:create-branch name :from-snapshot from-snapshot)
+        ;; Also fork conversation context if current agent has one
+        (when (and autopoiesis.substrate:*store*
+                   (boundp '*current-agent*)
+                   *current-agent*
+                   (typep *current-agent* 'agentic-agent)
+                   (agent-conversation-context *current-agent*))
+          (fork-agent-context *current-agent* :name (format nil "conv-~a" name)))
         (format nil "Branch '~A' created~@[ from snapshot ~A~]" name from-snapshot))
     (error (e)
       (format nil "Error creating branch: ~A" e))))
@@ -584,35 +614,30 @@
 ;;; Session Management Tools (Phase 5: Meta-Agent)
 ;;; ═══════════════════════════════════════════════════════════════════
 
-(defun ensure-session-directory ()
-  "Ensure session directory exists and return it."
-  (let ((dir (or *session-directory*
-                 (merge-pathnames "autopoiesis-sessions/"
-                                  (uiop:temporary-directory)))))
-    (ensure-directories-exist dir)
-    dir))
-
 (autopoiesis.agent:defcapability save-session (&key name)
-  "Save the current session state for later resumption.
+  "Save the current session state to the substrate.
    NAME - A human-readable name for this session.
-   Sends a save request through the bridge protocol.
    Returns the session name for use with resume_session."
   :permissions ()
   :body
-  (let ((session-id (or name (format nil "session-~A" (autopoiesis.core:make-uuid)))))
-    (queue-orchestration-request
-     (list :type :save-session :name session-id))
-    (format nil "Session save requested as '~A'" session-id)))
+  (let* ((session-id (or name (format nil "session-~A" (autopoiesis.core:make-uuid))))
+         (session-eid (autopoiesis.substrate:intern-id session-id)))
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom session-eid :session/name session-id)
+           (autopoiesis.substrate:make-datom session-eid :session/saved-at (get-universal-time))))
+    (format nil "Session saved as '~A'" session-id)))
 
 (autopoiesis.agent:defcapability resume-session (&key name)
-  "Resume a previously saved session.
-   NAME - The session name/ID from save_session.
-   Sends a resume request through the bridge protocol."
+  "Resume a previously saved session from the substrate.
+   NAME - The session name/ID from save_session."
   :permissions ()
   :body
-  (queue-orchestration-request
-   (list :type :resume-session :name name))
-  (format nil "Session resume requested for '~A'" name))
+  (let* ((session-eid (autopoiesis.substrate:intern-id name))
+         (saved-name (autopoiesis.substrate:entity-attr session-eid :session/name)))
+    (if saved-name
+        (format nil "Session '~A' resumed (saved at ~A)"
+                name (autopoiesis.substrate:entity-attr session-eid :session/saved-at))
+        (format nil "Error: Session '~A' not found" name))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Tool Registration

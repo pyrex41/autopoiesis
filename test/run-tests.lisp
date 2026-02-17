@@ -15,6 +15,8 @@
 (defun run-all-tests ()
   "Run all Autopoiesis tests."
   (run! 'substrate-tests)
+  (run! 'orchestration-tests)
+  (run! 'conversation-tests)
   (run! 'core-tests)
   (run! 'agent-tests)
   (run! 'snapshot-tests)
@@ -31,6 +33,10 @@
 (defun test-substrate ()
   "Run only substrate tests."
   (run! 'substrate-tests))
+
+(defun test-orchestration ()
+  "Run only orchestration tests."
+  (run! 'orchestration-tests))
 
 (defun test-core ()
   "Run only core tests."
@@ -75,3 +81,7 @@
 (defun test-rest-api ()
   "Run only REST API tests."
   (run! 'rest-api-tests))
+
+(defun test-conversation ()
+  "Run only conversation tests."
+  (run! 'conversation-tests))
