@@ -58,11 +58,12 @@
        (:file "migration")))
      (:module "orchestration"
       :serial t
-      :depends-on ("core" "substrate")
+      :depends-on ("core" "substrate" "monitoring")
       :components
       ((:file "packages")
        (:file "conductor")
-       (:file "claude-worker")))
+       (:file "claude-worker")
+       (:file "endpoints")))
      (:module "agent"
       :serial t
       :depends-on ("core")
