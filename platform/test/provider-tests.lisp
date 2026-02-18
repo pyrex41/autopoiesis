@@ -202,7 +202,8 @@
       (let ((result (autopoiesis.integration:provider-agent-prompt agent "hello")))
         (is (not (null result)))
         (is (string= "prompt result" (autopoiesis.integration:provider-result-text result)))
-        (is (string= "hello" (mock-last-prompt p)))))))
+        ;; With prompt registry, system prompt may be prepended
+        (is (search "hello" (mock-last-prompt p)))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Command Building Tests
