@@ -1,0 +1,18 @@
+# Shared git hooks configuration
+# Distributed via Nix flake to all repos
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: cog verify --file {1}
+
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      run: gitleaks protect --staged --no-banner
+    typos:
+      run: typos --force-exclude {staged_files}
+    shellcheck:
+      glob: "*.sh"
+      run: shellcheck {staged_files}

@@ -17,7 +17,13 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 
 ## Status
 
-**All phases (0–10) complete.** 2,400+ assertions across 600+ tests, all passing.
+**All phases (0–10) complete.** 2,775+ assertions across 14 test suites, all passing.
+
+---
+
+**Start here** -> [`platform/docs/QUICKSTART.md`](platform/docs/QUICKSTART.md) — Full setup guide, first agent swarm, TUI cockpit, self-extension walkthrough, scaling guidance, and multi-language navigation.
+
+---
 
 ## Quick Start
 
