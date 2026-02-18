@@ -109,16 +109,29 @@
   "Generate a system prompt for an agent based on its configuration.
 
    AGENT - The agent to generate a prompt for.
+   Tries the prompt registry first (\"cognitive-base\"), falling back
+   to a hardcoded string for backward compatibility.
 
    Returns a string suitable for Claude's system parameter."
   (let* ((name (autopoiesis.agent:agent-name agent))
          (caps-registry (autopoiesis.agent:agent-capabilities agent))
          (capabilities (when (hash-table-p caps-registry)
                          (autopoiesis.agent:list-capabilities
-                          :registry caps-registry))))
-    (format nil "You are an AI agent named ~a operating within the Autopoiesis platform.
+                          :registry caps-registry)))
+         (cap-names (if capabilities
+                        (format nil "~{~a~^, ~}"
+                                (mapcar #'autopoiesis.agent:capability-name capabilities))
+                        "none currently registered"))
+         ;; Try registry first
+         (registry-prompt (find-prompt "cognitive-base")))
+    (if registry-prompt
+        (render-prompt registry-prompt
+                       (list (cons "agent-name" (or name "Agent"))
+                             (cons "capabilities" cap-names)))
+        ;; Fallback to hardcoded prompt for backward compatibility
+        (format nil "You are an AI agent named ~a operating within the Autopoiesis platform.
 
-Your capabilities include: ~{~a~^, ~}
+Your capabilities include: ~a
 
 You operate as part of a larger agent system where:
 - All your thoughts and actions are recorded in an immutable event log
@@ -130,10 +143,8 @@ Guidelines:
 - Explain your reasoning before taking actions
 - If uncertain about a decision with significant consequences, request human input
 - Use tools when they help accomplish the task more effectively"
-            (or name "Agent")
-            (if capabilities
-                (mapcar #'autopoiesis.agent:capability-name capabilities)
-                '("none currently registered")))))
+                (or name "Agent")
+                cap-names))))
 
 ;;; ===================================================================
 ;;; Session Lookup

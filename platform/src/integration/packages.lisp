@@ -84,6 +84,37 @@
    #:lisp-name-to-tool-name
    #:tool-name-to-lisp-name
 
+   ;; Prompt registry
+   #:prompt-template
+   #:prompt-name
+   #:prompt-category
+   #:prompt-body
+   #:prompt-version
+   #:prompt-content-hash
+   #:prompt-parent
+   #:prompt-author
+   #:prompt-variables
+   #:prompt-includes
+   #:prompt-created-at
+   #:make-prompt-template
+   #:register-prompt
+   #:find-prompt
+   #:list-prompts
+   #:unregister-prompt
+   #:fork-prompt
+   #:prompt-history
+   #:*prompt-registry*
+   #:*prompt-history*
+   #:render-prompt
+   #:resolve-includes
+   #:substitute-variables
+   #:persist-prompt
+   #:load-prompts-from-substrate
+   #:prompt-to-sexpr
+   #:sexpr-to-prompt
+   #:defprompt
+   #:seed-builtin-prompts
+
    ;; Claude session management
    #:claude-session
    #:make-claude-session

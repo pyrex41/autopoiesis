@@ -23,4 +23,5 @@
    #:security-tests
    #:monitoring-tests
    #:provider-tests
-   #:rest-api-tests))
+   #:rest-api-tests
+   #:prompt-registry-tests))

@@ -45,7 +45,9 @@ time-travel debugging."))
     (make-instance 'provider-backed-agent
                    :name (or name (format nil "~a-agent" (provider-name provider-instance)))
                    :provider provider-instance
-                   :system-prompt system-prompt
+                   :system-prompt (or system-prompt
+                                      (let ((p (find-prompt "provider-bridge")))
+                                        (when p (render-prompt p nil))))
                    :capabilities capabilities
                    :invocation-mode (or mode :one-shot))))
 

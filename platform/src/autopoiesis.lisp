@@ -65,7 +65,12 @@
    #:make-claude-code-provider #:make-codex-provider
    #:make-opencode-provider #:make-cursor-provider
    #:provider-backed-agent #:make-provider-backed-agent
-   #:provider-agent-prompt)
+   #:provider-agent-prompt
+   ;; Prompt registry
+   #:prompt-template #:make-prompt-template
+   #:register-prompt #:find-prompt #:list-prompts #:unregister-prompt
+   #:fork-prompt #:prompt-history #:*prompt-registry*
+   #:render-prompt #:defprompt)
 
   ;; Reexport viz
   (:export

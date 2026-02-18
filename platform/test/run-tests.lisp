@@ -27,6 +27,7 @@
   (run! 'monitoring-tests)
   (run! 'provider-tests)
   (run! 'rest-api-tests)
+  (run! 'prompt-registry-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -85,3 +86,7 @@
 (defun test-conversation ()
   "Run only conversation tests."
   (run! 'conversation-tests))
+
+(defun test-prompt-registry ()
+  "Run only prompt registry tests."
+  (run! 'prompt-registry-tests))

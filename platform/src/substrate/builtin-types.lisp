@@ -56,3 +56,15 @@
   (:context/agent      :type (or null integer))
   (:context/forked-from :type (or null integer))
   (:context/created-at :type integer  :required t))
+
+(define-entity-type :prompt
+  (:prompt/name         :type string   :required t)
+  (:prompt/category     :type keyword  :required t)
+  (:prompt/body         :type string   :required t)
+  (:prompt/version      :type integer  :required t)
+  (:prompt/content-hash :type string   :required t)
+  (:prompt/parent       :type (or null integer))
+  (:prompt/author       :type (or null string))
+  (:prompt/created-at   :type integer  :required t)
+  (:prompt/variables    :type t)
+  (:prompt/includes     :type t))

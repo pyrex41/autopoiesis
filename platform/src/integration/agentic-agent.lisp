@@ -73,7 +73,10 @@ claude-client directly."))
                        :name (or name "agentic-agent")
                        :client (provider-api-client provider)
                        :inference-provider provider
-                       :system-prompt (or system-prompt (provider-system-prompt provider))
+                       :system-prompt (or system-prompt
+                                          (provider-system-prompt provider)
+                                          (let ((p (find-prompt "cognitive-base")))
+                                            (when p (render-prompt p nil))))
                        :capabilities capabilities
                        :tool-capabilities cap-instances
                        :max-turns (or max-turns (provider-max-turns provider) 25))
@@ -82,7 +85,9 @@ claude-client directly."))
           (make-instance 'agentic-agent
                          :name (or name "agentic-agent")
                          :client client
-                         :system-prompt system-prompt
+                         :system-prompt (or system-prompt
+                                            (let ((p (find-prompt "cognitive-base")))
+                                              (when p (render-prompt p nil))))
                          :capabilities capabilities
                          :tool-capabilities cap-instances
                          :max-turns (or max-turns 25))))))
