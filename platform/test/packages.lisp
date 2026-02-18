@@ -24,4 +24,5 @@
    #:monitoring-tests
    #:provider-tests
    #:rest-api-tests
-   #:prompt-registry-tests))
+   #:prompt-registry-tests
+   #:skel-tests))

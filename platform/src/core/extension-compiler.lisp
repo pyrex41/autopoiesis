@@ -62,7 +62,7 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defparameter *allowed-packages*
-  '("COMMON-LISP" "KEYWORD" "AUTOPOIESIS.CORE" "AUTOPOIESIS.AGENT" "ALEXANDRIA")
+  '("COMMON-LISP" "KEYWORD" "AUTOPOIESIS.CORE" "AUTOPOIESIS.AGENT" "AUTOPOIESIS.SKEL" "ALEXANDRIA")
   "Package names agents are allowed to reference symbols from.
    Symbols from other packages will be rejected during validation.")
 

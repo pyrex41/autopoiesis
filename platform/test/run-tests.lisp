@@ -28,6 +28,7 @@
   (run! 'provider-tests)
   (run! 'rest-api-tests)
   (run! 'prompt-registry-tests)
+  (run! 'autopoiesis.test.skel::skel-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL

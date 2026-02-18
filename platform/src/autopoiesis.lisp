@@ -11,6 +11,7 @@
   (:use #:autopoiesis.snapshot)
   (:use #:autopoiesis.interface)
   (:use #:autopoiesis.integration)
+  (:use #:autopoiesis.skel)
   (:use #:autopoiesis.viz)
   (:use #:autopoiesis.security)
   (:use #:autopoiesis.monitoring)
@@ -100,6 +101,15 @@
    #:monitoring-server-running-p
    #:record-metric #:get-metric #:get-all-metrics
    #:increment-counter #:set-gauge #:observe-histogram)
+
+  ;; Reexport SKEL (typed LLM function framework)
+  (:export
+   #:define-skel-class #:define-skel-enum
+   #:define-skel-function #:skel-call #:invoke-skel-function
+   #:sap-extract #:sap-preprocess #:sap-extract-lenient
+   #:skel-class-to-json-schema #:type-to-json-schema
+   #:make-skel-instance #:skel-class-p
+   #:import-baml-file #:import-baml-string #:import-baml-directory)
 
   ;; Reexport REST control API
   (:export

@@ -127,6 +127,29 @@
        (:file "agentic-agent")
        (:file "openai-bridge")
        (:file "provider-inference")))
+     (:module "skel"
+      :serial t
+      :depends-on ("core" "integration")
+      :components
+      ((:file "packages")
+       (:file "types")
+       (:file "class")
+       (:file "sap")
+       (:file "llm-adapter")
+       (:file "config")
+       (:file "core")
+       (:file "partial")
+       (:file "streaming")
+       (:module "baml"
+        :serial t
+        :components
+        ((:file "package")
+         (:file "conditions")
+         (:file "structures")
+         (:file "tokenizer")
+         (:file "parser")
+         (:file "converter")
+         (:file "import")))))
       (:module "viz"
        :serial t
        :depends-on ("core" "snapshot" "interface")
@@ -164,7 +187,7 @@
        (:file "mcp-server")
        (:file "rest-server")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "viz" "security" "monitoring" "api")))))
+     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; WebSocket API server (Clack/Lack/Woo)
@@ -276,6 +299,7 @@
      (:file "agentic-tests")
      (:file "bridge-protocol-tests")
      (:file "meta-agent-tests")
+     (:file "skel-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
