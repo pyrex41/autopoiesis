@@ -29,7 +29,9 @@ pub fn on_step_complete(
 
     for ev in ev_step.read() {
         // Find agent position
-        let pos = entity_map.0.get(&ev.agent_id)
+        let pos = entity_map
+            .0
+            .get(&ev.agent_id)
             .and_then(|&e| transforms.get(e).ok())
             .map(|t| t.translation)
             .unwrap_or(Vec3::ZERO);

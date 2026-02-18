@@ -164,29 +164,27 @@ pub fn agent_detail_panel(
                             ThoughtType::Observation => {
                                 (egui::Color32::from_rgb(80, 140, 255), "OBS")
                             }
-                            ThoughtType::Decision => {
-                                (egui::Color32::from_rgb(255, 215, 0), "DEC")
-                            }
-                            ThoughtType::Action => {
-                                (egui::Color32::from_rgb(0, 255, 136), "ACT")
-                            }
+                            ThoughtType::Decision => (egui::Color32::from_rgb(255, 215, 0), "DEC"),
+                            ThoughtType::Action => (egui::Color32::from_rgb(0, 255, 136), "ACT"),
                             ThoughtType::Reflection => {
                                 (egui::Color32::from_rgb(160, 80, 255), "REF")
                             }
                         };
 
-                        let preview: String = thought
-                            .content
-                            .chars()
-                            .take(80)
-                            .collect();
+                        let preview: String = thought.content.chars().take(80).collect();
                         let label_text = format!("[{type_label}] {preview}");
-                        let is_selected = inspected.thought.as_ref()
+                        let is_selected = inspected
+                            .thought
+                            .as_ref()
                             .map_or(false, |t| t.id == thought.id);
                         let response = ui.selectable_label(
                             is_selected,
                             egui::RichText::new(label_text)
-                                .color(if is_selected { type_color } else { egui::Color32::from_rgb(200, 200, 220) })
+                                .color(if is_selected {
+                                    type_color
+                                } else {
+                                    egui::Color32::from_rgb(200, 200, 220)
+                                })
                                 .size(11.0),
                         );
                         if response.clicked() {

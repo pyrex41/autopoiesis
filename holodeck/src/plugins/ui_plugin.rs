@@ -20,19 +20,19 @@ impl Plugin for UiPlugin {
             // Theme (applied on first frame)
             .add_systems(Update, theme::apply_theme_system)
             // HUD systems
-            .add_systems(Update, (
-                hud::connection_status_bar,
-                hud::minimap,
-            ))
+            .add_systems(Update, (hud::connection_status_bar, hud::minimap))
             // Agent detail panel
             .add_systems(Update, agent_panel::agent_detail_panel)
             // Command bar
             .add_systems(Update, command_bar::command_bar)
             // Notifications
-            .add_systems(Update, (
-                notifications::collect_notifications,
-                notifications::render_notifications.after(notifications::collect_notifications),
-            ))
+            .add_systems(
+                Update,
+                (
+                    notifications::collect_notifications,
+                    notifications::render_notifications.after(notifications::collect_notifications),
+                ),
+            )
             // Thought inspector
             .add_systems(Update, thought_inspector::thought_inspector_window);
     }

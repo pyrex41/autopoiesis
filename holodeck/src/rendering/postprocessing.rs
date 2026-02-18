@@ -15,8 +15,7 @@ pub fn setup_camera(mut commands: Commands) {
             hdr: true,
             ..default()
         },
-        Transform::from_translation(Vec3::new(0.0, 15.0, 25.0))
-            .looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_translation(Vec3::new(0.0, 15.0, 25.0)).looking_at(Vec3::ZERO, Vec3::Y),
         // Bloom — low intensity, wide radius for soft neon glow
         Bloom {
             intensity: 0.15,

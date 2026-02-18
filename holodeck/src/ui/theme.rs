@@ -91,10 +91,7 @@ pub fn apply_holographic_theme(ctx: &egui::Context) {
 }
 
 /// System that applies the theme on the first frame.
-pub fn apply_theme_system(
-    mut contexts: bevy_egui::EguiContexts,
-    mut applied: Local<bool>,
-) {
+pub fn apply_theme_system(mut contexts: bevy_egui::EguiContexts, mut applied: Local<bool>) {
     if !*applied {
         if let Some(ctx) = contexts.try_ctx_mut() {
             apply_holographic_theme(ctx);

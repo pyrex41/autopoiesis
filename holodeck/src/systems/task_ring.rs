@@ -27,13 +27,8 @@ pub struct TaskRingMeshes {
 }
 
 /// Startup system: generate the torus mesh.
-pub fn init_task_ring_meshes(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-) {
-    let torus = meshes.add(
-        Torus::new(RING_MINOR_RADIUS, RING_MAJOR_RADIUS)
-    );
+pub fn init_task_ring_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
+    let torus = meshes.add(Torus::new(RING_MINOR_RADIUS, RING_MAJOR_RADIUS));
     commands.insert_resource(TaskRingMeshes { torus });
 }
 
@@ -61,7 +56,11 @@ pub fn spawn_task_ring(
 /// Create a ring material with alpha/emissive modulated by progress.
 fn ring_material(progress: f32) -> StandardMaterial {
     let linear = RING_COLOR.to_linear();
-    let alpha = if progress < 0.01 { 0.0 } else { 0.4 + progress * 0.6 };
+    let alpha = if progress < 0.01 {
+        0.0
+    } else {
+        0.4 + progress * 0.6
+    };
     let emissive_mult = 1.0 + progress * 3.0;
     StandardMaterial {
         base_color: RING_COLOR.with_alpha(alpha),
@@ -87,7 +86,9 @@ pub fn attach_task_ring_to_agents(
     agents_with_children: Query<(Entity, &Children), With<AgentCompound>>,
     ring_check: Query<&TaskRing>,
 ) {
-    let Some(ring_meshes) = ring_meshes else { return };
+    let Some(ring_meshes) = ring_meshes else {
+        return;
+    };
 
     // Check agents that have children but no task ring
     for (entity, children) in agents_with_children.iter() {
@@ -119,9 +120,13 @@ pub fn update_task_ring(
             .unwrap_or(0.0);
 
         // Find the TaskRing child
-        let Ok(children) = children_query.get(entity) else { continue };
+        let Ok(children) = children_query.get(entity) else {
+            continue;
+        };
         for &child in children.iter() {
-            let Ok((mut ring, mat_handle)) = ring_query.get_mut(child) else { continue };
+            let Ok((mut ring, mat_handle)) = ring_query.get_mut(child) else {
+                continue;
+            };
             if (ring.progress - progress).abs() > 0.001 {
                 ring.progress = progress;
                 if let Some(mat) = materials.get_mut(&mat_handle.0) {

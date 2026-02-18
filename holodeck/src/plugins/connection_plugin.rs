@@ -1,23 +1,28 @@
 //! Bundles connection systems + resources.
 
-use bevy::prelude::*;
 use crate::protocol::client;
 use crate::protocol::events::*;
 use crate::state::events::*;
 use crate::state::resources::*;
 use crate::systems::connection;
+use bevy::prelude::*;
 
-pub struct ConnectionPlugin { pub ws_url: String }
+pub struct ConnectionPlugin {
+    pub ws_url: String,
+}
 
 impl Default for ConnectionPlugin {
-    fn default() -> Self { Self { ws_url: client::DEFAULT_WS_URL.to_string() } }
+    fn default() -> Self {
+        Self {
+            ws_url: client::DEFAULT_WS_URL.to_string(),
+        }
+    }
 }
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
         let (inbound_rx, outbound_tx) = client::spawn_ws_thread(&self.ws_url);
-        app
-            .insert_resource(WsInbound(inbound_rx))
+        app.insert_resource(WsInbound(inbound_rx))
             .insert_resource(WsOutbound(outbound_tx))
             .init_resource::<ConnectionStatus>()
             .init_resource::<AgentRegistry>()

@@ -16,7 +16,9 @@ pub enum AgentState {
 }
 
 impl Default for AgentState {
-    fn default() -> Self { Self::Initialized }
+    fn default() -> Self {
+        Self::Initialized
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,41 +146,83 @@ pub enum ClientMessage {
     Ping,
     SystemInfo,
     #[serde(rename = "set_stream_format")]
-    SetStreamFormat { format: String },
-    Subscribe { channel: String },
-    Unsubscribe { channel: String },
+    SetStreamFormat {
+        format: String,
+    },
+    Subscribe {
+        channel: String,
+    },
+    Unsubscribe {
+        channel: String,
+    },
     ListAgents,
-    GetAgent { #[serde(rename = "agentId")] agent_id: Uuid },
-    CreateAgent { name: String, capabilities: Vec<String> },
-    AgentAction { #[serde(rename = "agentId")] agent_id: Uuid, action: String },
+    GetAgent {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+    },
+    CreateAgent {
+        name: String,
+        capabilities: Vec<String>,
+    },
+    AgentAction {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        action: String,
+    },
     StepAgent {
-        #[serde(rename = "agentId")] agent_id: Uuid,
-        #[serde(skip_serializing_if = "Option::is_none")] environment: Option<serde_json::Value>,
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        environment: Option<serde_json::Value>,
     },
     GetThoughts {
-        #[serde(rename = "agentId")] agent_id: Uuid,
-        #[serde(skip_serializing_if = "Option::is_none")] limit: Option<u32>,
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
     },
     InjectThought {
-        #[serde(rename = "agentId")] agent_id: Uuid,
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
         content: String,
-        #[serde(rename = "thoughtType")] thought_type: String,
+        #[serde(rename = "thoughtType")]
+        thought_type: String,
     },
-    ListSnapshots { #[serde(skip_serializing_if = "Option::is_none")] limit: Option<u32> },
-    GetSnapshot { #[serde(rename = "snapshotId")] snapshot_id: String },
-    CreateSnapshot { #[serde(rename = "agentId")] agent_id: Uuid, label: String },
+    ListSnapshots {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
+    },
+    GetSnapshot {
+        #[serde(rename = "snapshotId")]
+        snapshot_id: String,
+    },
+    CreateSnapshot {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        label: String,
+    },
     ListBranches,
-    CreateBranch { name: String, #[serde(rename = "fromSnapshot")] from_snapshot: String },
-    SwitchBranch { name: String },
+    CreateBranch {
+        name: String,
+        #[serde(rename = "fromSnapshot")]
+        from_snapshot: String,
+    },
+    SwitchBranch {
+        name: String,
+    },
     ListBlockingRequests,
     RespondBlocking {
-        #[serde(rename = "blockingRequestId")] blocking_request_id: String,
+        #[serde(rename = "blockingRequestId")]
+        blocking_request_id: String,
         response: String,
     },
     GetEvents {
-        #[serde(skip_serializing_if = "Option::is_none")] limit: Option<u32>,
-        #[serde(rename = "eventType", skip_serializing_if = "Option::is_none")] event_type: Option<String>,
-        #[serde(rename = "agentId", skip_serializing_if = "Option::is_none")] agent_id: Option<Uuid>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
+        #[serde(rename = "eventType", skip_serializing_if = "Option::is_none")]
+        event_type: Option<String>,
+        #[serde(rename = "agentId", skip_serializing_if = "Option::is_none")]
+        agent_id: Option<Uuid>,
     },
 }
 
@@ -191,38 +235,92 @@ pub enum ServerMessage {
     Pong,
     #[serde(rename = "system_info")]
     SystemInfo(SystemInfoData),
-    Subscribed { channel: String },
-    Unsubscribed { channel: String },
+    Subscribed {
+        channel: String,
+    },
+    Unsubscribed {
+        channel: String,
+    },
     #[serde(rename = "stream_format_set")]
     StreamFormatSet,
-    Agents { agents: Vec<AgentData> },
-    Agent { agent: AgentData },
+    Agents {
+        agents: Vec<AgentData>,
+    },
+    Agent {
+        agent: AgentData,
+    },
     #[serde(rename = "agent_created")]
-    AgentCreated { agent: AgentData },
+    AgentCreated {
+        agent: AgentData,
+    },
     #[serde(rename = "agent_state_changed")]
-    AgentStateChanged { #[serde(rename = "agentId")] agent_id: Uuid, state: AgentState },
+    AgentStateChanged {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        state: AgentState,
+    },
     #[serde(rename = "step_complete")]
-    StepComplete { #[serde(rename = "agentId")] agent_id: Uuid, #[serde(default)] result: serde_json::Value },
-    Thoughts { thoughts: Vec<ThoughtData>, #[serde(default)] total: u32 },
+    StepComplete {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        #[serde(default)]
+        result: serde_json::Value,
+    },
+    Thoughts {
+        thoughts: Vec<ThoughtData>,
+        #[serde(default)]
+        total: u32,
+    },
     #[serde(rename = "thought_added")]
-    ThoughtAdded { #[serde(rename = "agentId")] agent_id: Uuid, thought: ThoughtData },
-    Snapshots { snapshots: Vec<SnapshotData> },
-    Snapshot { snapshot: SnapshotData, #[serde(rename = "agentState", default)] agent_state: Option<String> },
+    ThoughtAdded {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        thought: ThoughtData,
+    },
+    Snapshots {
+        snapshots: Vec<SnapshotData>,
+    },
+    Snapshot {
+        snapshot: SnapshotData,
+        #[serde(rename = "agentState", default)]
+        agent_state: Option<String>,
+    },
     #[serde(rename = "snapshot_created")]
-    SnapshotCreated { snapshot: SnapshotData },
-    Branches { branches: Vec<BranchData>, #[serde(default)] current: Option<String> },
+    SnapshotCreated {
+        snapshot: SnapshotData,
+    },
+    Branches {
+        branches: Vec<BranchData>,
+        #[serde(default)]
+        current: Option<String>,
+    },
     #[serde(rename = "branch_created")]
-    BranchCreated { branch: BranchData },
+    BranchCreated {
+        branch: BranchData,
+    },
     #[serde(rename = "branch_switched")]
-    BranchSwitched { branch: BranchData },
+    BranchSwitched {
+        branch: BranchData,
+    },
     #[serde(rename = "blocking_requests")]
-    BlockingRequests { requests: Vec<BlockingRequestData> },
+    BlockingRequests {
+        requests: Vec<BlockingRequestData>,
+    },
     #[serde(rename = "blocking_request")]
-    BlockingRequest { request: BlockingRequestData },
+    BlockingRequest {
+        request: BlockingRequestData,
+    },
     #[serde(rename = "blocking_responded")]
-    BlockingResponded { #[serde(rename = "blockingRequestId")] blocking_request_id: String },
-    Events { events: Vec<EventData> },
-    Event { event: EventData },
+    BlockingResponded {
+        #[serde(rename = "blockingRequestId")]
+        blocking_request_id: String,
+    },
+    Events {
+        events: Vec<EventData>,
+    },
+    Event {
+        event: EventData,
+    },
     #[serde(other)]
     Unknown,
 }

@@ -131,12 +131,7 @@ fn segment_color(index: usize, total: usize, _intensity: f32) -> LinearRgba {
     } else if t < 0.75 {
         // Yellow zone (segments 3-5)
         let blend = (t - 0.375) / 0.375;
-        LinearRgba::new(
-            0.1 + 0.9 * blend,
-            0.8 - 0.1 * blend,
-            0.2 - 0.1 * blend,
-            1.0,
-        )
+        LinearRgba::new(0.1 + 0.9 * blend, 0.8 - 0.1 * blend, 0.2 - 0.1 * blend, 1.0)
     } else {
         // Red zone (segments 6-7)
         LinearRgba::new(0.9, 0.15, 0.1, 1.0)

@@ -6,7 +6,7 @@
 
 use bevy::prelude::*;
 
-use crate::protocol::events::{AgentListReceived, AgentCreatedEvent, ThoughtReceivedEvent};
+use crate::protocol::events::{AgentCreatedEvent, AgentListReceived, ThoughtReceivedEvent};
 use crate::protocol::types::ThoughtType;
 use crate::rendering::materials;
 use crate::shaders::agent_shell_material::AgentShellMaterial;
@@ -16,12 +16,12 @@ use crate::systems::agents::AgentEntityMap;
 /// Color mapping for known capability names.
 fn capability_color(name: &str) -> Color {
     match name.to_lowercase().as_str() {
-        "observe" => Color::srgb(0.0, 0.533, 1.0),   // blue
-        "decide" => Color::srgb(1.0, 0.843, 0.0),     // gold
-        "act" => Color::srgb(0.0, 1.0, 0.533),         // green
-        "reflect" => Color::srgb(0.6, 0.2, 1.0),       // purple
-        "learn" => Color::srgb(0.0, 0.9, 0.9),         // cyan
-        _ => Color::srgb(0.8, 0.8, 0.8),               // white-ish
+        "observe" => Color::srgb(0.0, 0.533, 1.0), // blue
+        "decide" => Color::srgb(1.0, 0.843, 0.0),  // gold
+        "act" => Color::srgb(0.0, 1.0, 0.533),     // green
+        "reflect" => Color::srgb(0.6, 0.2, 1.0),   // purple
+        "learn" => Color::srgb(0.0, 0.9, 0.9),     // cyan
+        _ => Color::srgb(0.8, 0.8, 0.8),           // white-ish
     }
 }
 
@@ -121,10 +121,7 @@ fn spawn_modules(
 }
 
 /// Animate capability modules in circular orbits around their parent agent.
-pub fn orbit_capabilities(
-    time: Res<Time>,
-    mut query: Query<(&CapabilityModule, &mut Transform)>,
-) {
+pub fn orbit_capabilities(time: Res<Time>, mut query: Query<(&CapabilityModule, &mut Transform)>) {
     let t = time.elapsed_secs();
 
     for (module, mut transform) in query.iter_mut() {

@@ -1,12 +1,12 @@
 //! System: handle pick events, update selection state.
 //! Uses Bevy 0.15 built-in picking.
 
-use bevy::prelude::*;
 use crate::protocol::types::ClientMessage;
 use crate::state::components::*;
-use crate::state::events::{SendGetThoughts, DeselectEvent};
+use crate::state::events::{DeselectEvent, SendGetThoughts};
 use crate::state::resources::*;
 use crate::systems::agents::AgentEntityMap;
+use bevy::prelude::*;
 
 pub fn handle_agent_click(
     mut commands: Commands,
@@ -22,7 +22,9 @@ pub fn handle_agent_click(
     for event in click_events.read() {
         let clicked_entity = event.target;
         if let Ok(agent_node) = agents.get(clicked_entity) {
-            for ring_entity in old_rings.iter() { commands.entity(ring_entity).despawn(); }
+            for ring_entity in old_rings.iter() {
+                commands.entity(ring_entity).despawn();
+            }
             if let Some(old_entity) = selected_agent.entity {
                 commands.entity(old_entity).remove::<Selected>();
             }
@@ -39,7 +41,10 @@ pub fn handle_agent_click(
             });
             selected_agent.agent_id = Some(agent_node.agent_id);
             selected_agent.entity = Some(clicked_entity);
-            ev_get_thoughts.send(SendGetThoughts { agent_id: agent_node.agent_id, limit: 50 });
+            ev_get_thoughts.send(SendGetThoughts {
+                agent_id: agent_node.agent_id,
+                limit: 50,
+            });
             let _ = ws_outbound.0.send(ClientMessage::Subscribe {
                 channel: format!("thoughts:{}", agent_node.agent_id),
             });
@@ -54,7 +59,9 @@ pub fn handle_deselect(
     rings: Query<Entity, With<SelectionRing>>,
 ) {
     for _ev in ev_deselect.read() {
-        for ring_entity in rings.iter() { commands.entity(ring_entity).despawn(); }
+        for ring_entity in rings.iter() {
+            commands.entity(ring_entity).despawn();
+        }
         if let Some(old_entity) = selected_agent.entity {
             commands.entity(old_entity).remove::<Selected>();
         }

@@ -90,42 +90,55 @@ fn default_camera() -> CameraConfig {
     }
 }
 
-fn default_width() -> u32 { 1600 }
-fn default_height() -> u32 { 900 }
-fn default_title() -> String { "Autopoiesis Holodeck".to_string() }
-fn default_bloom_intensity() -> f32 { 0.15 }
-fn default_font_scale() -> f32 { 1.0 }
-fn default_grid_spacing() -> f32 { 5.0 }
-fn default_ws_url() -> String { "ws://localhost:8080/ws".to_string() }
-fn default_camera_distance() -> f32 { 30.0 }
-fn default_camera_pitch() -> f32 { -0.5 }
+fn default_width() -> u32 {
+    1600
+}
+fn default_height() -> u32 {
+    900
+}
+fn default_title() -> String {
+    "Autopoiesis Holodeck".to_string()
+}
+fn default_bloom_intensity() -> f32 {
+    0.15
+}
+fn default_font_scale() -> f32 {
+    1.0
+}
+fn default_grid_spacing() -> f32 {
+    5.0
+}
+fn default_ws_url() -> String {
+    "ws://localhost:8080/ws".to_string()
+}
+fn default_camera_distance() -> f32 {
+    30.0
+}
+fn default_camera_pitch() -> f32 {
+    -0.5
+}
 
 /// Load config from ~/.holodeck/config.toml, falling back to defaults.
 pub fn load_config() -> HolodeckConfig {
-    let config_path = dirs::home_dir()
-        .map(|h| h.join(".holodeck").join("config.toml"));
+    let config_path = dirs::home_dir().map(|h| h.join(".holodeck").join("config.toml"));
 
     match config_path {
-        Some(path) if path.exists() => {
-            match std::fs::read_to_string(&path) {
-                Ok(contents) => {
-                    match toml::from_str::<HolodeckConfig>(&contents) {
-                        Ok(config) => {
-                            tracing::info!("Loaded config from {}", path.display());
-                            config
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to parse {}: {}, using defaults", path.display(), e);
-                            HolodeckConfig::default()
-                        }
-                    }
+        Some(path) if path.exists() => match std::fs::read_to_string(&path) {
+            Ok(contents) => match toml::from_str::<HolodeckConfig>(&contents) {
+                Ok(config) => {
+                    tracing::info!("Loaded config from {}", path.display());
+                    config
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to read {}: {}, using defaults", path.display(), e);
+                    tracing::warn!("Failed to parse {}: {}, using defaults", path.display(), e);
                     HolodeckConfig::default()
                 }
+            },
+            Err(e) => {
+                tracing::warn!("Failed to read {}: {}, using defaults", path.display(), e);
+                HolodeckConfig::default()
             }
-        }
+        },
         _ => {
             tracing::info!("No config file found at ~/.holodeck/config.toml, using defaults");
             HolodeckConfig::default()

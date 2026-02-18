@@ -33,9 +33,7 @@ pub enum ConnectionEvent {
 /// Returns the inbound receiver (server → Bevy) and the outbound sender
 /// (Bevy → server). The thread automatically reconnects with exponential
 /// backoff on disconnect.
-pub fn spawn_ws_thread(
-    url: &str,
-) -> (Receiver<ConnectionEvent>, Sender<ClientMessage>) {
+pub fn spawn_ws_thread(url: &str) -> (Receiver<ConnectionEvent>, Sender<ClientMessage>) {
     let (inbound_tx, inbound_rx) = crossbeam_channel::unbounded::<ConnectionEvent>();
     let (outbound_tx, outbound_rx) = crossbeam_channel::unbounded::<ClientMessage>();
     let url = url.to_owned();
@@ -51,11 +49,7 @@ pub fn spawn_ws_thread(
 }
 
 /// Core reconnect loop — runs forever on the background thread.
-fn ws_loop(
-    url: &str,
-    inbound_tx: &Sender<ConnectionEvent>,
-    outbound_rx: &Receiver<ClientMessage>,
-) {
+fn ws_loop(url: &str, inbound_tx: &Sender<ConnectionEvent>, outbound_rx: &Receiver<ClientMessage>) {
     let mut attempt: u32 = 0;
 
     loop {
@@ -99,18 +93,15 @@ fn ws_loop(
 
                 if init_failed {
                     warn!("Failed to send init messages, reconnecting");
-                    let _ = inbound_tx.send(ConnectionEvent::Disconnected(
-                        "init send failed".into(),
-                    ));
+                    let _ =
+                        inbound_tx.send(ConnectionEvent::Disconnected("init send failed".into()));
                     thread::sleep(backoff);
                     continue;
                 }
 
                 // Set the socket to non-blocking so we can interleave
                 // reading server messages with draining outbound queue.
-                if let tungstenite::stream::MaybeTlsStream::Plain(ref s) =
-                    socket.get_ref()
-                {
+                if let tungstenite::stream::MaybeTlsStream::Plain(ref s) = socket.get_ref() {
                     let _ = s.set_nonblocking(true);
                 }
 
@@ -136,28 +127,22 @@ fn ws_loop(
 
                     // --- Read from server ---
                     match socket.read() {
-                        Ok(Message::Text(text)) => {
-                            match codec::decode_text_frame(&text) {
-                                Ok(msg) => {
-                                    let _ =
-                                        inbound_tx.send(ConnectionEvent::Message(msg));
-                                }
-                                Err(e) => {
-                                    warn!("Failed to decode text frame: {e}");
-                                }
+                        Ok(Message::Text(text)) => match codec::decode_text_frame(&text) {
+                            Ok(msg) => {
+                                let _ = inbound_tx.send(ConnectionEvent::Message(msg));
                             }
-                        }
-                        Ok(Message::Binary(data)) => {
-                            match codec::decode_binary_frame(&data) {
-                                Ok(msg) => {
-                                    let _ =
-                                        inbound_tx.send(ConnectionEvent::Message(msg));
-                                }
-                                Err(e) => {
-                                    warn!("Failed to decode binary frame: {e}");
-                                }
+                            Err(e) => {
+                                warn!("Failed to decode text frame: {e}");
                             }
-                        }
+                        },
+                        Ok(Message::Binary(data)) => match codec::decode_binary_frame(&data) {
+                            Ok(msg) => {
+                                let _ = inbound_tx.send(ConnectionEvent::Message(msg));
+                            }
+                            Err(e) => {
+                                warn!("Failed to decode binary frame: {e}");
+                            }
+                        },
                         Ok(Message::Ping(data)) => {
                             let _ = socket.send(Message::Pong(data));
                         }
@@ -181,9 +166,7 @@ fn ws_loop(
                     }
                 }
 
-                let _ = inbound_tx.send(ConnectionEvent::Disconnected(
-                    "connection lost".into(),
-                ));
+                let _ = inbound_tx.send(ConnectionEvent::Disconnected("connection lost".into()));
             }
             Err(e) => {
                 error!("WebSocket connection failed: {e}");

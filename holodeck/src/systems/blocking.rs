@@ -1,9 +1,9 @@
 //! System: spawn/despawn blocking request prompts with clickable response buttons.
 
-use bevy::prelude::*;
 use crate::protocol::events::*;
 use crate::state::components::{BlockingOptionButton, BlockingPrompt};
 use crate::state::events::SendRespondBlocking;
+use bevy::prelude::*;
 
 pub fn spawn_blocking_indicators(
     mut commands: Commands,
@@ -15,20 +15,22 @@ pub fn spawn_blocking_indicators(
     for ev in ev_blocking.read() {
         let index = existing.iter().count() as f32;
         let prompt_y = 3.0 + index * 2.0;
-        let prompt_entity = commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(0.4, 0.4, 0.4))),
-            MeshMaterial3d(mats.add(StandardMaterial {
-                base_color: Color::srgb(1.0, 0.3, 0.1),
-                emissive: LinearRgba::new(5.0, 1.5, 0.5, 1.0),
-                ..default()
-            })),
-            Transform::from_translation(Vec3::new(0.0, prompt_y, 0.0)),
-            BlockingPrompt {
-                request_id: ev.request.id.clone(),
-                prompt_text: ev.request.prompt.clone(),
-                options: ev.request.options.clone(),
-            },
-        )).id();
+        let prompt_entity = commands
+            .spawn((
+                Mesh3d(meshes.add(Cuboid::new(0.4, 0.4, 0.4))),
+                MeshMaterial3d(mats.add(StandardMaterial {
+                    base_color: Color::srgb(1.0, 0.3, 0.1),
+                    emissive: LinearRgba::new(5.0, 1.5, 0.5, 1.0),
+                    ..default()
+                })),
+                Transform::from_translation(Vec3::new(0.0, prompt_y, 0.0)),
+                BlockingPrompt {
+                    request_id: ev.request.id.clone(),
+                    prompt_text: ev.request.prompt.clone(),
+                    options: ev.request.options.clone(),
+                },
+            ))
+            .id();
 
         // Spawn clickable option buttons spread out around the prompt
         let option_mesh = meshes.add(Cuboid::new(0.3, 0.15, 0.3));

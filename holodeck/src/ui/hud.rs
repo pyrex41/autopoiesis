@@ -12,16 +12,15 @@ use crate::state::components::AgentNode;
 use crate::state::resources::*;
 
 /// Top status bar showing connection info.
-pub fn connection_status_bar(
-    mut contexts: EguiContexts,
-    status: Res<ConnectionStatus>,
-) {
+pub fn connection_status_bar(mut contexts: EguiContexts, status: Res<ConnectionStatus>) {
     egui::TopBottomPanel::top("connection_status").show(contexts.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
             // Connection indicator dot
             let (color, label) = match &status.state {
                 ConnectionState::Connected => (egui::Color32::from_rgb(0, 255, 136), "Connected"),
-                ConnectionState::Disconnected => (egui::Color32::from_rgb(255, 51, 68), "Disconnected"),
+                ConnectionState::Disconnected => {
+                    (egui::Color32::from_rgb(255, 51, 68), "Disconnected")
+                }
                 ConnectionState::Reconnecting { attempt } => {
                     (egui::Color32::from_rgb(255, 170, 0), "Reconnecting")
                 }
@@ -31,11 +30,7 @@ pub fn connection_status_bar(
             let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
             ui.painter().circle_filled(rect.center(), 5.0, color);
 
-            ui.label(
-                egui::RichText::new(label)
-                    .color(color)
-                    .size(13.0),
-            );
+            ui.label(egui::RichText::new(label).color(color).size(13.0));
 
             ui.separator();
 
@@ -82,13 +77,15 @@ pub fn minimap(
         .title_bar(false)
         .fixed_size(egui::vec2(150.0, 150.0))
         .show(contexts.ctx_mut(), |ui| {
-            let (rect, response) = ui.allocate_exact_size(
-                egui::vec2(140.0, 140.0),
-                egui::Sense::click(),
-            );
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(140.0, 140.0), egui::Sense::click());
 
             let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, 4.0, egui::Color32::from_rgba_premultiplied(10, 10, 30, 200));
+            painter.rect_filled(
+                rect,
+                4.0,
+                egui::Color32::from_rgba_premultiplied(10, 10, 30, 200),
+            );
 
             // Map world coords to minimap coords
             let world_range = 50.0; // +/-50 units
@@ -104,10 +101,18 @@ pub fn minimap(
                     egui::Color32::from_rgb(0, 255, 255)
                 } else {
                     match agent.state {
-                        crate::protocol::types::AgentState::Initialized => egui::Color32::from_rgb(0, 136, 255),
-                        crate::protocol::types::AgentState::Running => egui::Color32::from_rgb(0, 255, 136),
-                        crate::protocol::types::AgentState::Paused => egui::Color32::from_rgb(255, 170, 0),
-                        crate::protocol::types::AgentState::Stopped => egui::Color32::from_rgb(255, 51, 68),
+                        crate::protocol::types::AgentState::Initialized => {
+                            egui::Color32::from_rgb(0, 136, 255)
+                        }
+                        crate::protocol::types::AgentState::Running => {
+                            egui::Color32::from_rgb(0, 255, 136)
+                        }
+                        crate::protocol::types::AgentState::Paused => {
+                            egui::Color32::from_rgb(255, 170, 0)
+                        }
+                        crate::protocol::types::AgentState::Stopped => {
+                            egui::Color32::from_rgb(255, 51, 68)
+                        }
                     }
                 };
 

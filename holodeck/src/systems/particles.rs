@@ -257,12 +257,9 @@ pub fn completion_burst() -> EffectAsset {
 }
 
 /// Startup system: create particle preset assets and store handles in resource.
-pub fn init_particle_presets(
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-) {
+pub fn init_particle_presets(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let default_color = Color::srgb(0.0, 0.8, 1.0); // Cyan
-    let error_color = Color::srgb(1.0, 0.2, 0.2);   // Red
+    let error_color = Color::srgb(1.0, 0.2, 0.2); // Red
 
     commands.insert_resource(ParticlePresets {
         idle: effects.add(idle_particles(default_color)),
@@ -282,14 +279,15 @@ pub fn attach_agent_particles(
 
     for (entity, agent) in agents_without_particles.iter() {
         let effect_handle = preset_for_state(&agent.state, &presets);
-        let effect_entity = commands.spawn((
-            ParticleEffect::new(effect_handle),
-            Transform::default(),
-        )).id();
+        let effect_entity = commands
+            .spawn((ParticleEffect::new(effect_handle), Transform::default()))
+            .id();
 
         // Make it a child of the agent
         commands.entity(entity).add_child(effect_entity);
-        commands.entity(entity).insert(AgentParticles { effect_entity });
+        commands
+            .entity(entity)
+            .insert(AgentParticles { effect_entity });
     }
 }
 
@@ -305,8 +303,12 @@ pub fn update_agent_particles(
     let Some(presets) = presets else { return };
 
     for ev in ev_state.read() {
-        let Some(&agent_entity) = entity_map.0.get(&ev.agent_id) else { continue };
-        let Ok(agent_particles) = agents.get(agent_entity) else { continue };
+        let Some(&agent_entity) = entity_map.0.get(&ev.agent_id) else {
+            continue;
+        };
+        let Ok(agent_particles) = agents.get(agent_entity) else {
+            continue;
+        };
 
         let new_handle = preset_for_state(&ev.state, &presets);
 
@@ -315,10 +317,7 @@ pub fn update_agent_particles(
             // Spawn a one-shot error burst at the agent position
             let burst_handle = presets.error_burst.clone();
             commands.entity(agent_entity).with_children(|parent| {
-                parent.spawn((
-                    ParticleEffect::new(burst_handle),
-                    Transform::default(),
-                ));
+                parent.spawn((ParticleEffect::new(burst_handle), Transform::default()));
             });
         }
 

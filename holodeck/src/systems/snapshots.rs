@@ -1,11 +1,11 @@
 //! System: build/update snapshot tree geometry.
 
-use std::collections::HashMap;
-use bevy::prelude::*;
 use crate::protocol::events::*;
 use crate::rendering::materials;
 use crate::state::components::{ConnectionBeam, SnapshotNode};
 use crate::state::resources::SnapshotTree;
+use bevy::prelude::*;
+use std::collections::HashMap;
 
 #[derive(Resource, Default, Debug)]
 pub struct SnapshotEntityMap(pub HashMap<String, Entity>);
@@ -26,16 +26,25 @@ pub fn build_snapshot_tree(
     mut entity_map: ResMut<SnapshotEntityMap>,
 ) {
     let mut needs_rebuild = false;
-    for _ev in ev_list.read() { needs_rebuild = true; }
-    for ev in ev_created.read() {
-        if !entity_map.0.contains_key(&ev.snapshot.id) { needs_rebuild = true; }
+    for _ev in ev_list.read() {
+        needs_rebuild = true;
     }
-    if !needs_rebuild { return; }
+    for ev in ev_created.read() {
+        if !entity_map.0.contains_key(&ev.snapshot.id) {
+            needs_rebuild = true;
+        }
+    }
+    if !needs_rebuild {
+        return;
+    }
 
     let mut depth_map: HashMap<String, usize> = HashMap::new();
     let mut children_map: HashMap<Option<String>, Vec<String>> = HashMap::new();
     for (id, snap) in &snapshot_tree.snapshots {
-        children_map.entry(snap.parent.clone()).or_default().push(id.clone());
+        children_map
+            .entry(snap.parent.clone())
+            .or_default()
+            .push(id.clone());
     }
 
     let mut queue: Vec<(Option<String>, usize)> = vec![(None, 0)];
@@ -69,24 +78,28 @@ pub fn build_snapshot_tree(
         let pos = TREE_OFFSET + Vec3::new(x, y, 0.0);
         positions.insert(id.clone(), pos);
 
-        if entity_map.0.contains_key(id) { continue; }
+        if entity_map.0.contains_key(id) {
+            continue;
+        }
 
         // Stub 6 fix: highlight current branch
         let is_current = snapshot_tree.current_branch.as_deref() == Some(id.as_str());
         let material = mats.add(materials::snapshot_node_material(is_current));
 
-        let entity = commands.spawn((
-            Mesh3d(node_mesh.clone()),
-            MeshMaterial3d(material),
-            Transform::from_translation(pos),
-            SnapshotNode {
-                snapshot_id: id.clone(),
-                parent: snap.parent.clone(),
-                hash: snap.hash.clone(),
-                metadata: snap.metadata.clone(),
-                timestamp: snap.timestamp,
-            },
-        )).id();
+        let entity = commands
+            .spawn((
+                Mesh3d(node_mesh.clone()),
+                MeshMaterial3d(material),
+                Transform::from_translation(pos),
+                SnapshotNode {
+                    snapshot_id: id.clone(),
+                    parent: snap.parent.clone(),
+                    hash: snap.hash.clone(),
+                    metadata: snap.metadata.clone(),
+                    timestamp: snap.timestamp,
+                },
+            ))
+            .id();
         entity_map.0.insert(id.clone(), entity);
     }
 
@@ -117,7 +130,9 @@ pub fn build_snapshot_tree(
         let midpoint = (parent_pos + child_pos) / 2.0;
         let diff = child_pos - parent_pos;
         let length = diff.length();
-        if length < f32::EPSILON { continue; }
+        if length < f32::EPSILON {
+            continue;
+        }
 
         let direction = diff.normalize();
         let rotation = Quat::from_rotation_arc(Vec3::Y, direction);

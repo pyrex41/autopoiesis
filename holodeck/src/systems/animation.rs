@@ -12,10 +12,7 @@ use crate::state::components::*;
 use crate::systems::agents::AgentEntityMap;
 
 /// Breathing pulse and gentle rotation for all agent spheres.
-pub fn animate_agents(
-    time: Res<Time>,
-    mut query: Query<(&AgentVisual, &mut Transform)>,
-) {
+pub fn animate_agents(time: Res<Time>, mut query: Query<(&AgentVisual, &mut Transform)>) {
     let t = time.elapsed_secs();
 
     for (visual, mut transform) in query.iter_mut() {
@@ -45,10 +42,7 @@ pub fn thought_glow_spike(
 }
 
 /// Decay glow intensity back to baseline over time.
-pub fn decay_glow(
-    time: Res<Time>,
-    mut query: Query<&mut AgentVisual>,
-) {
+pub fn decay_glow(time: Res<Time>, mut query: Query<&mut AgentVisual>) {
     let dt = time.delta_secs();
     let decay_rate = 4.0; // Per second — decays from 3.0 to ~1.0 in ~0.5s
 

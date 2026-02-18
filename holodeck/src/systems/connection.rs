@@ -1,7 +1,7 @@
 //! System: drain crossbeam channel, emit Bevy events, update connection status.
 
-use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 
 use crate::protocol::client::ConnectionEvent;
 use crate::protocol::events::*;
@@ -55,8 +55,15 @@ pub fn drain_ws_channel(
                 ev_reconnecting.send(BackendReconnecting { attempt });
             }
             ConnectionEvent::Message(msg) => {
-                dispatch_server_message(msg, &mut connection_status, &mut agent_registry,
-                    &mut thought_cache, &mut blocking_reqs, &mut snapshot_tree, &mut writers);
+                dispatch_server_message(
+                    msg,
+                    &mut connection_status,
+                    &mut agent_registry,
+                    &mut thought_cache,
+                    &mut blocking_reqs,
+                    &mut snapshot_tree,
+                    &mut writers,
+                );
             }
         }
     }
@@ -64,12 +71,19 @@ pub fn drain_ws_channel(
 
 #[allow(clippy::too_many_arguments)]
 fn dispatch_server_message(
-    msg: ServerMessage, cs: &mut ConnectionStatus, ar: &mut AgentRegistry,
-    tc: &mut ThoughtCache, br: &mut BlockingRequests, st: &mut SnapshotTree,
+    msg: ServerMessage,
+    cs: &mut ConnectionStatus,
+    ar: &mut AgentRegistry,
+    tc: &mut ThoughtCache,
+    br: &mut BlockingRequests,
+    st: &mut SnapshotTree,
     w: &mut BackendEventWriters,
 ) {
     match msg {
-        ServerMessage::Pong | ServerMessage::Subscribed { .. } | ServerMessage::Unsubscribed { .. } | ServerMessage::StreamFormatSet => {}
+        ServerMessage::Pong
+        | ServerMessage::Subscribed { .. }
+        | ServerMessage::Unsubscribed { .. }
+        | ServerMessage::StreamFormatSet => {}
         ServerMessage::SystemInfo(info) => {
             cs.server_version = info.version.clone();
             cs.agent_count = info.agent_count;
@@ -77,13 +91,17 @@ fn dispatch_server_message(
             w.ev_sysinfo.send(SystemInfoReceived(info));
         }
         ServerMessage::Agents { agents } => {
-            for a in &agents { ar.upsert(a.clone()); }
+            for a in &agents {
+                ar.upsert(a.clone());
+            }
             cs.agent_count = agents.len() as u32;
             w.ev_agent_list.send(AgentListReceived { agents });
         }
         ServerMessage::Agent { agent } => {
             ar.upsert(agent.clone());
-            w.ev_agent_list.send(AgentListReceived { agents: vec![agent] });
+            w.ev_agent_list.send(AgentListReceived {
+                agents: vec![agent],
+            });
         }
         ServerMessage::AgentCreated { agent } => {
             ar.upsert(agent.clone());
@@ -92,58 +110,80 @@ fn dispatch_server_message(
         }
         ServerMessage::AgentStateChanged { agent_id, state } => {
             ar.update_state(agent_id, state.clone());
-            w.ev_agent_state.send(AgentStateChangedEvent { agent_id, state });
+            w.ev_agent_state
+                .send(AgentStateChangedEvent { agent_id, state });
         }
         ServerMessage::StepComplete { agent_id, .. } => {
             w.ev_step_complete.send(StepCompleteEvent { agent_id });
         }
         ServerMessage::Thoughts { thoughts, total } => {
             tc.thoughts = thoughts.clone();
-            w.ev_thought_list.send(ThoughtListReceived { thoughts, total });
+            w.ev_thought_list
+                .send(ThoughtListReceived { thoughts, total });
         }
         ServerMessage::ThoughtAdded { agent_id, thought } => {
-            if tc.agent_id == Some(agent_id) { tc.thoughts.push(thought.clone()); }
-            w.ev_thought.send(ThoughtReceivedEvent { agent_id, thought });
+            if tc.agent_id == Some(agent_id) {
+                tc.thoughts.push(thought.clone());
+            }
+            w.ev_thought
+                .send(ThoughtReceivedEvent { agent_id, thought });
         }
         ServerMessage::Snapshots { snapshots } => {
-            for s in &snapshots { st.upsert(s.clone()); }
+            for s in &snapshots {
+                st.upsert(s.clone());
+            }
             w.ev_snapshot_list.send(SnapshotListReceived { snapshots });
         }
         ServerMessage::Snapshot { snapshot, .. } => {
             st.upsert(snapshot.clone());
-            w.ev_snapshot_list.send(SnapshotListReceived { snapshots: vec![snapshot] });
+            w.ev_snapshot_list.send(SnapshotListReceived {
+                snapshots: vec![snapshot],
+            });
         }
         ServerMessage::SnapshotCreated { snapshot } => {
             st.upsert(snapshot.clone());
-            w.ev_snapshot_created.send(SnapshotCreatedEvent { snapshot });
+            w.ev_snapshot_created
+                .send(SnapshotCreatedEvent { snapshot });
         }
         ServerMessage::Branches { branches, current } => {
             st.current_branch = current.clone();
-            w.ev_branch_list.send(BranchListReceived { branches, current });
+            w.ev_branch_list
+                .send(BranchListReceived { branches, current });
         }
         ServerMessage::BranchCreated { branch } => {
-            w.ev_branch_created.send(BranchCreatedEvent { name: branch.name });
+            w.ev_branch_created
+                .send(BranchCreatedEvent { name: branch.name });
         }
         ServerMessage::BranchSwitched { branch } => {
             st.current_branch = Some(branch.name.clone());
-            w.ev_branch_switched.send(BranchSwitchedEvent { name: branch.name });
+            w.ev_branch_switched
+                .send(BranchSwitchedEvent { name: branch.name });
         }
         ServerMessage::BlockingRequests { requests } => {
             br.requests = requests.clone();
-            w.ev_blocking_list.send(BlockingRequestListReceived { requests });
+            w.ev_blocking_list
+                .send(BlockingRequestListReceived { requests });
         }
         ServerMessage::BlockingRequest { request } => {
             br.requests.push(request.clone());
             w.ev_blocking.send(BlockingRequestEvent { request });
         }
-        ServerMessage::BlockingResponded { blocking_request_id } => {
+        ServerMessage::BlockingResponded {
+            blocking_request_id,
+        } => {
             br.requests.retain(|r| r.id != blocking_request_id);
-            w.ev_blocking_responded.send(BlockingRespondedEvent { request_id: blocking_request_id });
+            w.ev_blocking_responded.send(BlockingRespondedEvent {
+                request_id: blocking_request_id,
+            });
         }
         ServerMessage::Events { events } => {
-            for e in events { w.ev_backend.send(BackendEvent { event: e }); }
+            for e in events {
+                w.ev_backend.send(BackendEvent { event: e });
+            }
         }
-        ServerMessage::Event { event } => { w.ev_backend.send(BackendEvent { event }); }
+        ServerMessage::Event { event } => {
+            w.ev_backend.send(BackendEvent { event });
+        }
         ServerMessage::Unknown => {}
     }
 }
@@ -159,24 +199,46 @@ pub fn forward_outbound_messages(
     mut ev_get_thoughts: EventReader<crate::state::events::SendGetThoughts>,
 ) {
     for ev in ev_create_agent.read() {
-        let _ = ws_outbound.0.send(ClientMessage::CreateAgent { name: ev.name.clone(), capabilities: ev.capabilities.clone() });
+        let _ = ws_outbound.0.send(ClientMessage::CreateAgent {
+            name: ev.name.clone(),
+            capabilities: ev.capabilities.clone(),
+        });
     }
     for ev in ev_agent_action.read() {
-        let _ = ws_outbound.0.send(ClientMessage::AgentAction { agent_id: ev.agent_id, action: ev.action.clone() });
+        let _ = ws_outbound.0.send(ClientMessage::AgentAction {
+            agent_id: ev.agent_id,
+            action: ev.action.clone(),
+        });
     }
     for ev in ev_step_agent.read() {
-        let _ = ws_outbound.0.send(ClientMessage::StepAgent { agent_id: ev.agent_id, environment: None });
+        let _ = ws_outbound.0.send(ClientMessage::StepAgent {
+            agent_id: ev.agent_id,
+            environment: None,
+        });
     }
     for ev in ev_inject.read() {
-        let _ = ws_outbound.0.send(ClientMessage::InjectThought { agent_id: ev.agent_id, content: ev.content.clone(), thought_type: ev.thought_type.clone() });
+        let _ = ws_outbound.0.send(ClientMessage::InjectThought {
+            agent_id: ev.agent_id,
+            content: ev.content.clone(),
+            thought_type: ev.thought_type.clone(),
+        });
     }
     for ev in ev_snapshot.read() {
-        let _ = ws_outbound.0.send(ClientMessage::CreateSnapshot { agent_id: ev.agent_id, label: ev.label.clone() });
+        let _ = ws_outbound.0.send(ClientMessage::CreateSnapshot {
+            agent_id: ev.agent_id,
+            label: ev.label.clone(),
+        });
     }
     for ev in ev_respond.read() {
-        let _ = ws_outbound.0.send(ClientMessage::RespondBlocking { blocking_request_id: ev.request_id.clone(), response: ev.response.clone() });
+        let _ = ws_outbound.0.send(ClientMessage::RespondBlocking {
+            blocking_request_id: ev.request_id.clone(),
+            response: ev.response.clone(),
+        });
     }
     for ev in ev_get_thoughts.read() {
-        let _ = ws_outbound.0.send(ClientMessage::GetThoughts { agent_id: ev.agent_id, limit: Some(ev.limit) });
+        let _ = ws_outbound.0.send(ClientMessage::GetThoughts {
+            agent_id: ev.agent_id,
+            limit: Some(ev.limit),
+        });
     }
 }

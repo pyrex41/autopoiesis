@@ -41,7 +41,9 @@ pub fn on_disconnect(
     mut overlay: ResMut<ConnectionOverlay>,
 ) {
     for _ev in ev_disconnected.read() {
-        if overlay.disconnected { continue; }
+        if overlay.disconnected {
+            continue;
+        }
         overlay.disconnected = true;
         overlay.color = Color::srgba(1.0, 0.1, 0.1, 0.15);
         overlay.remaining = f32::MAX; // Persistent until reconnect
@@ -62,7 +64,9 @@ pub fn on_reconnect(
     mut overlay: ResMut<ConnectionOverlay>,
 ) {
     for _ev in ev_connected.read() {
-        if !overlay.disconnected { continue; }
+        if !overlay.disconnected {
+            continue;
+        }
         overlay.disconnected = false;
         overlay.color = Color::srgba(0.1, 1.0, 0.3, 0.2);
         overlay.remaining = 0.5; // 500ms green flash
@@ -77,10 +81,7 @@ pub fn on_reconnect(
 }
 
 /// Fade and tick the overlay timer.
-pub fn tick_overlay(
-    time: Res<Time>,
-    mut overlay: ResMut<ConnectionOverlay>,
-) {
+pub fn tick_overlay(time: Res<Time>, mut overlay: ResMut<ConnectionOverlay>) {
     if overlay.disconnected {
         // Red vignette stays up while disconnected
         return;
@@ -94,10 +95,7 @@ pub fn tick_overlay(
 }
 
 /// Render the connection state overlay as a full-screen egui vignette.
-pub fn render_connection_overlay(
-    mut contexts: EguiContexts,
-    overlay: Res<ConnectionOverlay>,
-) {
+pub fn render_connection_overlay(mut contexts: EguiContexts, overlay: Res<ConnectionOverlay>) {
     if !overlay.disconnected && overlay.remaining <= 0.0 {
         return;
     }
@@ -110,7 +108,9 @@ pub fn render_connection_overlay(
         (overlay.remaining / 0.5).clamp(0.0, 1.0) * 0.2
     };
 
-    if alpha < 0.005 { return; }
+    if alpha < 0.005 {
+        return;
+    }
 
     let linear = overlay.color.to_linear();
     let r = (linear.red * 255.0).min(255.0) as u8;

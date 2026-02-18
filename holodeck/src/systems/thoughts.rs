@@ -13,12 +13,7 @@ use crate::systems::agents::AgentEntityMap;
 /// Create a one-shot burst effect for a thought event.
 fn thought_burst_effect(color: Color) -> EffectAsset {
     let linear = color.to_linear();
-    let c = Vec4::new(
-        linear.red * 5.0,
-        linear.green * 5.0,
-        linear.blue * 5.0,
-        1.0,
-    );
+    let c = Vec4::new(linear.red * 5.0, linear.green * 5.0, linear.blue * 5.0, 1.0);
 
     let writer = ExprWriter::new();
 
@@ -74,10 +69,10 @@ fn thought_burst_effect(color: Color) -> EffectAsset {
 
 fn color_for_thought_type(thought_type: &ThoughtType) -> Color {
     match thought_type {
-        ThoughtType::Observation => Color::srgb(0.2, 0.5, 1.0),  // Blue
-        ThoughtType::Decision => Color::srgb(1.0, 0.843, 0.0),   // Gold
-        ThoughtType::Action => Color::srgb(0.0, 1.0, 0.533),     // Green
-        ThoughtType::Reflection => Color::srgb(0.6, 0.2, 1.0),   // Purple
+        ThoughtType::Observation => Color::srgb(0.2, 0.5, 1.0), // Blue
+        ThoughtType::Decision => Color::srgb(1.0, 0.843, 0.0),  // Gold
+        ThoughtType::Action => Color::srgb(0.0, 1.0, 0.533),    // Green
+        ThoughtType::Reflection => Color::srgb(0.6, 0.2, 1.0),  // Purple
     }
 }
 

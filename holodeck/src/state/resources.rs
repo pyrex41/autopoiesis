@@ -125,4 +125,3 @@ pub struct ThoughtCache {
 pub struct BlockingRequests {
     pub requests: Vec<BlockingRequestData>,
 }
-

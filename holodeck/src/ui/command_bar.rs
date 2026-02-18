@@ -85,8 +85,7 @@ pub fn command_bar(
                 }
             }
 
-            let submitted = response.lost_focus()
-                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
             if submitted && !state.input.is_empty() {
                 let input = state.input.trim().to_string();

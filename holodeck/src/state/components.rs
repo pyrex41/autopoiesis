@@ -82,7 +82,11 @@ pub struct ForceNode {
 
 impl Default for ForceNode {
     fn default() -> Self {
-        Self { velocity: Vec3::ZERO, pinned: false, mass: 1.0 }
+        Self {
+            velocity: Vec3::ZERO,
+            pinned: false,
+            mass: 1.0,
+        }
     }
 }
 

@@ -84,7 +84,10 @@ pub fn spawn_agents_from_list(
                 ));
                 parent.spawn((
                     Text2d::new(&agent_data.name),
-                    TextFont { font_size: 14.0, ..default() },
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
                     TextColor(Color::srgba(0.0, 0.8, 1.0, 0.9)),
                     Transform::from_translation(Vec3::new(0.0, 2.5, 0.0)),
                     AgentLabel,
@@ -151,7 +154,10 @@ pub fn spawn_agent_on_created(
             ));
             parent.spawn((
                 Text2d::new(&ev.agent.name),
-                TextFont { font_size: 14.0, ..default() },
+                TextFont {
+                    font_size: 14.0,
+                    ..default()
+                },
                 TextColor(Color::srgba(0.0, 0.8, 1.0, 0.9)),
                 Transform::from_translation(Vec3::new(0.0, 2.5, 0.0)),
                 AgentLabel,
@@ -208,6 +214,8 @@ pub fn update_agent_state(
 /// Deterministic but varied phase offset from UUID.
 fn rand_phase(id: &Uuid) -> f32 {
     let bytes = id.as_bytes();
-    let hash = bytes.iter().fold(0u32, |acc, &b| acc.wrapping_add(b as u32));
+    let hash = bytes
+        .iter()
+        .fold(0u32, |acc, &b| acc.wrapping_add(b as u32));
     (hash as f32 / 255.0) * std::f32::consts::TAU
 }

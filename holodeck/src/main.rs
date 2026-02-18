@@ -15,6 +15,7 @@
 //! - `UiPlugin` — egui panels: HUD, command bar, agent detail, notifications
 
 mod config;
+mod headless;
 mod plugins;
 mod protocol;
 mod rendering;

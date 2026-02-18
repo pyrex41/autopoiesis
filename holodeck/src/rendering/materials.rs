@@ -34,12 +34,7 @@ pub fn agent_material(color: Color) -> StandardMaterial {
     let linear = color.to_linear();
     StandardMaterial {
         base_color: color,
-        emissive: LinearRgba::new(
-            linear.red * 4.0,
-            linear.green * 4.0,
-            linear.blue * 4.0,
-            1.0,
-        ),
+        emissive: LinearRgba::new(linear.red * 4.0, linear.green * 4.0, linear.blue * 4.0, 1.0),
         perceptual_roughness: 0.3,
         metallic: 0.8,
         ..default()
@@ -75,12 +70,7 @@ pub fn beam_material(color: Color) -> StandardMaterial {
     let linear = color.to_linear();
     StandardMaterial {
         base_color: color,
-        emissive: LinearRgba::new(
-            linear.red * 2.0,
-            linear.green * 2.0,
-            linear.blue * 2.0,
-            1.0,
-        ),
+        emissive: LinearRgba::new(linear.red * 2.0, linear.green * 2.0, linear.blue * 2.0, 1.0),
         perceptual_roughness: 0.1,
         metallic: 1.0,
         alpha_mode: AlphaMode::Add,
