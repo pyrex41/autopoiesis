@@ -175,6 +175,10 @@
   ;; Initialize keyboard input handler
   (unless (holodeck-keyboard-handler window)
     (setf (holodeck-keyboard-handler window) (make-keyboard-input-handler)))
+  ;; Register camera action handlers
+  (register-camera-action-handlers
+   (handler-registry (holodeck-keyboard-handler window))
+   (holodeck-camera window))
   ;; Initialize camera input handler attached to the camera
   (unless (holodeck-camera-input-handler window)
     (setf (holodeck-camera-input-handler window)
@@ -615,11 +619,155 @@ void main() {
 
 (defun holodeck-single-frame (&optional (dt 0.016))
   "Execute a single frame of the holodeck render loop.
-   Convenience function for testing and non-interactive use.
-   DT defaults to ~60fps frame time.
-   Returns the frame result plist."
+    Convenience function for testing and non-interactive use.
+    DT defaults to ~60fps frame time.
+    Returns the frame result plist."
   (when *holodeck*
     (holodeck-frame *holodeck* dt)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Terminal Viewport Rendering
+;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; Renders holodeck frames to the terminal using ANSI escape sequences.
+;;; Provides a 2D projection of the 3D scene for terminal-based visualization.
+
+(defparameter *viewport-width* 80
+  "Default terminal viewport width in characters.")
+
+(defparameter *viewport-height* 24
+  "Default terminal viewport height in characters.")
+
+(defparameter *viewport-scale* 2.0
+  "Scale factor for 3D-to-2D projection (world units per character).")
+
+(defparameter *viewport-center-x* 40
+  "X center of viewport in terminal coordinates.")
+
+(defparameter *viewport-center-y* 12
+  "Y center of viewport in terminal coordinates.")
+
+(defun project-3d-to-2d (x y z &key (view-matrix nil) (projection-matrix nil))
+  "Project 3D world coordinates to 2D terminal coordinates.
+    Performs simple orthographic projection with optional view/projection matrices.
+    Returns (VALUES screen-x screen-y) or NIL if behind camera."
+  (declare (ignore view-matrix projection-matrix)) ; Simple orthographic for now
+  ;; Simple orthographic projection: ignore Z, scale and center
+  (let ((screen-x (+ *viewport-center-x*
+                     (round (/ x *viewport-scale*))))
+        (screen-y (+ *viewport-center-y*
+                     (round (/ (- y) *viewport-scale*))))) ; Flip Y for screen coords
+    (values screen-x screen-y)))
+
+(defun render-snapshot-to-terminal (desc stream)
+  "Render a snapshot entity description to the terminal STREAM.
+    Uses ANSI escape sequences for positioning and color."
+  (let* ((position (render-desc-position desc))
+         (color (render-desc-color desc))
+         (lod (render-desc-lod desc))
+         (label-text (render-desc-label-text desc)))
+    (multiple-value-bind (screen-x screen-y)
+        (project-3d-to-2d (first position) (second position) (third position))
+      ;; Only render if within viewport bounds
+      (when (and (>= screen-x 1) (< screen-x *viewport-width*)
+                 (>= screen-y 1) (< screen-y *viewport-height*))
+        ;; Position cursor
+        (format stream "~c[~d;~dH" #\Escape screen-y screen-x)
+        ;; Set color (convert RGBA to ANSI 256-color)
+        (let* ((r (coerce (first color) 'single-float))
+               (g (coerce (second color) 'single-float))
+               (b (coerce (third color) 'single-float))
+               ;; Simple RGB to ANSI 256-color mapping
+               (ansi-color (rgb-to-ansi256 r g b)))
+          (format stream "~c[38;5;~dm" #\Escape ansi-color))
+        ;; Render glyph based on LOD
+        (let ((glyph (ecase lod
+                       (:high "●")
+                       (:low "○")
+                       (:culled ""))))
+          (write-string glyph stream))
+        ;; Render label if present and high detail
+        (when (and label-text (eq lod :high))
+          (let ((label-x (+ screen-x 2))
+                (label-y screen-y))
+            (when (< label-x *viewport-width*)
+              (format stream "~c[~d;~dH" #\Escape label-y label-x)
+              (write-string label-text stream))))))))
+
+(defun render-connection-to-terminal (desc stream)
+  "Render a connection entity description to the terminal STREAM.
+    Draws a simple line between endpoints using ANSI positioning."
+  (let* ((from-pos (getf desc :from-position))
+         (to-pos (getf desc :to-position))
+         (color (getf desc :color)))
+    (multiple-value-bind (from-x from-y)
+        (project-3d-to-2d (first from-pos) (second from-pos) (third from-pos))
+      (multiple-value-bind (to-x to-y)
+          (project-3d-to-2d (first to-pos) (second to-pos) (third to-pos))
+        ;; Simple line drawing using Bresenham-like algorithm
+        (when (and from-x from-y to-x to-y)
+          (let ((dx (abs (- to-x from-x)))
+                (dy (abs (- to-y from-y)))
+                (sx (if (< from-x to-x) 1 -1))
+                (sy (if (< from-y to-y) 1 -1))
+                (err (- dx dy))
+                (x from-x)
+                (y from-y))
+            ;; Set connection color
+            (let* ((r (coerce (first color) 'single-float))
+                   (g (coerce (second color) 'single-float))
+                   (b (coerce (third color) 'single-float))
+                   (ansi-color (rgb-to-ansi256 r g b)))
+              (format stream "~c[38;5;~dm" #\Escape ansi-color))
+            ;; Draw line segments
+            (loop
+              (when (and (>= x 1) (< x *viewport-width*)
+                         (>= y 1) (< y *viewport-height*))
+                (format stream "~c[~d;~dH─" #\Escape y x))
+              (when (and (= x to-x) (= y to-y)) (return))
+              (let ((e2 (* 2 err)))
+                (when (> e2 (- dy))
+                  (setf err (- err dy))
+                  (incf x sx))
+                (when (< e2 dx)
+                  (setf err (+ err dx))
+                  (incf y sy))))))))))
+
+(defun rgb-to-ansi256 (r g b)
+  "Convert RGB values (0.0-1.0) to ANSI 256-color code.
+    Uses simple mapping to the 256-color palette."
+  (let* ((r-byte (round (* r 5)))
+         (g-byte (round (* g 5)))
+         (b-byte (round (* b 5)))
+         (ansi-code (+ 16 (* 36 r-byte) (* 6 g-byte) b-byte)))
+    (min 255 (max 0 ansi-code))))
+
+(defun holodeck_viewport (frame-result &key (stream *standard-output*) (clear-screen t))
+  "Render a holodeck frame result to the terminal using ANSI escape sequences.
+    FRAME-RESULT is the plist returned by holodeck-frame.
+    STREAM is the output stream (defaults to *standard-output*).
+    CLEAR-SCREEN controls whether to clear the screen before rendering."
+  (when clear-screen
+    ;; Clear screen and hide cursor
+    (format stream "~c[2J~c[H~c[?25l" #\Escape #\Escape #\Escape))
+  ;; Render snapshot entities
+  (let ((snapshot-descs (getf frame-result :snapshot-descriptions)))
+    (dolist (desc snapshot-descs)
+      (render-snapshot-to-terminal desc stream)))
+  ;; Render connection entities
+  (let ((connection-descs (getf frame-result :connection-descriptions)))
+    (dolist (desc connection-descs)
+      (render-connection-to-terminal desc stream)))
+  ;; Render HUD (simplified - just status info)
+  (let ((camera-pos (getf frame-result :camera-position)))
+    (when camera-pos
+      (format stream "~c[1;1H~c[37mCamera: (~,1f, ~,1f, ~,1f)~c[0m"
+              #\Escape #\Escape
+              (first camera-pos) (second camera-pos) (third camera-pos)
+              #\Escape)))
+  ;; Show cursor and flush output
+  (format stream "~c[?25h" #\Escape)
+  (force-output stream))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Grid Rendering

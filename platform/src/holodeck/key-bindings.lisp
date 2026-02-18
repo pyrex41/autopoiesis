@@ -60,6 +60,12 @@
 (defparameter *key-slash* :slash "/ key for command palette.")
 (defparameter *key-question* :question "? key for help overlay.")
 
+(defparameter *key-left-arrow* :left-arrow "Left arrow key for orbiting left.")
+(defparameter *key-right-arrow* :right-arrow "Right arrow key for orbiting right.")
+(defparameter *key-up-arrow* :up-arrow "Up arrow key for orbiting up.")
+(defparameter *key-down-arrow* :down-arrow "Down arrow key for orbiting down.")
+(defparameter *key-r* :r "R key for reset view.")
+
 ;;; ===================================================================
 ;;; Action Keywords
 ;;; ===================================================================
@@ -71,6 +77,7 @@
   '(member
     ;; Camera movement
     :fly-forward :fly-backward :fly-left :fly-right :fly-up :fly-down
+    :orbit-left :orbit-right :orbit-up :orbit-down :zoom-in :zoom-out :reset-view
     ;; Navigation
     :step-backward :step-forward :goto-genesis :goto-head
     ;; Branching
@@ -121,11 +128,37 @@
    (make-key-binding :q :fly-down
                      :hold-action-p t
                      :description "Move camera down")
-   (make-key-binding :e :fly-up
-                     :hold-action-p t
-                     :description "Move camera up")
+    (make-key-binding :e :fly-up
+                      :hold-action-p t
+                      :description "Move camera up")
 
-   ;; Navigation (press actions)
+    ;; Camera control (press actions)
+    (make-key-binding :left-arrow :orbit-left
+                      :hold-action-p t
+                      :description "Orbit camera left")
+    (make-key-binding :right-arrow :orbit-right
+                      :hold-action-p t
+                      :description "Orbit camera right")
+    (make-key-binding :up-arrow :orbit-up
+                      :hold-action-p t
+                      :description "Orbit camera up")
+    (make-key-binding :down-arrow :orbit-down
+                      :hold-action-p t
+                      :description "Orbit camera down")
+    (make-key-binding :plus :zoom-in
+                      :hold-action-p t
+                      :description "Zoom camera in")
+    (make-key-binding :equals :zoom-in
+                      :hold-action-p t
+                      :description "Zoom camera in")
+    (make-key-binding :minus :zoom-out
+                      :hold-action-p t
+                      :description "Zoom camera out")
+    (make-key-binding :r :reset-view
+                      :hold-action-p nil
+                      :description "Reset camera to default view")
+
+    ;; Navigation (press actions)
    (make-key-binding :left-bracket :step-backward
                      :hold-action-p nil
                      :description "Step to previous snapshot")
@@ -488,7 +521,67 @@
     (:escape "Esc")
     (:slash "/")
     (:question "?")
+    (:left-arrow "←")
+    (:right-arrow "→")
+    (:up-arrow "↑")
+    (:down-arrow "↓")
+    (:r "R")
     (t (string-capitalize (symbol-name key)))))
+
+;;; ===================================================================
+;;; Camera Action Handlers
+;;; ===================================================================
+
+(defgeneric register-camera-action-handlers (registry camera)
+  (:documentation "Register action handlers for camera control actions.
+    CAMERA should be an orbit-camera or fly-camera instance."))
+
+(defmethod register-camera-action-handlers ((registry key-binding-registry) (camera orbit-camera))
+  "Register handlers for orbit camera actions."
+  ;; Orbit actions
+  (register-action-handler registry :orbit-left
+    (lambda () (orbit-camera-by camera -10.0 0.0)))
+  (register-action-handler registry :orbit-right
+    (lambda () (orbit-camera-by camera 10.0 0.0)))
+  (register-action-handler registry :orbit-up
+    (lambda () (orbit-camera-by camera 0.0 -10.0)))
+  (register-action-handler registry :orbit-down
+    (lambda () (orbit-camera-by camera 0.0 10.0)))
+  ;; Zoom actions
+  (register-action-handler registry :zoom-in
+    (lambda () (zoom-camera-by camera -1.0)))
+  (register-action-handler registry :zoom-out
+    (lambda () (zoom-camera-by camera 1.0)))
+  ;; Reset view
+  (register-action-handler registry :reset-view
+    (lambda ()
+      (setf (camera-target camera) (vec3 0.0 0.0 0.0))
+      (setf (camera-theta camera) 0.0)
+      (setf (camera-phi camera) 0.3)
+      (setf (camera-distance camera) 30.0))))
+
+(defmethod register-camera-action-handlers ((registry key-binding-registry) (camera fly-camera))
+  "Register handlers for fly camera actions."
+  ;; For fly camera, orbit actions become look actions
+  (register-action-handler registry :orbit-left
+    (lambda () (fly-camera-look camera -0.1 0.0)))
+  (register-action-handler registry :orbit-right
+    (lambda () (fly-camera-look camera 0.1 0.0)))
+  (register-action-handler registry :orbit-up
+    (lambda () (fly-camera-look camera 0.0 -0.1)))
+  (register-action-handler registry :orbit-down
+    (lambda () (fly-camera-look camera 0.0 0.1)))
+  ;; Zoom actions - for fly camera, zoom becomes move forward/backward
+  (register-action-handler registry :zoom-in
+    (lambda () (fly-camera-move camera :forward)))
+  (register-action-handler registry :zoom-out
+    (lambda () (fly-camera-move camera :backward)))
+  ;; Reset view
+  (register-action-handler registry :reset-view
+    (lambda ()
+      (setf (fly-camera-position-vec camera) (vec3 0.0 5.0 30.0))
+      (setf (fly-camera-yaw camera) 0.0)
+      (setf (fly-camera-pitch camera) 0.0))))
 
 (defun format-binding-help (binding)
   "Format a key-binding as a help string: [KEY] Description."
