@@ -32,6 +32,8 @@ pub struct App {
     blocking_selected_option: usize,
     blocking_custom_input: String,
     blocking_is_typing_custom: bool,
+    // Holodeck viewport persistent state
+    holodeck_viewport_state: crate::widgets::holodeck_viewport::HolodeckViewportState,
 }
 
 impl Default for App {
@@ -50,6 +52,7 @@ impl App {
             blocking_selected_option: 0,
             blocking_custom_input: String::new(),
             blocking_is_typing_custom: false,
+            holodeck_viewport_state: crate::widgets::holodeck_viewport::HolodeckViewportState::new(),
         }
     }
 
@@ -99,6 +102,14 @@ impl App {
                 self.render(frame);
             })?;
 
+            // Write pending Kitty/Sixel escape sequences after ratatui flush
+            if let Some(escape_data) = self.holodeck_viewport_state.take_pending_output() {
+                use std::io::Write;
+                let backend = terminal.backend_mut();
+                let _ = backend.write_all(&escape_data);
+                let _ = backend.flush();
+            }
+
             if self.state.should_quit {
                 return Ok(());
             }
@@ -138,9 +149,14 @@ impl App {
         }
     }
 
-    fn render(&self, frame: &mut ratatui::Frame) {
+    fn render(&mut self, frame: &mut ratatui::Frame) {
         let has_blocking = !self.state.blocking_requests.is_empty();
-        let layout = AppLayout::with_mode(frame.area(), self.state.layout_mode, has_blocking);
+        let layout = AppLayout::with_options(
+            frame.area(),
+            self.state.layout_mode,
+            has_blocking,
+            self.state.show_holodeck_viewport,
+        );
 
         frame.render_widget(StatusBar::new(&self.state), layout.status_bar);
         frame.render_widget(AgentList::new(&self.state), layout.agent_list);
@@ -198,6 +214,18 @@ impl App {
                     snap_area,
                 );
             }
+        }
+
+        // Holodeck viewport
+        if let Some(holo_area) = layout.holodeck_viewport {
+            use crate::widgets::holodeck_viewport::HolodeckViewport;
+
+            let widget = if let Some((ref data, w, h)) = self.state.holodeck_frame {
+                HolodeckViewport::new(self.state.holodeck_connected).with_frame(data, w, h)
+            } else {
+                HolodeckViewport::new(self.state.holodeck_connected)
+            };
+            frame.render_stateful_widget(widget, holo_area, &mut self.holodeck_viewport_state);
         }
 
         // Notifications always render
@@ -258,6 +286,15 @@ impl App {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => self.state.select_next_mcp_server(),
                 KeyCode::Char('k') | KeyCode::Up => self.state.select_prev_mcp_server(),
+                KeyCode::Esc => self.state.focused_pane = FocusedPane::AgentList,
+                _ => {}
+            }
+            return;
+        }
+
+        // Handle holodeck viewport focus
+        if self.state.focused_pane == FocusedPane::HolodeckViewport {
+            match key.code {
                 KeyCode::Esc => self.state.focused_pane = FocusedPane::AgentList,
                 _ => {}
             }
@@ -325,6 +362,16 @@ impl App {
                 };
                 self.state
                     .push_notification(&format!("Voice: {mode_name}"), NotificationLevel::Info);
+            }
+            LeaderAction::ToggleHolodeck => {
+                self.state.toggle_holodeck_viewport();
+                let status = if self.state.show_holodeck_viewport {
+                    "Visible"
+                } else {
+                    "Hidden"
+                };
+                self.state
+                    .push_notification(&format!("Holodeck: {status}"), NotificationLevel::Info);
             }
             LeaderAction::FocusNext => {
                 self.state.focused_pane = self.state.focused_pane.next();
@@ -1412,7 +1459,7 @@ mod tests {
     fn test_render_with_layout_modes() {
         use ratatui::backend::TestBackend;
 
-        let app = App::new();
+        let mut app = App::new();
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
 
@@ -1703,5 +1750,57 @@ mod tests {
         app.handle_input(key(KeyCode::F(5)));
         assert!(!app.state.is_recording);
         assert!(app.state.notifications.is_empty());
+    }
+
+    // === Holodeck viewport tests ===
+
+    #[test]
+    fn test_space_d_toggles_holodeck_viewport() {
+        let mut app = App::new();
+        assert!(!app.state.show_holodeck_viewport);
+
+        // Space + d
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('d')));
+        assert!(app.state.show_holodeck_viewport);
+        assert_eq!(app.state.notifications.len(), 1);
+
+        // Space + d again
+        app.handle_input(key(KeyCode::Char(' ')));
+        app.handle_input(key(KeyCode::Char('d')));
+        assert!(!app.state.show_holodeck_viewport);
+    }
+
+    #[test]
+    fn test_render_with_holodeck_viewport() {
+        use ratatui::backend::TestBackend;
+
+        let mut app = App::new();
+        app.state.show_holodeck_viewport = true;
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                app.render(f);
+            })
+            .unwrap();
+        // Should not panic
+    }
+
+    #[test]
+    fn test_holodeck_viewport_focus_escape() {
+        let mut app = App::new();
+        app.state.focused_pane = FocusedPane::HolodeckViewport;
+
+        app.handle_input(key(KeyCode::Esc));
+        assert_eq!(app.state.focused_pane, FocusedPane::AgentList);
+    }
+
+    #[test]
+    fn test_holodeck_viewport_state_persists() {
+        let app = App::new();
+        assert_eq!(app.holodeck_viewport_state.image_id, 1);
+        assert_eq!(app.holodeck_viewport_state.last_frame_hash, 0);
     }
 }

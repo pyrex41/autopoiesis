@@ -46,9 +46,7 @@ impl<'a> Widget for StatusBar<'a> {
             let rec = " \u{25CE} REC";
             voice_spans.push(Span::styled(
                 rec,
-                Style::default()
-                    .fg(Color::Red)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ));
             voice_len += rec.len();
         } else if self.state.is_speaking {
@@ -62,18 +60,12 @@ impl<'a> Widget for StatusBar<'a> {
             match self.state.voice_mode {
                 VoiceMode::PushToTalk => {
                     let badge = " [PTT]";
-                    voice_spans.push(Span::styled(
-                        badge,
-                        Style::default().fg(Color::DarkGray),
-                    ));
+                    voice_spans.push(Span::styled(badge, Style::default().fg(Color::DarkGray)));
                     voice_len += badge.len();
                 }
                 VoiceMode::VoiceActivated => {
                     let badge = " [VAD]";
-                    voice_spans.push(Span::styled(
-                        badge,
-                        Style::default().fg(Color::DarkGray),
-                    ));
+                    voice_spans.push(Span::styled(badge, Style::default().fg(Color::DarkGray)));
                     voice_len += badge.len();
                 }
                 VoiceMode::Disabled => {}
@@ -81,8 +73,7 @@ impl<'a> Widget for StatusBar<'a> {
         }
 
         // Calculate padding for right-alignment of version
-        let left_len =
-            7 + 1 + 1 + 1 + status_text.len() + 2 + agent_count_text.len() + voice_len;
+        let left_len = 7 + 1 + 1 + 1 + status_text.len() + 2 + agent_count_text.len() + voice_len;
         let right_len = version.len();
         let padding = (area.width as usize).saturating_sub(left_len + right_len);
 
@@ -132,7 +123,9 @@ mod tests {
             .unwrap();
 
         let buf = terminal.backend().buffer().clone();
-        let content: String = (0..80).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect();
+        let content: String = (0..80)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect();
         assert!(content.contains("NEXUS"));
         assert!(content.contains("disconnected"));
         assert!(content.contains("0 agents"));
@@ -154,7 +147,9 @@ mod tests {
             .unwrap();
 
         let buf = terminal.backend().buffer().clone();
-        let content: String = (0..80).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect();
+        let content: String = (0..80)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect();
         assert!(content.contains("connected"));
     }
 
@@ -175,7 +170,9 @@ mod tests {
             .unwrap();
 
         let buf = terminal.backend().buffer().clone();
-        let content: String = (0..80).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect();
+        let content: String = (0..80)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect();
         assert!(content.contains("REC"));
     }
 
@@ -195,7 +192,9 @@ mod tests {
             .unwrap();
 
         let buf = terminal.backend().buffer().clone();
-        let content: String = (0..80).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect();
+        let content: String = (0..80)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect();
         assert!(content.contains("[PTT]"));
     }
 }

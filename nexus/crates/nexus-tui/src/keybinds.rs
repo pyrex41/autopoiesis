@@ -26,6 +26,9 @@ pub enum LeaderAction {
     // Voice (Space + v)
     ToggleVoice,
 
+    // Holodeck viewport (Space + d)
+    ToggleHolodeck,
+
     // Global shortcuts (no leader key needed)
     FocusNext, // Tab
     FocusPrev, // Shift+Tab
@@ -81,6 +84,7 @@ impl LeaderState {
                 KeyCode::Char('l') => (LeaderState::Idle, LeaderAction::CycleLayout),
                 KeyCode::Char('h') => (LeaderState::Idle, LeaderAction::ToggleHelp),
                 KeyCode::Char('v') => (LeaderState::Idle, LeaderAction::ToggleVoice),
+                KeyCode::Char('d') => (LeaderState::Idle, LeaderAction::ToggleHolodeck),
                 KeyCode::Esc => (LeaderState::Idle, LeaderAction::Cancelled),
                 _ => (LeaderState::Idle, LeaderAction::Cancelled),
             },
@@ -177,6 +181,14 @@ mod tests {
         let (state, action) = state.process(key(KeyCode::Char('v')));
         assert_eq!(state, LeaderState::Idle);
         assert_eq!(action, LeaderAction::ToggleVoice);
+    }
+
+    #[test]
+    fn test_space_d_toggles_holodeck() {
+        let (state, _) = LeaderState::Idle.process(key(KeyCode::Char(' ')));
+        let (state, action) = state.process(key(KeyCode::Char('d')));
+        assert_eq!(state, LeaderState::Idle);
+        assert_eq!(action, LeaderAction::ToggleHolodeck);
     }
 
     #[test]

@@ -64,7 +64,9 @@ impl<'a> Widget for DiffViewer<'a> {
                     })
                     .collect();
 
-                let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+                let paragraph = Paragraph::new(lines)
+                    .block(block)
+                    .wrap(Wrap { trim: false });
                 paragraph.render(area, buf);
             }
         }
@@ -147,8 +149,14 @@ mod tests {
             .unwrap();
 
         let text = buf_text(&terminal, 40, 15);
-        assert!(!text.contains("line0"), "should not show scrolled-past line0");
-        assert!(!text.contains("line1"), "should not show scrolled-past line1");
+        assert!(
+            !text.contains("line0"),
+            "should not show scrolled-past line0"
+        );
+        assert!(
+            !text.contains("line1"),
+            "should not show scrolled-past line1"
+        );
         assert!(text.contains("line2"), "should show line2");
     }
 

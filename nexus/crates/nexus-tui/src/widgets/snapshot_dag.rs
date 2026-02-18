@@ -52,9 +52,12 @@ fn format_ago(now: f64, ts: f64) -> String {
 impl<'a> Widget for SnapshotDag<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Sort snapshots by timestamp (most recent first)
-        let mut sorted: Vec<(usize, &SnapshotData)> =
-            self.nodes.iter().enumerate().collect();
-        sorted.sort_by(|a, b| b.1.timestamp.partial_cmp(&a.1.timestamp).unwrap_or(std::cmp::Ordering::Equal));
+        let mut sorted: Vec<(usize, &SnapshotData)> = self.nodes.iter().enumerate().collect();
+        sorted.sort_by(|a, b| {
+            b.1.timestamp
+                .partial_cmp(&a.1.timestamp)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Build map: snapshot_id -> list of branch names pointing at it
         let mut branch_map: std::collections::HashMap<&str, Vec<&str>> =
@@ -74,10 +77,7 @@ impl<'a> Widget for SnapshotDag<'a> {
         });
 
         // Determine "now" for relative timestamps
-        let now = sorted
-            .first()
-            .map(|(_, s)| s.timestamp)
-            .unwrap_or(0.0);
+        let now = sorted.first().map(|(_, s)| s.timestamp).unwrap_or(0.0);
 
         // Build lines
         let lines: Vec<Line> = if sorted.is_empty() {
@@ -109,7 +109,11 @@ impl<'a> Widget for SnapshotDag<'a> {
                     let labels: String = branch_map
                         .get(snap.id.as_str())
                         .map(|names| {
-                            names.iter().map(|n| format!("[{}]", n)).collect::<Vec<_>>().join("")
+                            names
+                                .iter()
+                                .map(|n| format!("[{}]", n))
+                                .collect::<Vec<_>>()
+                                .join("")
                         })
                         .unwrap_or_default();
 
@@ -159,7 +163,9 @@ impl<'a> Widget for SnapshotDag<'a> {
                     .add_modifier(Modifier::BOLD),
             ));
 
-        let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+        let paragraph = Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false });
         paragraph.render(area, buf);
     }
 }
@@ -236,8 +242,14 @@ mod tests {
             .unwrap();
 
         let text = buf_text(&terminal, 40, 15);
-        assert!(text.contains("abcdef12"), "should show truncated id of first snap");
-        assert!(text.contains("deadbeef"), "should show truncated id of second snap");
+        assert!(
+            text.contains("abcdef12"),
+            "should show truncated id of first snap"
+        );
+        assert!(
+            text.contains("deadbeef"),
+            "should show truncated id of second snap"
+        );
     }
 
     #[test]

@@ -1,0 +1,20 @@
+[package]
+name = "nexus-holodeck"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.15", default-features = false, features = [
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_asset",
+    "bevy_scene",
+    "bevy_color",
+    "bevy_state",
+    "bevy_winit",
+    "x11",
+] }
+base64 = "0.22"
+tokio = { workspace = true }
+tracing = { workspace = true }

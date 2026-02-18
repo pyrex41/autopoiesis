@@ -11,3 +11,4 @@ tokio = { workspace = true }
 uuid = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+nexus-holodeck = { path = "../nexus-holodeck" }

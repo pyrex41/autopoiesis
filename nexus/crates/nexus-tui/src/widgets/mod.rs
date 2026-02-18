@@ -1,11 +1,12 @@
-pub mod status_bar;
-pub mod agent_list;
 pub mod agent_detail;
-pub mod thought_stream;
-pub mod command_bar;
+pub mod agent_list;
 pub mod blocking_prompt;
 pub mod chat;
+pub mod command_bar;
 pub mod diff_viewer;
+pub mod help_overlay;
+pub mod holodeck_viewport;
 pub mod mcp_panel;
 pub mod snapshot_dag;
-pub mod help_overlay;
+pub mod status_bar;
+pub mod thought_stream;

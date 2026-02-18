@@ -21,6 +21,7 @@ pub enum FocusedPane {
     SnapshotDag,
     DiffViewer,
     McpPanel,
+    HolodeckViewport,
     CommandBar,
     SecondaryPanel,
 }
@@ -35,7 +36,8 @@ impl FocusedPane {
             Self::Chat => Self::SnapshotDag,
             Self::SnapshotDag => Self::DiffViewer,
             Self::DiffViewer => Self::McpPanel,
-            Self::McpPanel => Self::CommandBar,
+            Self::McpPanel => Self::HolodeckViewport,
+            Self::HolodeckViewport => Self::CommandBar,
             Self::CommandBar => Self::AgentList,
             Self::BlockingPrompt => Self::AgentList,
             Self::SecondaryPanel => Self::CommandBar,
@@ -52,7 +54,8 @@ impl FocusedPane {
             Self::SnapshotDag => Self::Chat,
             Self::DiffViewer => Self::SnapshotDag,
             Self::McpPanel => Self::DiffViewer,
-            Self::CommandBar => Self::McpPanel,
+            Self::HolodeckViewport => Self::McpPanel,
+            Self::CommandBar => Self::HolodeckViewport,
             Self::BlockingPrompt => Self::ThoughtStream,
             Self::SecondaryPanel => Self::ThoughtStream,
         }
@@ -72,6 +75,8 @@ pub struct AppLayout {
     pub blocking_prompt: Option<Rect>,
     pub chat_area: Option<Rect>,
     pub notification_area: Rect,
+    // Phase 3: Holodeck viewport
+    pub holodeck_viewport: Option<Rect>,
 }
 
 impl AppLayout {
@@ -83,14 +88,18 @@ impl AppLayout {
     }
 
     pub fn with_mode(area: Rect, mode: LayoutMode, has_blocking: bool) -> Self {
+        Self::with_options(area, mode, has_blocking, false)
+    }
+
+    pub fn with_options(area: Rect, mode: LayoutMode, has_blocking: bool, show_holodeck: bool) -> Self {
         match mode {
-            LayoutMode::Cockpit => Self::cockpit_layout(area, has_blocking),
-            LayoutMode::Focused => Self::focused_layout(area, has_blocking),
+            LayoutMode::Cockpit => Self::cockpit_layout(area, has_blocking, show_holodeck),
+            LayoutMode::Focused => Self::focused_layout(area, has_blocking, show_holodeck),
             LayoutMode::Monitor => Self::monitor_layout(area, has_blocking),
         }
     }
 
-    fn cockpit_layout(area: Rect, has_blocking: bool) -> Self {
+    fn cockpit_layout(area: Rect, has_blocking: bool, show_holodeck: bool) -> Self {
         // Vertical: status(1) | main | command(3)
         let vertical = Layout::default()
             .direction(Direction::Vertical)
@@ -117,7 +126,21 @@ impl AppLayout {
 
         let agent_list = horizontal[0];
         let center = horizontal[1];
-        let secondary_panel = horizontal[2];
+        let right_panel = horizontal[2];
+
+        // Split right panel: holodeck viewport (top 50%) | secondary (bottom 50%)
+        let (holodeck_viewport, secondary_panel) = if show_holodeck {
+            let right_split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(50),
+                    Constraint::Percentage(50),
+                ])
+                .split(right_panel);
+            (Some(right_split[0]), Some(right_split[1]))
+        } else {
+            (None, Some(right_panel))
+        };
 
         // Center vertical: agent_detail(6) | thought_stream (or split with blocking)
         let detail_split = if has_blocking {
@@ -155,14 +178,15 @@ impl AppLayout {
             detail_area: center,
             agent_detail,
             thought_stream,
-            secondary_panel: Some(secondary_panel),
+            secondary_panel,
             blocking_prompt,
             chat_area: None,
             notification_area: Self::notification_rect(area),
+            holodeck_viewport,
         }
     }
 
-    fn focused_layout(area: Rect, has_blocking: bool) -> Self {
+    fn focused_layout(area: Rect, has_blocking: bool, show_holodeck: bool) -> Self {
         // Vertical: status(1) | main | command(3)
         let vertical = Layout::default()
             .direction(Direction::Vertical)
@@ -177,6 +201,33 @@ impl AppLayout {
         let main_area = vertical[1];
         let command_bar = vertical[2];
 
+        // In focused mode with holodeck: add a holodeck row above the thought stream
+        let holodeck_viewport = if show_holodeck {
+            let holo_split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(12), // holodeck viewport height
+                    Constraint::Min(5),
+                ])
+                .split(main_area);
+            Some(holo_split[0])
+        } else {
+            None
+        };
+
+        let content_area = if show_holodeck {
+            let holo_split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(12),
+                    Constraint::Min(5),
+                ])
+                .split(main_area);
+            holo_split[1]
+        } else {
+            main_area
+        };
+
         // Full width: agent_detail(6) | thought_stream (or split with blocking/chat)
         let detail_split = if has_blocking {
             Layout::default()
@@ -187,7 +238,7 @@ impl AppLayout {
                     Constraint::Percentage(25),
                     Constraint::Percentage(25),
                 ])
-                .split(main_area)
+                .split(content_area)
         } else {
             Layout::default()
                 .direction(Direction::Vertical)
@@ -196,7 +247,7 @@ impl AppLayout {
                     Constraint::Percentage(70),
                     Constraint::Percentage(30),
                 ])
-                .split(main_area)
+                .split(content_area)
         };
 
         let agent_detail = detail_split[0];
@@ -213,13 +264,14 @@ impl AppLayout {
             command_bar,
             // No agent list in focused mode — use a zero-width rect
             agent_list: Rect::new(main_area.x, main_area.y, 0, main_area.height),
-            detail_area: main_area,
+            detail_area: content_area,
             agent_detail,
             thought_stream,
             secondary_panel: None,
             blocking_prompt,
             chat_area,
             notification_area: Self::notification_rect(area),
+            holodeck_viewport,
         }
     }
 
@@ -272,6 +324,7 @@ impl AppLayout {
             blocking_prompt: None,
             chat_area: None,
             notification_area: Self::notification_rect(area),
+            holodeck_viewport: None, // No holodeck in monitor mode
         }
     }
 
@@ -421,6 +474,8 @@ mod tests {
         assert_eq!(pane, FocusedPane::DiffViewer);
         let pane = pane.next(); // McpPanel
         assert_eq!(pane, FocusedPane::McpPanel);
+        let pane = pane.next(); // HolodeckViewport
+        assert_eq!(pane, FocusedPane::HolodeckViewport);
         let pane = pane.next(); // CommandBar
         assert_eq!(pane, FocusedPane::CommandBar);
         let pane = pane.next(); // AgentList (wraps)
@@ -432,6 +487,8 @@ mod tests {
         let pane = FocusedPane::AgentList;
         let pane = pane.prev(); // CommandBar
         assert_eq!(pane, FocusedPane::CommandBar);
+        let pane = pane.prev(); // HolodeckViewport
+        assert_eq!(pane, FocusedPane::HolodeckViewport);
         let pane = pane.prev(); // McpPanel
         assert_eq!(pane, FocusedPane::McpPanel);
         let pane = pane.prev(); // DiffViewer
@@ -484,5 +541,58 @@ mod tests {
     #[test]
     fn test_focused_pane_default() {
         assert_eq!(FocusedPane::default(), FocusedPane::AgentList);
+    }
+
+    // === Holodeck viewport layout tests ===
+
+    #[test]
+    fn test_cockpit_layout_with_holodeck() {
+        let area = Rect::new(0, 0, 120, 40);
+        let layout = AppLayout::with_options(area, LayoutMode::Cockpit, false, true);
+
+        assert!(layout.holodeck_viewport.is_some());
+        let hv = layout.holodeck_viewport.unwrap();
+        assert!(hv.area() > 0);
+        // Secondary panel should also exist (below holodeck)
+        assert!(layout.secondary_panel.is_some());
+        assert!(layout.secondary_panel.unwrap().area() > 0);
+    }
+
+    #[test]
+    fn test_cockpit_layout_without_holodeck() {
+        let area = Rect::new(0, 0, 120, 40);
+        let layout = AppLayout::with_options(area, LayoutMode::Cockpit, false, false);
+
+        assert!(layout.holodeck_viewport.is_none());
+        assert!(layout.secondary_panel.is_some());
+    }
+
+    #[test]
+    fn test_focused_layout_with_holodeck() {
+        let area = Rect::new(0, 0, 120, 40);
+        let layout = AppLayout::with_options(area, LayoutMode::Focused, false, true);
+
+        assert!(layout.holodeck_viewport.is_some());
+        let hv = layout.holodeck_viewport.unwrap();
+        assert!(hv.area() > 0);
+        assert!(layout.agent_detail.area() > 0);
+        assert!(layout.thought_stream.area() > 0);
+    }
+
+    #[test]
+    fn test_monitor_layout_no_holodeck() {
+        let area = Rect::new(0, 0, 120, 40);
+        let layout = AppLayout::with_options(area, LayoutMode::Monitor, false, true);
+
+        // Monitor mode never shows holodeck
+        assert!(layout.holodeck_viewport.is_none());
+    }
+
+    #[test]
+    fn test_holodeck_viewport_pane_cycle() {
+        assert_eq!(FocusedPane::McpPanel.next(), FocusedPane::HolodeckViewport);
+        assert_eq!(FocusedPane::HolodeckViewport.next(), FocusedPane::CommandBar);
+        assert_eq!(FocusedPane::CommandBar.prev(), FocusedPane::HolodeckViewport);
+        assert_eq!(FocusedPane::HolodeckViewport.prev(), FocusedPane::McpPanel);
     }
 }

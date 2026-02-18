@@ -20,7 +20,9 @@ pub enum ConnectionStatus {
     Disconnected,
     Connecting,
     Connected,
-    Reconnecting { attempt: u32 },
+    Reconnecting {
+        attempt: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -80,6 +82,11 @@ pub struct AppState {
     pub is_speaking: bool,
     pub transcribed_text: Option<String>,
     pub voice_error: Option<String>,
+    // Holodeck fields:
+    pub holodeck_connected: bool,
+    pub show_holodeck_viewport: bool,
+    /// Raw RGBA frame data + dimensions, updated from watch channel.
+    pub holodeck_frame: Option<(Vec<u8>, u32, u32)>,
 }
 
 impl Default for AppState {
@@ -121,6 +128,9 @@ impl Default for AppState {
             is_speaking: false,
             transcribed_text: None,
             voice_error: None,
+            holodeck_connected: false,
+            show_holodeck_viewport: false,
+            holodeck_frame: None,
         }
     }
 }
@@ -201,8 +211,7 @@ impl AppState {
 
     pub fn select_next_snapshot(&mut self) {
         if !self.snapshots.is_empty() {
-            self.selected_snapshot_idx =
-                (self.selected_snapshot_idx + 1) % self.snapshots.len();
+            self.selected_snapshot_idx = (self.selected_snapshot_idx + 1) % self.snapshots.len();
         }
     }
 
@@ -269,6 +278,12 @@ impl AppState {
     pub fn set_transcription(&mut self, text: String) {
         self.command_input = text.clone();
         self.transcribed_text = Some(text);
+    }
+
+    // Holodeck methods:
+
+    pub fn toggle_holodeck_viewport(&mut self) {
+        self.show_holodeck_viewport = !self.show_holodeck_viewport;
     }
 }
 
