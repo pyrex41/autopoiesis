@@ -123,6 +123,8 @@
        (:file "provider-codex")
        (:file "provider-opencode")
        (:file "provider-cursor")
+       (:file "provider-pi")
+       (:file "integrate-primitives")
        (:file "provider-agent")
        (:file "agentic-agent")
        (:file "openai-bridge")
