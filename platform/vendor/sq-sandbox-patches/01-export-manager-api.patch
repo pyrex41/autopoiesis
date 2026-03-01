@@ -1,0 +1,76 @@
+diff --git a/impl/cl/src/packages.lisp b/impl/cl/src/packages.lisp
+index 41af082..4051e78 100644
+--- a/impl/cl/src/packages.lisp
++++ b/impl/cl/src/packages.lisp
+@@ -31,6 +31,71 @@
+            #:call-with-production-handlers
+            #:mount-squashfs-layers
+ 
++           ;; Config
++           #:config
++           #:make-config
++           #:config-from-env
++           #:config-data-dir
++           #:config-port
++           #:config-max-sandboxes
++           #:config-upper-limit-mb
++           #:config-backend
++           #:config-auth-token
++           #:config-s3-bucket
++           #:config-s3-region
++           #:config-s3-prefix
++           #:config-s3-access-key
++           #:config-s3-secret-key
++           #:config-s3-endpoint
++           #:config-proxy-https
++           #:config-secrets-dir
++           #:config-upper-backend
++           #:config-local-cache-dir
++           #:config-bus-sock-path
++
++           ;; Manager
++           #:manager
++           #:make-manager
++           #:manager-create-sandbox
++           #:manager-destroy-sandbox
++           #:manager-exec
++           #:manager-snapshot
++           #:manager-restore
++           #:manager-activate-module
++           #:manager-sandbox-info
++           #:manager-sandbox-count
++           #:list-sandbox-infos
++           #:manager-exec-logs
++
++           ;; Exec result
++           #:exec-result
++           #:make-exec-result
++           #:exec-result-exit-code
++           #:exec-result-stdout
++           #:exec-result-stderr
++           #:exec-result-started
++           #:exec-result-finished
++           #:exec-result-duration-ms
++           #:exec-result-seq
++
++           ;; Sandbox struct
++           #:sandbox
++           #:sandbox-id
++           #:sandbox-state
++           #:sandbox-created
++           #:sandbox-last-active
++           #:sandbox-exec-count
++
++           ;; Modules
++           #:list-available-modules
++           #:module-exists-p
++
++           ;; Recovery
++           #:init-recover
++
++           ;; Reaper
++           #:reaper-loop
++
+            ;; HTTP API
+            #:*app*
+            #:build-app
