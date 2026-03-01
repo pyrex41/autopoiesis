@@ -259,6 +259,21 @@
    #:cursor-mode
    #:cursor-force
 
+   ;; Pi provider
+   #:pi-provider
+   #:make-pi-provider
+   #:pi-thinking
+   #:pi-extension-policy
+
+   ;; OpenCode enhanced slots
+   #:opencode-agent-mode
+   #:opencode-no-tui
+
+   ;; Meta-dispatcher
+   #:coding-primitive
+   #:select-coding-backend
+   #:ensure-coding-provider
+
    ;; Provider-backed agent
    #:provider-backed-agent
    #:make-provider-backed-agent

@@ -42,11 +42,13 @@
    - CLAUDE_CODE_PATH - Path to claude CLI binary
    - CODEX_PATH - Path to codex CLI binary
    - OPENCODE_PATH - Path to opencode CLI binary
-   - CURSOR_AGENT_PATH - Path to cursor-agent CLI binary"
+   - CURSOR_AGENT_PATH - Path to cursor-agent CLI binary
+   - PI_PATH - Path to pi CLI binary"
   (let ((claude-path (uiop:getenv "CLAUDE_CODE_PATH"))
         (codex-path (uiop:getenv "CODEX_PATH"))
         (opencode-path (uiop:getenv "OPENCODE_PATH"))
-        (cursor-path (uiop:getenv "CURSOR_AGENT_PATH")))
+        (cursor-path (uiop:getenv "CURSOR_AGENT_PATH"))
+        (pi-path (uiop:getenv "PI_PATH")))
     (when claude-path
       (set-config :claude-code-path claude-path))
     (when codex-path
@@ -54,7 +56,9 @@
     (when opencode-path
       (set-config :opencode-path opencode-path))
     (when cursor-path
-      (set-config :cursor-agent-path cursor-path))))
+      (set-config :cursor-agent-path cursor-path))
+    (when pi-path
+      (set-config :pi-path pi-path))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Initialization
