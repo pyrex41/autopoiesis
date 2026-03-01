@@ -252,6 +252,54 @@
       (is (member "--output-format" args :test #'string=))
       (is (member "--force" args :test #'string=)))))
 
+(test nanobot-provider-creation
+  "Test NanoBot provider creation and slot defaults"
+  (let ((p (autopoiesis.integration:make-nanobot-provider
+            :workspace "/tmp/test")))
+    (is (not (null p)))
+    (is (string= "nanobot" (autopoiesis.integration:provider-name p)))
+    (is (string= "nanobot" (autopoiesis.integration:provider-command p)))
+    (is (string= "/tmp/test" (autopoiesis.integration:nanobot-workspace p)))))
+
+(test nanobot-provider-build-command
+  "Test NanoBot provider command building"
+  (let ((p (autopoiesis.integration:make-nanobot-provider
+            :workspace "/tmp/ws")))
+    (multiple-value-bind (cmd args)
+        (autopoiesis.integration:provider-build-command p "do stuff")
+      (is (string= "nanobot" cmd))
+      (is (member "agent" args :test #'string=))
+      (is (member "--no-markdown" args :test #'string=))
+      (is (member "-m" args :test #'string=))
+      (is (member "--workspace" args :test #'string=)))))
+
+(test nanosquash-provider-creation
+  "Test Nanosquash provider creation and slot defaults"
+  (let ((p (autopoiesis.integration:make-nanosquash-provider
+            :layers #("000-base-alpine"))))
+    (is (not (null p)))
+    (is (string= "nanosquash" (autopoiesis.integration:provider-name p)))
+    (is (string= "nanosquash" (autopoiesis.integration:provider-command p)))
+    (is (equalp #("000-base-alpine") (autopoiesis.integration:nanosquash-layers p)))
+    (is (eq t (autopoiesis.integration:nanosquash-ephemeral p)))
+    (is (null (autopoiesis.integration:nanosquash-sandbox-id p)))))
+
+(test nanosquash-native-p-check
+  "Test nanosquash-native-p returns nil when cl-nanosquash not loaded"
+  (is (null (autopoiesis.integration:nanosquash-native-p))))
+
+(test nanosquash-provider-serialization
+  "Test nanosquash provider serialization round-trip"
+  (let ((p (autopoiesis.integration:make-nanosquash-provider
+            :name "ns-test" :sandbox-id "test-box"
+            :layers #("layer1") :ephemeral nil)))
+    (let ((sexpr (autopoiesis.integration:provider-to-sexpr p)))
+      (is (eq :provider (first sexpr)))
+      (is (string= "ns-test" (getf (rest sexpr) :name)))
+      (is (string= "test-box" (getf (rest sexpr) :sandbox-id)))
+      (is (equalp #("layer1") (getf (rest sexpr) :layers)))
+      (is (null (getf (rest sexpr) :ephemeral))))))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Tool Formatting Tests
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -320,7 +368,11 @@
   (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
                              (autopoiesis.integration:make-codex-provider))))
   (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
-                             (autopoiesis.integration:make-cursor-provider)))))
+                             (autopoiesis.integration:make-cursor-provider))))
+  (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
+                             (autopoiesis.integration:make-nanobot-provider))))
+  (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
+                             (autopoiesis.integration:make-nanosquash-provider)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Pi Provider Tests

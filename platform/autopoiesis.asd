@@ -124,6 +124,8 @@
        (:file "provider-opencode")
        (:file "provider-cursor")
        (:file "provider-pi")
+       (:file "provider-nanobot")
+       (:file "provider-nanosquash")
        (:file "integrate-primitives")
        (:file "provider-agent")
        (:file "agentic-agent")

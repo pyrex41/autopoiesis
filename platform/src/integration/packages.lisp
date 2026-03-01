@@ -265,6 +265,20 @@
    #:pi-thinking
    #:pi-extension-policy
 
+   ;; NanoBot provider
+   #:nanobot-provider
+   #:make-nanobot-provider
+   #:nanobot-workspace
+
+   ;; Nanosquash provider
+   #:nanosquash-provider
+   #:make-nanosquash-provider
+   #:nanosquash-sandbox-id
+   #:nanosquash-layers
+   #:nanosquash-squash-config
+   #:nanosquash-ephemeral
+   #:nanosquash-native-p
+
    ;; OpenCode enhanced slots
    #:opencode-agent-mode
    #:opencode-no-tui
