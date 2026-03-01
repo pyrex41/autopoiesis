@@ -51,8 +51,10 @@
 
    ;; File operations (workspace-aware)
    #:ws-read-file
+   #:ws-read-host-file
    #:ws-write-file
    #:ws-exec
+   #:ws-grep
    #:ws-list-directory
    #:ws-file-exists-p
 
@@ -65,6 +67,7 @@
    #:backend-exec
    #:backend-write-file
    #:backend-read-file
+   #:backend-read-host-file
 
    ;; Registry
    #:*workspace-registry*

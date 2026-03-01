@@ -95,6 +95,18 @@ Full process, filesystem, and network isolation."))
         (error "Failed to read ~A in sandbox: ~A"
                full-path (squashd:exec-result-stderr result)))))
 
+(defmethod autopoiesis.workspace:backend-read-host-file
+    ((backend sandbox-workspace-backend) workspace path)
+  "Read a file from the HOST filesystem, bypassing the sandbox.
+   This allows agents in sandbox-isolated workspaces to read source
+   code, configs, and other files on the host machine."
+  (let ((full-path (if (uiop:absolute-pathname-p path)
+                       path
+                       (merge-pathnames path (uiop:getcwd)))))
+    (if (probe-file full-path)
+        (uiop:read-file-string full-path)
+        (error "Host file not found: ~A" full-path))))
+
 ;;; ── Registration ────────────────────────────────────────────────
 ;;;
 ;;; Register the sandbox backend when this file loads.

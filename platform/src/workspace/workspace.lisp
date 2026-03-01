@@ -38,6 +38,17 @@
   (:documentation "Read a file from within the workspace.
    PATH is relative to the workspace root."))
 
+(defgeneric backend-read-host-file (backend workspace path)
+  (:documentation "Read a file from the HOST filesystem, bypassing isolation.
+   Used when an agent in an isolated workspace needs to read source code,
+   configuration, or other host files that are outside the workspace.
+   Default implementation delegates to backend-read-file."))
+
+;;; Default: same as backend-read-file (works for :none and :directory
+;;; since they already read from the host filesystem).
+(defmethod backend-read-host-file ((backend isolation-backend) workspace path)
+  (backend-read-file backend workspace path))
+
 ;;; ── Backend Registry ────────────────────────────────────────────
 
 (defvar *isolation-backends* (make-hash-table :test 'eq)

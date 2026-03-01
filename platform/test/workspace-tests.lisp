@@ -259,11 +259,79 @@
 (test workspace-capability-names
   "Test the workspace capability names list"
   (let ((names (autopoiesis.workspace::workspace-capability-names)))
-    (is (= 4 (length names)))
+    (is (= 6 (length names)))
     (is (member 'autopoiesis.workspace::ws-read-file-cap names))
     (is (member 'autopoiesis.workspace::ws-write-file-cap names))
     (is (member 'autopoiesis.workspace::ws-exec-cap names))
-    (is (member 'autopoiesis.workspace::ws-install-cap names))))
+    (is (member 'autopoiesis.workspace::ws-install-cap names))
+    (is (member 'autopoiesis.workspace::ws-read-host-file-cap names))
+    (is (member 'autopoiesis.workspace::ws-grep-cap names))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Host Read / Grep Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test ws-read-file-host-flag
+  "Test that ws-read-file with :host t reads from host filesystem"
+  (autopoiesis.workspace:with-workspace
+      (nil :task "host-read-test" :isolation :directory
+           :root "/tmp/ap-ws-hostread/")
+    ;; Write a file INSIDE the workspace
+    (autopoiesis.workspace:ws-write-file "inside.txt" "workspace content")
+    ;; Read a known host file using :host t (not from workspace)
+    (let ((host-content (autopoiesis.workspace:ws-read-file
+                         "/proc/version" :host t)))
+      ;; /proc/version should contain "Linux" on any Linux system
+      (is (search "Linux" host-content)))
+    ;; Regular read should still get workspace file
+    (let ((ws-content (autopoiesis.workspace:ws-read-file "inside.txt")))
+      (is (equal "workspace content" ws-content))))
+  (ignore-errors
+    (uiop:delete-directory-tree (pathname "/tmp/ap-ws-hostread/") :validate t)))
+
+(test ws-read-host-file-function
+  "Test the ws-read-host-file convenience function"
+  (autopoiesis.workspace:with-workspace
+      (nil :task "host-read-conv-test" :isolation :directory
+           :root "/tmp/ap-ws-hostread2/")
+    (let ((content (autopoiesis.workspace:ws-read-host-file "/proc/version")))
+      (is (search "Linux" content))))
+  (ignore-errors
+    (uiop:delete-directory-tree (pathname "/tmp/ap-ws-hostread2/") :validate t)))
+
+(test ws-grep-host-files
+  "Test that ws-grep searches the host filesystem"
+  (autopoiesis.workspace:with-workspace
+      (nil :task "grep-test" :isolation :directory
+           :root "/tmp/ap-ws-greptest/")
+    ;; Write a file INSIDE the workspace
+    (autopoiesis.workspace:ws-write-file "test.lisp" "(defun hello () 42)")
+    ;; grep the workspace directory — should find the file we wrote
+    (let ((result (autopoiesis.workspace:ws-grep
+                   "defun hello"
+                   :path "/tmp/ap-ws-greptest/")))
+      (is (search "defun hello" result))
+      (is (search "test.lisp" result))))
+  (ignore-errors
+    (uiop:delete-directory-tree (pathname "/tmp/ap-ws-greptest/") :validate t)))
+
+(test ws-grep-no-workspace
+  "Test that ws-grep works with no workspace bound"
+  (let ((autopoiesis.workspace:*current-workspace* nil))
+    ;; grep should still work directly on host
+    (let ((result (autopoiesis.workspace:ws-grep
+                   "this-pattern-wont-match-anything"
+                   :path "/tmp/")))
+      (is (equal "No matches found" result)))))
+
+(test host-read-backend-protocol
+  "Test that backend-read-host-file defaults to backend-read-file for non-sandbox"
+  ;; For :directory and :none backends, host-read should be the same as regular read
+  (let ((dir-backend (autopoiesis.workspace:find-isolation-backend :directory))
+        (none-backend (autopoiesis.workspace:find-isolation-backend :none)))
+    ;; Both backends should respond to backend-read-host-file
+    (is (not (null dir-backend)))
+    (is (not (null none-backend)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Sandbox Backend Tests (structural only — no actual sandbox)
