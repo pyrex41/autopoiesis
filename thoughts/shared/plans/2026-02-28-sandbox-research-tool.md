@@ -22,6 +22,17 @@ Layer 2: Research Campaign (THIS PLAN)
   research question → approach generation → parallel sandbox trials → result aggregation → human review
 ```
 
+### Two Execution Modes
+
+| Mode | How it works | Best for |
+|------|-------------|----------|
+| `:tool-backed` (default) | AP agentic-agent runs in CL, calls sandbox via tool capabilities (sandbox-exec, sandbox-write-file, etc.) | Structured experiments with full cognitive observability |
+| `:fully-sandboxed` | An entire agent CLI (e.g., Claude Code) runs inside the sandbox with full filesystem/network access | Open-ended exploration, complex multi-step tasks, using existing agent tooling |
+
+Both modes are available via `run-research` and can also be used standalone:
+- Tool-backed: automatic via the campaign's agentic loop
+- Fully-sandboxed: also available via `(run-sandboxed-agent "prompt...")` for one-off tasks
+
 ### Data Flow
 
 ```

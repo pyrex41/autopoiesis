@@ -303,3 +303,54 @@
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
+
+;;; Sandbox integration (squashd container runtime)
+;;; Separate system requiring Linux + privileged container for full operation
+(asdf:defsystem #:autopoiesis/sandbox
+  :description "Container sandbox integration via squashd"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :serial t
+  :depends-on (#:autopoiesis
+               #:squashd-core)
+  :components
+  ((:module "src/sandbox"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "entity-types")
+     (:file "sandbox-provider")
+     (:file "conductor-dispatch")))))
+
+;;; Research campaign layer (sandbox-backed parallel investigation)
+(asdf:defsystem #:autopoiesis/research
+  :description "Sandbox-backed parallel research campaigns"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :serial t
+  :depends-on (#:autopoiesis
+               #:autopoiesis/sandbox
+               #:cl-base64)
+  :components
+  ((:module "src/research"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "tools")
+     (:file "campaign")
+     (:file "interface")))))
+
+;;; Sandbox integration tests
+(asdf:defsystem #:autopoiesis/sandbox-test
+  :description "Tests for sandbox and research integration"
+  :depends-on (#:autopoiesis/research #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "sandbox-tests"))))
+  :perform (test-op (o c)
+             (symbol-call :autopoiesis.sandbox.test :run-sandbox-tests)))
