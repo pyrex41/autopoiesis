@@ -5,8 +5,11 @@
 ;;;; bound, they fall back to direct host filesystem access (same as
 ;;;; the original builtin-tools.lisp capabilities).
 ;;;;
-;;;; Agents that need workspace isolation should use these capabilities
-;;;; instead of the raw read-file/write-file/run-command from builtin-tools.
+;;;; For :sandbox isolation, the sandbox is hermetic — all reads, writes,
+;;;; and exec are confined within the sandbox. To give an agent access to
+;;;; host files, use :references when creating the workspace. Reference
+;;;; directories are snapshotted into read-only squashfs layers and mounted
+;;;; at /ref/<name>/ inside the sandbox.
 
 (in-package #:autopoiesis.workspace)
 
@@ -15,59 +18,44 @@
 ;;; These are plain functions, not capabilities. They can be called
 ;;; from within agentic loops, capability bodies, or user code.
 
-(defun %apply-line-filter (content start-line end-line)
-  "Apply line filtering to file content when start-line or end-line is given."
-  (if (or start-line end-line)
-      (let ((lines (uiop:split-string content :separator '(#\Newline))))
-        (format nil "~{~A~^~%~}"
-                (subseq lines
-                        (max 0 (1- (or start-line 1)))
-                        (min (length lines) (or end-line (length lines))))))
-      content))
-
-(defun %read-host-file (path &key start-line end-line)
-  "Read a file directly from the host filesystem."
-  (let ((full-path (if (uiop:absolute-pathname-p path)
-                       path
-                       (merge-pathnames path (uiop:getcwd)))))
-    (if (probe-file full-path)
-        (%apply-line-filter (uiop:read-file-string full-path)
-                            start-line end-line)
-        (format nil "Error: File not found: ~A" full-path))))
-
-(defun ws-read-file (path &key start-line end-line host)
+(defun ws-read-file (path &key start-line end-line)
   "Read a file, resolving through the current workspace if one is bound.
    PATH can be relative (resolved against workspace root) or absolute.
-   HOST - When non-nil, read from the host filesystem even if a workspace
-          is bound. This allows agents in sandbox-isolated workspaces to
-          read source code, configs, and other host files.
+   For :sandbox workspaces, reads are confined to the sandbox.
+   Host files are available at /ref/<name>/ via :references.
    Returns file contents as a string."
-  (if (or (null *current-workspace*) host)
-      ;; Direct host access (no workspace, or explicit :host t)
-      (if (and host *current-workspace*)
-          ;; Explicit host read from within a workspace
-          (let ((backend (find-isolation-backend
-                          (workspace-isolation *current-workspace*))))
-            (handler-case
-                (%apply-line-filter
-                 (backend-read-host-file backend *current-workspace* path)
-                 start-line end-line)
-              (error (e)
-                (format nil "Error reading host file ~A: ~A" path e))))
-          ;; No workspace at all
-          (handler-case
-              (%read-host-file path :start-line start-line :end-line end-line)
-            (error (e)
-              (format nil "Error reading ~A: ~A" path e))))
-      ;; Workspace-routed read
+  (if *current-workspace*
       (let ((backend (find-isolation-backend
                       (workspace-isolation *current-workspace*))))
         (handler-case
-            (%apply-line-filter
-             (backend-read-file backend *current-workspace* path)
-             start-line end-line)
+            (let ((content (backend-read-file backend *current-workspace* path)))
+              (if (or start-line end-line)
+                  ;; Apply line filtering
+                  (let ((lines (uiop:split-string content :separator '(#\Newline))))
+                    (format nil "~{~A~^~%~}"
+                            (subseq lines
+                                    (max 0 (1- (or start-line 1)))
+                                    (min (length lines) (or end-line (length lines))))))
+                  content))
           (error (e)
-            (format nil "Error reading ~A: ~A" path e))))))
+            (format nil "Error reading ~A: ~A" path e))))
+      ;; No workspace — direct host access
+      (handler-case
+          (let ((full-path (if (uiop:absolute-pathname-p path)
+                               path
+                               (merge-pathnames path (uiop:getcwd)))))
+            (if (probe-file full-path)
+                (let ((content (uiop:read-file-string full-path)))
+                  (if (or start-line end-line)
+                      (let ((lines (uiop:split-string content :separator '(#\Newline))))
+                        (format nil "~{~A~^~%~}"
+                                (subseq lines
+                                        (max 0 (1- (or start-line 1)))
+                                        (min (length lines) (or end-line (length lines))))))
+                      content))
+                (format nil "Error: File not found: ~A" full-path)))
+        (error (e)
+          (format nil "Error reading ~A: ~A" path e)))))
 
 (defun ws-write-file (path content)
   "Write a file, resolving through the current workspace if one is bound.
@@ -121,45 +109,6 @@
           (error (e)
             (values "" (format nil "Error: ~A" e) -1))))))
 
-(defun ws-read-host-file (path &key start-line end-line)
-  "Read a file from the HOST filesystem, regardless of workspace isolation.
-   This is a convenience wrapper for (ws-read-file path :host t ...).
-   Agents in sandbox-isolated workspaces can use this to read source code,
-   configuration files, or any other file on the host machine."
-  (ws-read-file path :start-line start-line :end-line end-line :host t))
-
-(defun ws-grep (pattern &key path file-pattern)
-  "Search for PATTERN in files on the HOST filesystem.
-   Always searches the host, regardless of workspace isolation.
-   This ensures agents in sandboxed workspaces can still grep source code.
-
-   PATTERN     - String to search for in file contents.
-   PATH        - Directory to search (default: current directory).
-   FILE-PATTERN - Glob to filter files (default: '*.*').
-   Returns matching lines with file:line: prefix."
-  (handler-case
-      (let ((results nil)
-            (search-path (or path (namestring (uiop:getcwd))))
-            (file-glob (or file-pattern "*.*")))
-        (dolist (file (directory (merge-pathnames file-glob search-path)))
-          (when (and (probe-file file)
-                     (not (uiop:directory-pathname-p file)))
-            (handler-case
-                (with-open-file (in file :direction :input)
-                  (loop for line = (read-line in nil nil)
-                        for line-num from 1
-                        while line
-                        when (search pattern line)
-                        do (push (format nil "~A:~A: ~A"
-                                         (namestring file) line-num line)
-                                 results)))
-              (error () nil))))  ; Skip unreadable files
-        (if results
-            (format nil "~{~A~^~%~}" (nreverse results))
-            "No matches found"))
-    (error (e)
-      (format nil "Error searching: ~A" e))))
-
 (defun ws-list-directory (&key (path ".") pattern)
   "List directory contents within the current workspace.
    PATH is relative to workspace root (default: root itself)."
@@ -197,15 +146,15 @@
 ;;; These register as capabilities that agentic agents can use as tools.
 ;;; They delegate to the ws-* functions above.
 
-(autopoiesis.agent:defcapability ws-read-file-cap (&key path start-line end-line host)
+(autopoiesis.agent:defcapability ws-read-file-cap (&key path start-line end-line)
   "Read a file within the current workspace.
-   PATH can be relative to workspace root or absolute.
-   HOST - When true, read from the host filesystem even if in a sandbox.
-          Use this to read source code, configs, or reference files.
+   PATH can be relative to workspace root or absolute within the sandbox.
+   For sandbox workspaces, host files are available at /ref/<name>/
+   via the :references mechanism.
    Returns file contents as a string."
   :permissions (:file-read)
   :body
-  (ws-read-file path :start-line start-line :end-line end-line :host host))
+  (ws-read-file path :start-line start-line :end-line end-line))
 
 (autopoiesis.agent:defcapability ws-write-file-cap (&key path content)
   "Write a file within the current workspace.
@@ -249,26 +198,6 @@
           (format nil "Installed: ~A" packages)
           (format nil "Install failed (exit ~A): ~A" exit-code stderr)))))
 
-(autopoiesis.agent:defcapability ws-read-host-file-cap (&key path start-line end-line)
-  "Read a file from the HOST filesystem, bypassing workspace isolation.
-   Always reads from the host, even if the current workspace uses sandbox
-   isolation. Use this when you need to read source code, configuration,
-   or reference files on the host machine."
-  :permissions (:file-read)
-  :body
-  (ws-read-host-file path :start-line start-line :end-line end-line))
-
-(autopoiesis.agent:defcapability ws-grep-cap (&key pattern path file-pattern)
-  "Search for PATTERN in files on the HOST filesystem.
-   Always searches the host, regardless of workspace isolation.
-   PATH is the directory to search (default: current directory).
-   FILE-PATTERN is a glob to filter files (default: '*.*').
-   Returns matching lines with file:line: prefix."
-  :permissions (:file-read)
-  :body
-  (ws-grep pattern :path path :file-pattern file-pattern))
-
 (defun workspace-capability-names ()
   "Return the list of workspace-aware capability names."
-  '(ws-read-file-cap ws-write-file-cap ws-exec-cap ws-install-cap
-    ws-read-host-file-cap ws-grep-cap))
+  '(ws-read-file-cap ws-write-file-cap ws-exec-cap ws-install-cap))

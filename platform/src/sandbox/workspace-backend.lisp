@@ -3,6 +3,10 @@
 ;;;; Registers :sandbox as an isolation backend for the workspace system.
 ;;;; When autopoiesis/sandbox is loaded, sandbox-backed workspaces become
 ;;;; available via (with-workspace (agent :isolation :sandbox ...)).
+;;;;
+;;;; The sandbox is hermetic — all reads, writes, and exec are confined.
+;;;; Host files are made available via :references, which snapshot host
+;;;; directories into squashfs layers mounted at /ref/<name>/ in the sandbox.
 
 (in-package #:autopoiesis.sandbox)
 
@@ -12,24 +16,41 @@
   ()
   (:default-initargs :name :sandbox)
   (:documentation "Workspace isolation via squashd container sandboxes.
-Full process, filesystem, and network isolation."))
+Full process, filesystem, and network isolation.
+Host files are only available through :references (snapshot layers)."))
 
 (defmethod autopoiesis.workspace:backend-create-workspace
     ((backend sandbox-workspace-backend) workspace)
-  "Create a squashd sandbox for the workspace."
+  "Create a squashd sandbox for the workspace.
+   If the workspace has :references, snapshot each host directory
+   into a squashfs module and include it as a layer."
   (unless *sandbox-manager*
     (error "Sandbox manager not initialized. Call start-sandbox-manager first."))
   (let* ((ws-id (autopoiesis.workspace:workspace-id workspace))
          (sandbox-id (format nil "ws-~A" ws-id))
          (metadata (autopoiesis.workspace:workspace-metadata workspace))
-         (layers (or (getf metadata :layers) '("000-base-alpine")))
+         (base-layers (or (getf metadata :layers) '("000-base-alpine")))
+         (references (autopoiesis.workspace:workspace-references workspace))
          (memory-mb (or (getf metadata :memory-mb) 1024))
-         (timeout (or (getf metadata :timeout) 3600)))
+         (timeout (or (getf metadata :timeout) 3600))
+         ;; Snapshot references into squashfs modules and collect layer names
+         (ref-layers (when references
+                       (let ((modules-dir (squashd:modules-dir *sandbox-config*)))
+                         (mapcar (lambda (ref)
+                                   (autopoiesis.workspace:snapshot-directory-to-module
+                                    (getf ref :path)
+                                    (getf ref :name)
+                                    modules-dir))
+                                 references))))
+         ;; Combine: base layers first, then reference layers on top
+         ;; (higher layers take precedence in overlay — refs won't collide
+         ;; with base since they're under /ref/)
+         (all-layers (append base-layers ref-layers)))
     ;; Store sandbox-id on workspace
     (setf (autopoiesis.workspace:workspace-sandbox-id workspace) sandbox-id)
-    ;; Create the sandbox
+    ;; Create the sandbox with all layers
     (create-sandbox sandbox-id
-                    :layers layers
+                    :layers all-layers
                     :memory-mb memory-mb
                     :cpu 2.0
                     :max-lifetime-s timeout)
@@ -82,7 +103,8 @@ Full process, filesystem, and network isolation."))
 
 (defmethod autopoiesis.workspace:backend-read-file
     ((backend sandbox-workspace-backend) workspace path)
-  "Read a file from the workspace's sandbox via exec."
+  "Read a file from the workspace's sandbox via exec.
+   This includes files in /ref/<name>/ from reference layers."
   (let* ((sandbox-id (autopoiesis.workspace:workspace-sandbox-id workspace))
          (full-path (if (and (> (length path) 0) (char= (char path 0) #\/))
                         path
@@ -94,18 +116,6 @@ Full process, filesystem, and network isolation."))
         (squashd:exec-result-stdout result)
         (error "Failed to read ~A in sandbox: ~A"
                full-path (squashd:exec-result-stderr result)))))
-
-(defmethod autopoiesis.workspace:backend-read-host-file
-    ((backend sandbox-workspace-backend) workspace path)
-  "Read a file from the HOST filesystem, bypassing the sandbox.
-   This allows agents in sandbox-isolated workspaces to read source
-   code, configs, and other files on the host machine."
-  (let ((full-path (if (uiop:absolute-pathname-p path)
-                       path
-                       (merge-pathnames path (uiop:getcwd)))))
-    (if (probe-file full-path)
-        (uiop:read-file-string full-path)
-        (error "Host file not found: ~A" full-path))))
 
 ;;; ── Registration ────────────────────────────────────────────────
 ;;;

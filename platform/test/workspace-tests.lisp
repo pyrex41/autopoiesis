@@ -1,7 +1,7 @@
 ;;;; workspace-tests.lisp - Tests for workspace management
 ;;;;
 ;;;; Tests agent homes, workspace lifecycle, path resolution,
-;;;; isolation backends, capabilities, and the with-workspace macro.
+;;;; isolation backends, capabilities, references, and the with-workspace macro.
 
 (in-package #:autopoiesis.test)
 
@@ -112,6 +112,23 @@
          (progn
            (is (typep ws 'autopoiesis.workspace:workspace))
            (is (eq :none (autopoiesis.workspace:workspace-isolation ws))))
+      (autopoiesis.workspace:destroy-workspace ws))))
+
+(test workspace-creation-with-references
+  "Test that references are stored on the workspace"
+  (let* ((refs '((:path "/tmp" :name "tmp-ref")
+                 (:path "/var" :name "var-ref")))
+         (ws (autopoiesis.workspace:create-workspace
+              nil "ref test" :isolation :none :references refs)))
+    (unwind-protect
+         (progn
+           (is (= 2 (length (autopoiesis.workspace:workspace-references ws))))
+           (is (equal "/tmp"
+                      (getf (first (autopoiesis.workspace:workspace-references ws))
+                            :path)))
+           (is (equal "tmp-ref"
+                      (getf (first (autopoiesis.workspace:workspace-references ws))
+                            :name))))
       (autopoiesis.workspace:destroy-workspace ws))))
 
 (test workspace-registry
@@ -247,6 +264,62 @@
     (uiop:delete-directory-tree (pathname "/tmp/ap-ws-exectest/") :validate t)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Reference Snapshot Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test snapshot-directory-to-module-validates-path
+  "Test that snapshot-directory-to-module validates the source path"
+  (signals error
+    (autopoiesis.workspace:snapshot-directory-to-module
+     "/nonexistent/path/that/does/not/exist"
+     "test-ref"
+     "/tmp/modules/")))
+
+(test workspace-references-stored
+  "Test that references are accessible on the workspace object"
+  (let* ((refs '((:path "/tmp" :name "tmpdir")))
+         (ws (make-instance 'autopoiesis.workspace:workspace
+                            :references refs
+                            :root "/tmp/test/"
+                            :isolation :sandbox)))
+    (is (= 1 (length (autopoiesis.workspace:workspace-references ws))))
+    (is (equal "/tmp" (getf (first (autopoiesis.workspace:workspace-references ws))
+                            :path)))
+    (is (equal "tmpdir" (getf (first (autopoiesis.workspace:workspace-references ws))
+                              :name)))))
+
+(test snapshot-directory-creates-module
+  "Test that snapshot-directory-to-module creates a squashfs file"
+  (let ((modules-dir "/tmp/ap-test-modules/")
+        (source-dir "/tmp/ap-test-ref-source/"))
+    (unwind-protect
+         (progn
+           ;; Create source directory with some files
+           (ensure-directories-exist (format nil "~A.keep" source-dir))
+           (ensure-directories-exist (format nil "~Asub/" source-dir))
+           (with-open-file (out (format nil "~Ahello.txt" source-dir)
+                                :direction :output :if-exists :supersede)
+             (write-string "hello from reference" out))
+           (with-open-file (out (format nil "~Asub/nested.txt" source-dir)
+                                :direction :output :if-exists :supersede)
+             (write-string "nested content" out))
+           ;; Create modules directory
+           (ensure-directories-exist (format nil "~A.keep" modules-dir))
+           ;; Snapshot it
+           (let ((module-name
+                   (autopoiesis.workspace:snapshot-directory-to-module
+                    source-dir "test-src" modules-dir)))
+             ;; Check module name
+             (is (equal "ref-test-src" module-name))
+             ;; Check squashfs file exists
+             (is (probe-file (format nil "~Aref-test-src.squashfs" modules-dir)))))
+      ;; Cleanup
+      (ignore-errors
+        (uiop:delete-directory-tree (pathname source-dir) :validate t))
+      (ignore-errors
+        (uiop:delete-directory-tree (pathname modules-dir) :validate t)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Workspace Capability Tests
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -259,79 +332,11 @@
 (test workspace-capability-names
   "Test the workspace capability names list"
   (let ((names (autopoiesis.workspace::workspace-capability-names)))
-    (is (= 6 (length names)))
+    (is (= 4 (length names)))
     (is (member 'autopoiesis.workspace::ws-read-file-cap names))
     (is (member 'autopoiesis.workspace::ws-write-file-cap names))
     (is (member 'autopoiesis.workspace::ws-exec-cap names))
-    (is (member 'autopoiesis.workspace::ws-install-cap names))
-    (is (member 'autopoiesis.workspace::ws-read-host-file-cap names))
-    (is (member 'autopoiesis.workspace::ws-grep-cap names))))
-
-;;; ═══════════════════════════════════════════════════════════════════
-;;; Host Read / Grep Tests
-;;; ═══════════════════════════════════════════════════════════════════
-
-(test ws-read-file-host-flag
-  "Test that ws-read-file with :host t reads from host filesystem"
-  (autopoiesis.workspace:with-workspace
-      (nil :task "host-read-test" :isolation :directory
-           :root "/tmp/ap-ws-hostread/")
-    ;; Write a file INSIDE the workspace
-    (autopoiesis.workspace:ws-write-file "inside.txt" "workspace content")
-    ;; Read a known host file using :host t (not from workspace)
-    (let ((host-content (autopoiesis.workspace:ws-read-file
-                         "/proc/version" :host t)))
-      ;; /proc/version should contain "Linux" on any Linux system
-      (is (search "Linux" host-content)))
-    ;; Regular read should still get workspace file
-    (let ((ws-content (autopoiesis.workspace:ws-read-file "inside.txt")))
-      (is (equal "workspace content" ws-content))))
-  (ignore-errors
-    (uiop:delete-directory-tree (pathname "/tmp/ap-ws-hostread/") :validate t)))
-
-(test ws-read-host-file-function
-  "Test the ws-read-host-file convenience function"
-  (autopoiesis.workspace:with-workspace
-      (nil :task "host-read-conv-test" :isolation :directory
-           :root "/tmp/ap-ws-hostread2/")
-    (let ((content (autopoiesis.workspace:ws-read-host-file "/proc/version")))
-      (is (search "Linux" content))))
-  (ignore-errors
-    (uiop:delete-directory-tree (pathname "/tmp/ap-ws-hostread2/") :validate t)))
-
-(test ws-grep-host-files
-  "Test that ws-grep searches the host filesystem"
-  (autopoiesis.workspace:with-workspace
-      (nil :task "grep-test" :isolation :directory
-           :root "/tmp/ap-ws-greptest/")
-    ;; Write a file INSIDE the workspace
-    (autopoiesis.workspace:ws-write-file "test.lisp" "(defun hello () 42)")
-    ;; grep the workspace directory — should find the file we wrote
-    (let ((result (autopoiesis.workspace:ws-grep
-                   "defun hello"
-                   :path "/tmp/ap-ws-greptest/")))
-      (is (search "defun hello" result))
-      (is (search "test.lisp" result))))
-  (ignore-errors
-    (uiop:delete-directory-tree (pathname "/tmp/ap-ws-greptest/") :validate t)))
-
-(test ws-grep-no-workspace
-  "Test that ws-grep works with no workspace bound"
-  (let ((autopoiesis.workspace:*current-workspace* nil))
-    ;; grep should still work directly on host
-    (let ((result (autopoiesis.workspace:ws-grep
-                   "this-pattern-wont-match-anything"
-                   :path "/tmp/")))
-      (is (equal "No matches found" result)))))
-
-(test host-read-backend-protocol
-  "Test that backend-read-host-file defaults to backend-read-file for non-sandbox"
-  ;; For :directory and :none backends, host-read should be the same as regular read
-  (let ((dir-backend (autopoiesis.workspace:find-isolation-backend :directory))
-        (none-backend (autopoiesis.workspace:find-isolation-backend :none)))
-    ;; Both backends should respond to backend-read-host-file
-    (is (not (null dir-backend)))
-    (is (not (null none-backend)))))
+    (is (member 'autopoiesis.workspace::ws-install-cap names))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Sandbox Backend Tests (structural only — no actual sandbox)
@@ -345,6 +350,23 @@
   (let ((backend (autopoiesis.workspace:find-isolation-backend :sandbox)))
     (is (or (null backend)
             (typep backend 'autopoiesis.workspace:isolation-backend)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Sandbox Reads Are Confined (design invariant)
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test sandbox-reads-are-confined
+  "Test that ws-read-file does NOT have a :host escape parameter"
+  ;; This is a design invariant: sandbox isolation is hermetic.
+  ;; Host files are provided via :references (squashfs layers), not
+  ;; by escaping the sandbox at read time.
+  (let ((lambda-list (sb-introspect:function-lambda-list
+                      #'autopoiesis.workspace:ws-read-file)))
+    ;; Should accept :start-line and :end-line, but NOT :host
+    (is (member '&key lambda-list))
+    (is (not (member :host (mapcar (lambda (x)
+                                     (if (listp x) (first x) x))
+                                   (rest (member '&key lambda-list))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Integration: Workspace + Substrate

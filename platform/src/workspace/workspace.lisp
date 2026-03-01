@@ -38,17 +38,6 @@
   (:documentation "Read a file from within the workspace.
    PATH is relative to the workspace root."))
 
-(defgeneric backend-read-host-file (backend workspace path)
-  (:documentation "Read a file from the HOST filesystem, bypassing isolation.
-   Used when an agent in an isolated workspace needs to read source code,
-   configuration, or other host files that are outside the workspace.
-   Default implementation delegates to backend-read-file."))
-
-;;; Default: same as backend-read-file (works for :none and :directory
-;;; since they already read from the host filesystem).
-(defmethod backend-read-host-file ((backend isolation-backend) workspace path)
-  (backend-read-file backend workspace path))
-
 ;;; ── Backend Registry ────────────────────────────────────────────
 
 (defvar *isolation-backends* (make-hash-table :test 'eq)
@@ -198,6 +187,12 @@ No process isolation — just a dedicated directory."))
                :accessor workspace-sandbox-id
                :initform nil
                :documentation "Sandbox ID when isolation is :sandbox")
+   (references :initarg :references
+               :accessor workspace-references
+               :initform nil
+               :documentation "List of reference specs mounted into the workspace.
+Each spec is a plist: (:path \"/host/dir\" :name \"module-name\")
+For :sandbox isolation, these become squashfs layers mounted read-only.")
    (status :initform :active
            :accessor workspace-status
            :documentation ":active, :suspended, :destroyed")
@@ -277,19 +272,24 @@ No process isolation — just a dedicated directory."))
 (defun create-workspace (agent-id task &key (isolation :directory)
                                              (root nil)
                                              (layers nil)
+                                             (references nil)
                                              (memory-mb 1024)
                                              (timeout 3600)
                                              metadata)
   "Create a new workspace for a task.
 
-   AGENT-ID  - Agent this workspace belongs to
-   TASK      - Description of the task
-   ISOLATION - :none, :directory, or :sandbox
-   ROOT      - Override workspace root path (auto-generated if nil)
-   LAYERS    - Squashfs layers for :sandbox isolation
-   MEMORY-MB - Memory limit for :sandbox isolation
-   TIMEOUT   - Max lifetime in seconds for :sandbox isolation
-   METADATA  - Arbitrary plist
+   AGENT-ID   - Agent this workspace belongs to
+   TASK       - Description of the task
+   ISOLATION  - :none, :directory, or :sandbox
+   ROOT       - Override workspace root path (auto-generated if nil)
+   LAYERS     - Squashfs layers for :sandbox isolation
+   REFERENCES - Host directories to snapshot into the sandbox as read-only layers.
+                Each entry is a plist: (:path \"/host/dir\" :name \"ref-name\")
+                Inside the sandbox, files appear at /ref/<name>/<files>.
+                Only meaningful for :sandbox isolation.
+   MEMORY-MB  - Memory limit for :sandbox isolation
+   TIMEOUT    - Max lifetime in seconds for :sandbox isolation
+   METADATA   - Arbitrary plist
 
    Returns the workspace object."
   (let* ((normalized-agent (when agent-id (normalize-agent-id agent-id)))
@@ -310,8 +310,11 @@ No process isolation — just a dedicated directory."))
                                    :task task
                                    :isolation isolation
                                    :root ws-root
+                                   :references references
                                    :metadata (append
                                               (when layers (list :layers layers))
+                                              (when references
+                                                (list :references references))
                                               (when memory-mb (list :memory-mb memory-mb))
                                               (when timeout (list :timeout timeout))
                                               metadata))))
@@ -372,8 +375,8 @@ No process isolation — just a dedicated directory."))
 ;;; ── with-workspace Macro ────────────────────────────────────────
 
 (defmacro with-workspace ((agent-or-id &key task (isolation :directory)
-                                            layers memory-mb timeout
-                                            metadata)
+                                            layers references memory-mb
+                                            timeout metadata)
                           &body body)
   "Execute BODY with a workspace bound to *current-workspace*.
 
@@ -383,15 +386,21 @@ No process isolation — just a dedicated directory."))
    Within BODY, all workspace-aware operations (ws-read-file, ws-write-file,
    ws-exec, etc.) automatically route through the workspace.
 
+   REFERENCES - For :sandbox isolation, host directories to snapshot as
+   read-only layers. Each entry is (:path \"/host/dir\" :name \"ref\").
+   Inside the sandbox, files appear at /ref/<name>/<files>.
+
    Example:
      (with-workspace (my-agent :task \"analyze-data\"
-                               :isolation :directory)
-       (ws-write-file \"script.py\" \"print('hello')\")
-       (ws-exec \"python script.py\"))"
+                               :isolation :sandbox
+                               :references '((:path \"/project/src\" :name \"src\")))
+       (ws-read-file \"/ref/src/main.py\")  ; reads from host snapshot
+       (ws-exec \"python /workspace/script.py\"))"
   (let ((ws (gensym "WORKSPACE")))
     `(let ((,ws (create-workspace ,agent-or-id ,task
                                   :isolation ,isolation
                                   ,@(when layers `(:layers ,layers))
+                                  ,@(when references `(:references ,references))
                                   ,@(when memory-mb `(:memory-mb ,memory-mb))
                                   ,@(when timeout `(:timeout ,timeout))
                                   ,@(when metadata `(:metadata ,metadata)))))
@@ -399,3 +408,61 @@ No process isolation — just a dedicated directory."))
          (unwind-protect
               (progn ,@body)
            (destroy-workspace ,ws))))))
+
+;;; ── Reference Snapshotting ────────────────────────────────────────
+;;;
+;;; Snapshots a host directory into a squashfs module for mounting
+;;; as a read-only layer in a sandbox workspace. The content is placed
+;;; under /ref/<name>/ inside the squashfs so it appears at that path
+;;; in the sandbox's merged overlay.
+
+(defun snapshot-directory-to-module (host-path name modules-dir)
+  "Snapshot HOST-PATH into a squashfs module in MODULES-DIR.
+
+   The content is staged under /ref/<name>/ so that when mounted as
+   an overlay layer, files appear at /ref/<name>/<original-structure>.
+
+   HOST-PATH   - Absolute path to the host directory to snapshot
+   NAME        - Reference name (used as both module name and mount point)
+   MODULES-DIR - sq-sandbox modules directory (e.g., /data/modules/)
+
+   Returns the module name string (for inclusion in :layers).
+
+   Requires mksquashfs to be available on the system."
+  (let* ((module-name (format nil "ref-~A" name))
+         (module-path (format nil "~A/~A.squashfs" modules-dir module-name))
+         (staging-dir (format nil "/tmp/ap-ref-staging-~A-~A/"
+                              name (get-universal-time))))
+    ;; Validate host-path exists
+    (unless (uiop:directory-exists-p host-path)
+      (error "Reference path does not exist: ~A" host-path))
+
+    ;; Create staging directory with /ref/<name>/ structure
+    (let ((target-dir (format nil "~Aref/~A/" staging-dir name)))
+      (ensure-directories-exist (format nil "~A.keep" target-dir))
+
+      ;; Copy content into staging
+      (multiple-value-bind (stdout stderr exit-code)
+          (uiop:run-program
+           (format nil "cp -a ~A/. ~A" host-path target-dir)
+           :output :string :error-output :string :ignore-error-status t)
+        (declare (ignore stdout))
+        (when (not (zerop exit-code))
+          (ignore-errors
+            (uiop:delete-directory-tree (pathname staging-dir) :validate t))
+          (error "Failed to stage reference ~A: ~A" name stderr)))
+
+      ;; Build squashfs module
+      (multiple-value-bind (stdout stderr exit-code)
+          (uiop:run-program
+           (format nil "mksquashfs ~A ~A -noappend -quiet"
+                   staging-dir module-path)
+           :output :string :error-output :string :ignore-error-status t)
+        (declare (ignore stdout))
+        ;; Clean up staging directory
+        (ignore-errors
+          (uiop:delete-directory-tree (pathname staging-dir) :validate t))
+        (when (not (zerop exit-code))
+          (error "Failed to create squashfs module for ~A: ~A" name stderr))))
+
+    module-name))

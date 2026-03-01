@@ -6,6 +6,10 @@
 ;;;;   :directory - Workspace directory on host filesystem
 ;;;;   :sandbox   - Full container isolation via sq-sandbox (when loaded)
 ;;;;
+;;;; For :sandbox isolation, the sandbox is hermetic. Host files are
+;;;; made available via :references — directories snapshotted into
+;;;; read-only squashfs layers, mounted at /ref/<name>/ in the sandbox.
+;;;;
 ;;;; The workspace protocol is backend-agnostic. Sandbox support is
 ;;;; registered by autopoiesis/sandbox when that system is loaded.
 
@@ -37,6 +41,7 @@
    #:workspace-isolation
    #:workspace-root
    #:workspace-sandbox-id
+   #:workspace-references
    #:workspace-status
    #:workspace-created-at
 
@@ -49,12 +54,10 @@
    #:resolve-path
    #:workspace-relative
 
-   ;; File operations (workspace-aware)
+   ;; File operations (workspace-aware, sandbox-confined)
    #:ws-read-file
-   #:ws-read-host-file
    #:ws-write-file
    #:ws-exec
-   #:ws-grep
    #:ws-list-directory
    #:ws-file-exists-p
 
@@ -67,7 +70,9 @@
    #:backend-exec
    #:backend-write-file
    #:backend-read-file
-   #:backend-read-host-file
+
+   ;; Reference snapshotting (for sandbox isolation)
+   #:snapshot-directory-to-module
 
    ;; Registry
    #:*workspace-registry*
