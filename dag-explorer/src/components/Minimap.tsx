@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, type Component } from "solid-js";
+import { onMount, onCleanup, type Component } from "solid-js";
 import { dagStore } from "../stores/dag";
 
 const MINIMAP_W = 200;
@@ -17,8 +17,8 @@ const Minimap: Component = () => {
     canvasRef.height = MINIMAP_H * dpr;
     ctx.scale(dpr, dpr);
 
-    ctx.clearRect(0, 0, MINIMAP_W, MINIMAP_H);
-    ctx.fillStyle = "rgba(2, 6, 23, 0.85)";
+    // Background matching hl_project
+    ctx.fillStyle = "#161b22";
     ctx.fillRect(0, 0, MINIMAP_W, MINIMAP_H);
 
     const graph = dagStore.layout();
@@ -34,8 +34,8 @@ const Minimap: Component = () => {
 
     const sel = dagStore.selection();
 
-    // Draw edges
-    ctx.strokeStyle = "rgba(100, 116, 139, 0.3)";
+    // Edges
+    ctx.strokeStyle = "rgba(48, 54, 61, 0.6)";
     ctx.lineWidth = 0.5;
     for (const edge of graph.edges) {
       if (edge.points.length < 2) continue;
@@ -53,7 +53,7 @@ const Minimap: Component = () => {
       ctx.stroke();
     }
 
-    // Draw nodes as dots
+    // Nodes as dots
     for (const node of graph.nodes.values()) {
       const x = offsetX + node.x * scale;
       const y = offsetY + node.y * scale;
@@ -63,21 +63,16 @@ const Minimap: Component = () => {
       ctx.beginPath();
       ctx.arc(x, y, isPrimary ? 3 : isSecondary ? 2.5 : 1.5, 0, Math.PI * 2);
       ctx.fillStyle = isPrimary
-        ? "#818cf8"
+        ? "#58a6ff"
         : isSecondary
-          ? "#fbbf24"
+          ? "#d29922"
           : node.isBranchHead
-            ? "#34d399"
+            ? "#3fb950"
             : node.isRoot
-              ? "#f97316"
-              : "#64748b";
+              ? "#f0883e"
+              : "#6e7681";
       ctx.fill();
     }
-
-    // Border
-    ctx.strokeStyle = "rgba(71, 85, 105, 0.5)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0.5, 0.5, MINIMAP_W - 1, MINIMAP_H - 1);
   }
 
   onMount(() => {
