@@ -56,6 +56,7 @@
    #:make-branch
    #:branch-name
    #:branch-head
+   #:branch-created
    #:branch-history
    #:create-branch
    #:switch-branch
