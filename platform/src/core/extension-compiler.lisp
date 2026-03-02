@@ -437,6 +437,10 @@
 (defvar *extension-registry* (make-hash-table :test 'equal)
   "Global registry of installed extensions.")
 
+(defvar *checkpoint-on-invoke* nil
+  "When non-nil, a function of one argument (thunk) that wraps extension invocation
+   with checkpoint-and-revert. Set by the supervisor layer when loaded.")
+
 (defun install-extension (extension &key (registry *extension-registry*))
   "Install EXTENSION into REGISTRY, making it available."
   ;; Check dependencies
@@ -547,22 +551,26 @@
     
     ;; Track invocation
     (incf (extension-invocations ext))
-    
-    ;; Execute with error handling
-    (handler-case
-        (if args
-            (apply (extension-compiled ext) args)
-            (funcall (extension-compiled ext)))
-      (error (e)
-        ;; Track error
-        (incf (extension-errors ext))
-        ;; Auto-disable if too many errors
-        (when (> (extension-errors ext) 3)
-          (setf (extension-status ext) :rejected))
-        ;; Re-signal the error
-        (error 'autopoiesis-error
-               :message (format nil "Extension ~a execution error: ~a"
-                                extension-id e))))))
+
+    ;; Execute with error handling, optionally wrapped with checkpoint
+    (flet ((execute-ext ()
+             (handler-case
+                 (if args
+                     (apply (extension-compiled ext) args)
+                     (funcall (extension-compiled ext)))
+               (error (e)
+                 ;; Track error
+                 (incf (extension-errors ext))
+                 ;; Auto-disable if too many errors
+                 (when (> (extension-errors ext) 3)
+                   (setf (extension-status ext) :rejected))
+                 ;; Re-signal the error
+                 (error 'autopoiesis-error
+                        :message (format nil "Extension ~a execution error: ~a"
+                                         extension-id e))))))
+      (if *checkpoint-on-invoke*
+          (funcall *checkpoint-on-invoke* #'execute-ext)
+          (execute-ext)))))
 
 (defun clear-extension-registry (&key (registry *extension-registry*))
   "Clear all extensions from the registry."

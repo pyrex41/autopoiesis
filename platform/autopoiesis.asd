@@ -21,7 +21,8 @@
                #:babel           ; For UTF-8 encoding
                #:dexador         ; For HTTP client
                #:cl-charms       ; For ncurses terminal UI
-               #:hunchentoot)    ; For HTTP server (monitoring endpoints)
+               #:hunchentoot     ; For HTTP server (monitoring endpoints)
+               #:lparallel)      ; For parallel swarm evaluation
   :components
   ((:module "src"
     :components
@@ -198,8 +199,49 @@
        (:file "agent-home")
        (:file "workspace")
        (:file "capabilities")))
+     (:module "swarm"
+      :serial t
+      :depends-on ("core" "agent" "snapshot")
+      :components
+      ((:file "packages")
+       (:file "genome")
+       (:file "fitness")
+       (:file "selection")
+       (:file "operators")
+       (:file "population")
+       (:file "production-rules")
+       (:file "gpu-stub")))
+     (:module "supervisor"
+      :serial t
+      :depends-on ("core" "agent" "snapshot")
+      :components
+      ((:file "packages")
+       (:file "checkpoint")
+       (:file "supervisor")
+       (:file "integration")))
+     (:module "crystallize"
+      :serial t
+      :depends-on ("core" "agent" "supervisor" "snapshot")
+      :components
+      ((:file "packages")
+       (:file "emitter")
+       (:file "capability-crystallizer")
+       (:file "heuristic-crystallizer")
+       (:file "genome-crystallizer")
+       (:file "snapshot-integration")
+       (:file "asdf-fragment")
+       (:file "git-export")))
+     (:module "jarvis"
+      :serial t
+      :depends-on ("core" "agent" "integration" "supervisor" "interface")
+      :components
+      ((:file "packages")
+       (:file "session")
+       (:file "dispatch")
+       (:file "loop")
+       (:file "human-in-the-loop")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api" "workspace")))))
+     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api" "workspace" "swarm" "supervisor" "crystallize" "jarvis")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; WebSocket API server (Clack/Lack/Woo)
@@ -313,6 +355,11 @@
      (:file "meta-agent-tests")
      (:file "skel-tests")
      (:file "workspace-tests")
+     (:file "swarm-tests")
+     (:file "supervisor-tests")
+     (:file "crystallize-tests")
+     (:file "git-tools-tests")
+     (:file "jarvis-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))

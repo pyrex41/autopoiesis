@@ -25,4 +25,9 @@
    #:provider-tests
    #:rest-api-tests
    #:prompt-registry-tests
-   #:skel-tests))
+   #:skel-tests
+   #:swarm-tests
+   #:supervisor-tests
+   #:crystallize-tests
+   #:git-tools-tests
+   #:jarvis-tests))

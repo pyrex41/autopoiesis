@@ -196,7 +196,15 @@
     (abort-operation ()
       :report "Abort the operation"
       (error 'autopoiesis-error
-             :message (format nil "Operation aborted: ~a" operation)))))
+             :message (format nil "Operation aborted: ~a" operation)))
+    (revert-to-checkpoint (agent)
+      :report "Revert agent to last checkpoint"
+      :interactive (lambda () (list nil))
+      (let ((revert-fn (and (find-package :autopoiesis.supervisor)
+                            (find-symbol "REVERT-TO-STABLE" :autopoiesis.supervisor))))
+        (when (and revert-fn agent)
+          (funcall revert-fn agent)))
+      agent)))
 
 (defmacro with-recovery ((&key operation default-value on-error) &body body)
   "Execute BODY with error recovery enabled.

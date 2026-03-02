@@ -227,10 +227,13 @@
     
     ;; All tests passed - promote
     (setf (cap-promotion-status capability) :promoted)
-    
+
     ;; Register in global capability registry
     (register-capability capability)
-    
+
+    ;; Hook: crystallization engine will store promoted capabilities in DAG
+    ;; when autopoiesis.crystallize is loaded
+
     t))
 
 (defun reject-capability (capability &optional reason)

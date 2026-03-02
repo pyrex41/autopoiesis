@@ -269,6 +269,92 @@
              :working-directory directory)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Git Write Tools
+;;; ═══════════════════════════════════════════════════════════════════
+
+(autopoiesis.agent:defcapability git-add (&key files directory all)
+  "Stage files for git commit.
+
+   FILES - List of file paths to stage, or a single file path string.
+   DIRECTORY - Working directory (defaults to current).
+   ALL - If true, stage all changes (git add -A).
+
+   Returns git status after staging."
+  :permissions (:shell :git-write)
+  :body
+  (let ((cmd (cond
+               (all "git add -A")
+               ((listp files)
+                (format nil "git add ~{~a~^ ~}" files))
+               (files
+                (format nil "git add ~a" files))
+               (t "git add -A"))))
+    (funcall (autopoiesis.agent:capability-function
+              (autopoiesis.agent:find-capability 'run-command))
+             :command cmd
+             :working-directory directory)))
+
+(autopoiesis.agent:defcapability git-commit (&key message directory amend)
+  "Create a git commit.
+
+   MESSAGE - Commit message (required).
+   DIRECTORY - Working directory (defaults to current).
+   AMEND - If true, amend the last commit.
+
+   Returns commit output."
+  :permissions (:shell :git-write)
+  :body
+  (unless message
+    (return-from git-commit "Error: commit message is required"))
+  (let ((cmd (format nil "git commit ~a -m ~s"
+                     (if amend "--amend" "")
+                     message)))
+    (funcall (autopoiesis.agent:capability-function
+              (autopoiesis.agent:find-capability 'run-command))
+             :command cmd
+             :working-directory directory)))
+
+(autopoiesis.agent:defcapability git-checkout-branch (&key name create directory)
+  "Switch to or create a git branch.
+
+   NAME - Branch name (required).
+   CREATE - If true, create the branch (git checkout -b).
+   DIRECTORY - Working directory (defaults to current).
+
+   Returns checkout output."
+  :permissions (:shell :git-write)
+  :body
+  (unless name
+    (return-from git-checkout-branch "Error: branch name is required"))
+  (let ((cmd (format nil "git checkout ~a ~a"
+                     (if create "-b" "")
+                     name)))
+    (funcall (autopoiesis.agent:capability-function
+              (autopoiesis.agent:find-capability 'run-command))
+             :command cmd
+             :working-directory directory)))
+
+(autopoiesis.agent:defcapability git-create-worktree (&key path branch directory)
+  "Create a git worktree.
+
+   PATH - Path for the new worktree (required).
+   BRANCH - Branch name for the worktree.
+   DIRECTORY - Working directory of the main repo.
+
+   Returns worktree creation output."
+  :permissions (:shell :git-write)
+  :body
+  (unless path
+    (return-from git-create-worktree "Error: worktree path is required"))
+  (let ((cmd (if branch
+                 (format nil "git worktree add ~a ~a" path branch)
+                 (format nil "git worktree add ~a" path))))
+    (funcall (autopoiesis.agent:capability-function
+              (autopoiesis.agent:find-capability 'run-command))
+             :command cmd
+             :working-directory directory)))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Self-Extension Tools
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -648,6 +734,7 @@
     delete-file-tool glob-files grep-files
     web-fetch web-head
     run-command git-status git-diff git-log
+    git-add git-commit git-checkout-branch git-create-worktree
     ;; Self-extension tools
     define-capability-tool test-capability-tool promote-capability-tool
     ;; Introspection tools

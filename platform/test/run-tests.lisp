@@ -29,6 +29,11 @@
   (run! 'rest-api-tests)
   (run! 'prompt-registry-tests)
   (run! 'autopoiesis.test.skel::skel-tests)
+  (run! 'swarm-tests)
+  (run! 'supervisor-tests)
+  (run! 'crystallize-tests)
+  (run! 'git-tools-tests)
+  (run! 'jarvis-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -91,3 +96,23 @@
 (defun test-prompt-registry ()
   "Run only prompt registry tests."
   (run! 'prompt-registry-tests))
+
+(defun test-swarm ()
+  "Run only swarm tests."
+  (run! 'swarm-tests))
+
+(defun test-supervisor ()
+  "Run only supervisor tests."
+  (run! 'supervisor-tests))
+
+(defun test-crystallize ()
+  "Run only crystallize tests."
+  (run! 'crystallize-tests))
+
+(defun test-git-tools ()
+  "Run only git tools tests."
+  (run! 'git-tools-tests))
+
+(defun test-jarvis ()
+  "Run only jarvis tests."
+  (run! 'jarvis-tests))
