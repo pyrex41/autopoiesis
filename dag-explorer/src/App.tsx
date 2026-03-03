@@ -1,4 +1,4 @@
-import { type Component, onMount } from "solid-js";
+import { type Component, onMount, createSignal, Show } from "solid-js";
 import { dagStore } from "./stores/dag";
 import DAGCanvas from "./components/DAGCanvas";
 import NodeDetail from "./components/NodeDetail";
@@ -9,27 +9,32 @@ import CommandPalette from "./components/CommandPalette";
 import KeyboardHandler from "./components/KeyboardHandler";
 
 const App: Component = () => {
+  const [ready, setReady] = createSignal(false);
+
   onMount(() => {
-    // Start with mock data so the explorer works standalone
     dagStore.loadMockData();
+    // Orchestrated reveal: stagger the UI elements in
+    requestAnimationFrame(() => setReady(true));
   });
 
   return (
-    <div class="app-layout">
+    <div class="app-layout" classList={{ "app-ready": ready() }}>
       <KeyboardHandler />
       <Toolbar />
       <div class="app-main">
         <div class="canvas-container">
           <DAGCanvas />
-          <BranchList />
-          <Minimap />
-          <div class="kbd-hints">
-            <kbd>h</kbd>parent <kbd>l</kbd>child <kbd>j</kbd>/<kbd>k</kbd>sibling
-            <br />
-            <kbd>f</kbd>fit <kbd>i</kbd>inspector <kbd>d</kbd>diff
-            <br />
-            <kbd>/</kbd>search <kbd>Ctrl+K</kbd>commands <kbd>Space</kbd>collapse
-          </div>
+          <Show when={ready()}>
+            <BranchList />
+            <Minimap />
+            <div class="kbd-hints">
+              <kbd>h</kbd>parent <kbd>l</kbd>child <kbd>j</kbd>/<kbd>k</kbd>sibling
+              <br />
+              <kbd>f</kbd>fit <kbd>i</kbd>panel <kbd>d</kbd>diff <kbd>/</kbd>search
+              <br />
+              <kbd>Space</kbd>collapse <kbd>Ctrl+K</kbd>commands
+            </div>
+          </Show>
         </div>
         <NodeDetail />
       </div>

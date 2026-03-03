@@ -6,75 +6,174 @@ import {
   type Component,
 } from "solid-js";
 import { dagStore } from "../stores/dag";
-import type { LayoutNode, ColorScheme } from "../api/types";
+import type { LayoutNode, LayoutEdge, ColorScheme } from "../api/types";
 import "../graph/globals";
 
-// ── Color palettes ────────────────────────────────────────────────
+// ── Palette ───────────────────────────────────────────────────────
+// Deep observatory blues + vivid signal colors.
+// Background is NOT flat - it's a radial gradient from deep navy center
+// to near-black edges, like looking through a viewport into space.
 
-const BRANCH_COLORS = [
-  "#6366f1", // indigo
-  "#f59e0b", // amber
-  "#10b981", // emerald
-  "#ef4444", // red
-  "#8b5cf6", // violet
-  "#ec4899", // pink
-  "#14b8a6", // teal
-  "#f97316", // orange
-  "#3b82f6", // blue
-  "#84cc16", // lime
-];
-
-const DEPTH_GRADIENT = (d: number, maxDepth: number) => {
-  const t = maxDepth > 0 ? d / maxDepth : 0;
-  const r = Math.round(99 + t * 100);
-  const g = Math.round(102 + (1 - t) * 100);
-  const b = Math.round(241 - t * 100);
-  return `rgb(${r},${g},${b})`;
+const C = {
+  void: "#04060e",       // deepest black
+  deep: "#080c18",       // canvas base
+  mid: "#0e1525",        // node bg
+  surface: "#141d30",    // elevated surfaces
+  raised: "#1a2640",     // hover / active
+  border: "#1e2d4a",     // subtle borders
+  borderHi: "#2a3f66",   // highlighted borders
+  text: "#d0daf0",       // primary text
+  textMuted: "#7a8ba8",  // secondary text
+  textDim: "#4a5a78",    // tertiary text
+  signal: "#4fc3f7",     // primary accent (vivid cyan-blue)
+  signalDim: "#2196f3",  // deeper accent
+  signalGlow: "#29b6f6", // glow color
+  warm: "#ffab40",       // secondary accent (amber)
+  warmDim: "#ff9100",    // deeper warm
+  emerge: "#69f0ae",     // success / root
+  danger: "#ff5252",     // error
+  purple: "#b388ff",     // branch accent
+  magenta: "#f06292",    // alternate accent
+  ghost: "#1a2744",      // faint structural
 };
 
-function nodeColor(
+const BRANCH_PALETTE = [
+  C.signal,
+  C.purple,
+  C.emerge,
+  C.warm,
+  "#80deea",  // cyan
+  C.magenta,
+  "#fff176",  // lemon
+  "#ce93d8",  // lavender
+  "#4dd0e1",  // teal
+  "#aed581",  // lime
+];
+
+function nodeAccent(
   node: LayoutNode,
   scheme: ColorScheme,
-  branchColorMap: Map<string, string>,
-  maxDepth: number
+  bcm: Map<string, string>,
+  maxD: number
 ): string {
   switch (scheme) {
     case "branch": {
-      const bname =
-        node.branchNames[0] ??
+      const b = node.branchNames[0] ??
         (node.snapshot.metadata as Record<string, unknown> | null)?.branch;
-      if (typeof bname === "string") return branchColorMap.get(bname) ?? "#6366f1";
-      return "#6366f1";
+      return typeof b === "string" ? (bcm.get(b) ?? C.signal) : C.signal;
     }
     case "agent": {
-      const agent = (node.snapshot.metadata as Record<string, unknown> | null)?.agent;
-      if (typeof agent === "string") {
+      const a = (node.snapshot.metadata as Record<string, unknown> | null)?.agent;
+      if (typeof a === "string") {
         let h = 0;
-        for (let i = 0; i < agent.length; i++) h = (h * 31 + agent.charCodeAt(i)) | 0;
-        return `hsl(${Math.abs(h) % 360}, 65%, 55%)`;
+        for (let i = 0; i < a.length; i++) h = (h * 31 + a.charCodeAt(i)) | 0;
+        return `hsl(${Math.abs(h) % 360}, 70%, 65%)`;
       }
-      return "#6366f1";
+      return C.signal;
     }
     case "depth":
-      return DEPTH_GRADIENT(node.depth, maxDepth);
+      return `hsl(${190 + (maxD > 0 ? (node.depth / maxD) * 100 : 0)}, 80%, 60%)`;
     case "time": {
-      const t = node.snapshot.timestamp;
-      const allNodes = [...dagStore.layout().nodes.values()];
-      const minT = Math.min(...allNodes.map((n) => n.snapshot.timestamp));
-      const maxT = Math.max(...allNodes.map((n) => n.snapshot.timestamp));
-      const frac = maxT > minT ? (t - minT) / (maxT - minT) : 0;
-      return `hsl(${210 + frac * 150}, 70%, 50%)`;
+      const nodes = [...dagStore.layout().nodes.values()];
+      const mn = Math.min(...nodes.map(n => n.snapshot.timestamp));
+      const mx = Math.max(...nodes.map(n => n.snapshot.timestamp));
+      const f = mx > mn ? (node.snapshot.timestamp - mn) / (mx - mn) : 0;
+      return `hsl(${180 + f * 140}, 75%, 55%)`;
     }
     case "mono":
-      return "#6366f1";
+      return C.signal;
   }
 }
 
-// ── Canvas renderer component ─────────────────────────────────────
+function rgba(hex: string, a: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// ── Starfield ─────────────────────────────────────────────────────
+// Pre-computed static stars for the background. Gives depth like
+// looking through a space station viewport.
+
+interface Star { x: number; y: number; r: number; brightness: number; twinkleRate: number }
+
+function generateStars(count: number): Star[] {
+  const stars: Star[] = [];
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      x: Math.random(),
+      y: Math.random(),
+      r: 0.3 + Math.random() * 1.2,
+      brightness: 0.15 + Math.random() * 0.5,
+      twinkleRate: 0.3 + Math.random() * 2,
+    });
+  }
+  return stars;
+}
+
+// ── Edge particles ────────────────────────────────────────────────
+// Small luminous dots that flow along edges, representing data/thought
+// flowing through the DAG. Only on lineage/path edges.
+
+interface Particle { progress: number; speed: number; size: number }
+
+function spawnParticles(count: number): Particle[] {
+  const p: Particle[] = [];
+  for (let i = 0; i < count; i++) {
+    p.push({
+      progress: Math.random(),
+      speed: 0.003 + Math.random() * 0.008,
+      size: 1 + Math.random() * 1.5,
+    });
+  }
+  return p;
+}
+
+function lerpEdge(edge: LayoutEdge, t: number): { x: number; y: number } {
+  const pts = edge.points;
+  if (pts.length < 2) return pts[0];
+  const totalLen = pts.reduce((sum, p, i) => {
+    if (i === 0) return 0;
+    const dx = p.x - pts[i - 1].x;
+    const dy = p.y - pts[i - 1].y;
+    return sum + Math.sqrt(dx * dx + dy * dy);
+  }, 0);
+  let target = t * totalLen;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dy = pts[i].y - pts[i - 1].y;
+    const segLen = Math.sqrt(dx * dx + dy * dy);
+    if (target <= segLen || i === pts.length - 1) {
+      const f = segLen > 0 ? target / segLen : 0;
+      return {
+        x: pts[i - 1].x + dx * f,
+        y: pts[i - 1].y + dy * f,
+      };
+    }
+    target -= segLen;
+  }
+  return pts[pts.length - 1];
+}
+
+// ── Component ─────────────────────────────────────────────────────
 
 const DAGCanvas: Component = () => {
   let canvasRef!: HTMLCanvasElement;
   let animFrame: number;
+  let frameCount = 0;
+  const stars = generateStars(120);
+  const edgeParticles = spawnParticles(40);
 
   const [viewX, setViewX] = createSignal(0);
   const [viewY, setViewY] = createSignal(0);
@@ -82,132 +181,158 @@ const DAGCanvas: Component = () => {
   const [isDragging, setIsDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({ x: 0, y: 0 });
 
-  // Build branch color map
-  const branchColorMap = () => {
+  const bcm = () => {
     const map = new Map<string, string>();
-    dagStore.branches().forEach((b, i) => {
-      map.set(b.name, BRANCH_COLORS[i % BRANCH_COLORS.length]);
-    });
+    dagStore.branches().forEach((b, i) => map.set(b.name, BRANCH_PALETTE[i % BRANCH_PALETTE.length]));
     return map;
   };
 
-  // Max depth for gradient
-  const maxDepth = () => {
-    let max = 0;
-    for (const n of dagStore.layout().nodes.values()) {
-      if (n.depth > max) max = n.depth;
-    }
-    return max;
+  const maxD = () => {
+    let m = 0;
+    for (const n of dagStore.layout().nodes.values()) if (n.depth > m) m = n.depth;
+    return m;
   };
 
-  // Convert screen coordinates to graph coordinates
-  function screenToGraph(sx: number, sy: number): { x: number; y: number } {
-    const rect = canvasRef.getBoundingClientRect();
-    return {
-      x: (sx - rect.left - viewX()) / viewScale(),
-      y: (sy - rect.top - viewY()) / viewScale(),
-    };
+  function s2g(sx: number, sy: number) {
+    const r = canvasRef.getBoundingClientRect();
+    return { x: (sx - r.left - viewX()) / viewScale(), y: (sy - r.top - viewY()) / viewScale() };
   }
 
-  // Find node at graph coordinates
-  function nodeAtPoint(gx: number, gy: number): LayoutNode | null {
-    for (const node of dagStore.layout().nodes.values()) {
-      const hw = node.width / 2;
-      const hh = node.height / 2;
-      if (
-        gx >= node.x - hw &&
-        gx <= node.x + hw &&
-        gy >= node.y - hh &&
-        gy <= node.y + hh
-      ) {
-        return node;
-      }
+  function nodeAt(gx: number, gy: number): LayoutNode | null {
+    for (const n of dagStore.layout().nodes.values()) {
+      if (gx >= n.x - n.width / 2 && gx <= n.x + n.width / 2 &&
+          gy >= n.y - n.height / 2 && gy <= n.y + n.height / 2) return n;
     }
     return null;
   }
 
-  // ── Drawing ───────────────────────────────────────────────────
+  // ── DRAW ─────────────────────────────────────────────────────
 
   function draw() {
-    const canvas = canvasRef;
-    const ctx = canvas.getContext("2d");
+    frameCount++;
+    const ctx = canvasRef.getContext("2d");
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const rect = canvasRef.getBoundingClientRect();
+    canvasRef.width = rect.width * dpr;
+    canvasRef.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
-    ctx.clearRect(0, 0, rect.width, rect.height);
+    const W = rect.width;
+    const H = rect.height;
+    const t = frameCount / 60;
+
+    // ── Background: radial gradient (viewport into space) ─────
+    const bgGrad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+    bgGrad.addColorStop(0, C.deep);
+    bgGrad.addColorStop(0.6, C.void);
+    bgGrad.addColorStop(1, "#020408");
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // ── Starfield ─────────────────────────────────────────────
+    for (const s of stars) {
+      const twinkle = 0.5 + 0.5 * Math.sin(t * s.twinkleRate + s.x * 100);
+      const alpha = s.brightness * twinkle;
+      ctx.beginPath();
+      ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(180, 210, 255, ${alpha})`;
+      ctx.fill();
+    }
+
+    // ── Graph layer ───────────────────────────────────────────
     ctx.save();
     ctx.translate(viewX(), viewY());
     ctx.scale(viewScale(), viewScale());
 
     const graph = dagStore.layout();
     const sel = dagStore.selection();
-    const hovered = dagStore.hoveredNode();
+    const hov = dagStore.hoveredNode();
     const path = dagStore.highlightedPath();
     const pathSet = path ? new Set(path) : null;
-    const ancestors = dagStore.primaryAncestors();
-    const descendants = dagStore.primaryDescendants();
+    const anc = dagStore.primaryAncestors();
+    const desc = dagStore.primaryDescendants();
     const scheme = dagStore.colorScheme();
-    const bcm = branchColorMap();
-    const md = maxDepth();
+    const bmap = bcm();
+    const md = maxD();
     const search = dagStore.searchResults();
-    const searchIds = search ? new Set(search.map((s) => s.id)) : null;
+    const sids = search ? new Set(search.map(s => s.id)) : null;
 
-    // Draw edges
+    // ── Radar pulse from selected node ────────────────────────
+    if (sel.primary) {
+      const sn = graph.nodes.get(sel.primary);
+      if (sn) {
+        const pulseR = ((t * 40) % 200);
+        const pulseAlpha = Math.max(0, 0.15 - pulseR / 1600);
+        ctx.beginPath();
+        ctx.arc(sn.x, sn.y, pulseR, 0, Math.PI * 2);
+        ctx.strokeStyle = rgba(C.signal, pulseAlpha);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // Second ring, offset
+        const pulseR2 = ((t * 40 + 80) % 200);
+        const pulseAlpha2 = Math.max(0, 0.1 - pulseR2 / 2000);
+        ctx.beginPath();
+        ctx.arc(sn.x, sn.y, pulseR2, 0, Math.PI * 2);
+        ctx.strokeStyle = rgba(C.signal, pulseAlpha2);
+        ctx.stroke();
+      }
+    }
+
+    // ── Edges ─────────────────────────────────────────────────
+    const activeEdges: LayoutEdge[] = [];
+
     for (const edge of graph.edges) {
-      const isOnPath =
-        pathSet && pathSet.has(edge.source) && pathSet.has(edge.target);
-      const isLineage =
-        sel.primary &&
-        ((edge.source === sel.primary && descendants.has(edge.target)) ||
-          (edge.target === sel.primary && ancestors.has(edge.source)) ||
-          (ancestors.has(edge.source) && ancestors.has(edge.target)) ||
-          (descendants.has(edge.source) && descendants.has(edge.target)));
+      const onPath = pathSet?.has(edge.source) && pathSet?.has(edge.target);
+      const lineage = sel.primary && (
+        (edge.source === sel.primary && desc.has(edge.target)) ||
+        (edge.target === sel.primary && anc.has(edge.source)) ||
+        (anc.has(edge.source) && anc.has(edge.target)) ||
+        (desc.has(edge.source) && desc.has(edge.target))
+      );
+
+      if (onPath || lineage) activeEdges.push(edge);
 
       ctx.beginPath();
-      ctx.strokeStyle = isOnPath
-        ? "#f59e0b"
-        : isLineage
-          ? "rgba(99, 102, 241, 0.6)"
-          : "rgba(148, 163, 184, 0.35)";
-      ctx.lineWidth = isOnPath ? 3 : isLineage ? 2 : 1;
+      if (onPath) {
+        ctx.strokeStyle = C.warm;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.lineDashOffset = -t * 16;
+      } else if (lineage) {
+        ctx.strokeStyle = rgba(C.signal, 0.45);
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([]);
+      } else {
+        ctx.strokeStyle = rgba(C.border, 0.4);
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([]);
+      }
 
-      if (edge.points.length >= 2) {
-        ctx.moveTo(edge.points[0].x, edge.points[0].y);
-        if (edge.points.length === 2) {
-          ctx.lineTo(edge.points[1].x, edge.points[1].y);
-        } else {
-          // Smooth curve through intermediate points
-          for (let i = 1; i < edge.points.length - 1; i++) {
-            const curr = edge.points[i];
-            const next = edge.points[i + 1];
-            const cpx = (curr.x + next.x) / 2;
-            const cpy = (curr.y + next.y) / 2;
-            ctx.quadraticCurveTo(curr.x, curr.y, cpx, cpy);
-          }
-          const last = edge.points[edge.points.length - 1];
-          ctx.lineTo(last.x, last.y);
+      const pts = edge.points;
+      if (pts.length >= 2) {
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const cur = pts[i], nxt = pts[i + 1];
+          ctx.quadraticCurveTo(cur.x, cur.y, (cur.x + nxt.x) / 2, (cur.y + nxt.y) / 2);
         }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
       }
       ctx.stroke();
+      ctx.setLineDash([]);
 
-      // Arrow head
-      if (edge.points.length >= 2) {
-        const p1 = edge.points[edge.points.length - 2];
-        const p2 = edge.points[edge.points.length - 1];
-        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-        const sz = 6;
+      // Arrow
+      if (pts.length >= 2) {
+        const p1 = pts[pts.length - 2], p2 = pts[pts.length - 1];
+        const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x);
         ctx.save();
         ctx.translate(p2.x, p2.y);
-        ctx.rotate(angle);
+        ctx.rotate(ang);
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.lineTo(-sz * 2, -sz);
-        ctx.lineTo(-sz * 2, sz);
+        ctx.lineTo(-7, -3);
+        ctx.lineTo(-7, 3);
         ctx.closePath();
         ctx.fillStyle = ctx.strokeStyle;
         ctx.fill();
@@ -215,141 +340,180 @@ const DAGCanvas: Component = () => {
       }
     }
 
-    // Draw nodes
+    // ── Edge particles (flow of data) ─────────────────────────
+    if (activeEdges.length > 0) {
+      for (const p of edgeParticles) {
+        p.progress = (p.progress + p.speed) % 1;
+        const edge = activeEdges[Math.floor(p.progress * 1000) % activeEdges.length];
+        const pos = lerpEdge(edge, p.progress);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, p.size, 0, Math.PI * 2);
+        const alpha = 0.4 + 0.4 * Math.sin(p.progress * Math.PI);
+        ctx.fillStyle = rgba(C.signal, alpha);
+        ctx.fill();
+        // Glow
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, p.size * 3, 0, Math.PI * 2);
+        ctx.fillStyle = rgba(C.signal, alpha * 0.15);
+        ctx.fill();
+      }
+    }
+
+    // ── Nodes ─────────────────────────────────────────────────
+
     for (const node of graph.nodes.values()) {
-      const isPrimary = sel.primary === node.id;
-      const isSecondary = sel.secondary === node.id;
-      const isHovered = hovered === node.id;
-      const isOnPath = pathSet?.has(node.id) ?? false;
-      const isAncestor = ancestors.has(node.id);
-      const isDescendant = descendants.has(node.id);
-      const isSearchHit = searchIds?.has(node.id) ?? false;
-      const isDimmed =
-        searchIds !== null && !isSearchHit && !isPrimary && !isSecondary;
+      const isPri = sel.primary === node.id;
+      const isSec = sel.secondary === node.id;
+      const isHov = hov === node.id;
+      const isPath = pathSet?.has(node.id) ?? false;
+      const isAnc = anc.has(node.id);
+      const isDsc = desc.has(node.id);
+      const isSrch = sids?.has(node.id) ?? false;
+      const dim = sids !== null && !isSrch && !isPri && !isSec;
 
       const x = node.x - node.width / 2;
       const y = node.y - node.height / 2;
-      const color = nodeColor(node, scheme, bcm, md);
+      const accent = nodeAccent(node, scheme, bmap, md);
+      const R = 6;
 
-      // Node background
       ctx.save();
-      ctx.globalAlpha = isDimmed ? 0.2 : 1;
+      ctx.globalAlpha = dim ? 0.12 : 1;
 
-      // Shadow for selected nodes
-      if (isPrimary || isSecondary) {
-        ctx.shadowColor = isPrimary ? "#6366f1" : "#f59e0b";
-        ctx.shadowBlur = 12;
+      // Glow halo for selected
+      if ((isPri || isSec) && !dim) {
+        const gc = isPri ? C.signal : C.warm;
+        const pulse = 12 + 6 * Math.sin(t * 2.5);
+        ctx.shadowColor = gc;
+        ctx.shadowBlur = pulse;
       }
 
-      ctx.beginPath();
-      const r = 6;
-      ctx.moveTo(x + r, y);
-      ctx.arcTo(x + node.width, y, x + node.width, y + node.height, r);
-      ctx.arcTo(x + node.width, y + node.height, x, y + node.height, r);
-      ctx.arcTo(x, y + node.height, x, y, r);
-      ctx.arcTo(x, y, x + node.width, y, r);
-      ctx.closePath();
-
-      // Fill
-      ctx.fillStyle = isPrimary
-        ? "#1e1b4b"
-        : isSecondary
-          ? "#451a03"
-          : isHovered
-            ? "#1e293b"
-            : "#0f172a";
+      // Body fill
+      rr(ctx, x, y, node.width, node.height, R);
+      ctx.fillStyle = isPri ? C.raised
+        : isSec ? C.raised
+        : isHov ? C.surface
+        : C.mid;
       ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = "transparent";
 
       // Border
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = isPrimary
-        ? "#818cf8"
-        : isSecondary
-          ? "#fbbf24"
-          : isOnPath
-            ? "#f59e0b"
-            : isHovered
-              ? "#94a3b8"
-              : isAncestor || isDescendant
-                ? "rgba(99, 102, 241, 0.5)"
-                : isSearchHit
-                  ? "#34d399"
-                  : "rgba(71, 85, 105, 0.6)";
-      ctx.lineWidth = isPrimary || isSecondary ? 2 : 1;
+      rr(ctx, x, y, node.width, node.height, R);
+      ctx.strokeStyle = isPri ? C.signal
+        : isSec ? C.warm
+        : isPath ? rgba(C.warm, 0.7)
+        : isHov ? C.borderHi
+        : isAnc || isDsc ? rgba(C.signal, 0.3)
+        : isSrch ? C.emerge
+        : C.border;
+      ctx.lineWidth = isPri || isSec ? 2 : 1;
+      if (isPath && !isPri && !isSec) {
+        ctx.setLineDash([3, 2]);
+        ctx.lineDashOffset = -t * 8;
+      }
       ctx.stroke();
+      ctx.setLineDash([]);
 
-      // Color accent bar on left edge
-      ctx.fillStyle = color;
+      // Left accent strip
+      ctx.save();
       ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.arcTo(x, y, x, y + node.height, r);
-      ctx.arcTo(x, y + node.height, x + r, y + node.height, 0);
-      ctx.lineTo(x + 4, y + node.height);
-      ctx.lineTo(x + 4, y);
+      ctx.moveTo(x, y + R);
+      ctx.arcTo(x, y, x + R, y, R);
+      ctx.lineTo(x + 3.5, y);
+      ctx.lineTo(x + 3.5, y + node.height);
+      ctx.lineTo(x + R, y + node.height);
+      ctx.arcTo(x, y + node.height, x, y + node.height - R, R);
       ctx.closePath();
+      ctx.fillStyle = accent;
       ctx.fill();
+      ctx.restore();
 
-      // Text
-      ctx.fillStyle = "#e2e8f0";
-      ctx.font = "bold 11px ui-monospace, monospace";
-      const idShort = node.id.length > 14 ? node.id.slice(0, 14) + ".." : node.id;
-      ctx.fillText(idShort, x + 10, y + 16);
+      // ── Node text ─────────────────────────────────────────
+      const F = "'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace";
 
-      // Metadata line
+      // ID
+      ctx.fillStyle = C.text;
+      ctx.font = `600 11px ${F}`;
+      ctx.fillText(
+        node.id.length > 14 ? node.id.slice(0, 14) + "\u2026" : node.id,
+        x + 11, y + 17
+      );
+
+      // Metadata
       const meta = node.snapshot.metadata as Record<string, unknown> | null;
-      ctx.font = "10px ui-monospace, monospace";
-      ctx.fillStyle = "#94a3b8";
-      const label =
-        (typeof meta?.label === "string" ? meta.label : "") ||
-        (typeof meta?.agent === "string" ? meta.agent : "");
+      const label = (typeof meta?.label === "string" ? meta.label : "") ||
+                    (typeof meta?.agent === "string" ? meta.agent : "");
       if (label) {
-        const truncLabel = label.length > 22 ? label.slice(0, 22) + ".." : label;
-        ctx.fillText(truncLabel, x + 10, y + 30);
+        ctx.font = `11px ${F}`;
+        ctx.fillStyle = C.textMuted;
+        ctx.fillText(label.length > 22 ? label.slice(0, 22) + "\u2026" : label, x + 11, y + 32);
       }
 
-      // Branch head badge
+      // Branch badge
       if (node.isBranchHead) {
-        const bname = node.branchNames[0] ?? "";
-        const short = bname.length > 16 ? ".." + bname.slice(-14) : bname;
-        ctx.fillStyle = color;
-        ctx.font = "bold 9px ui-monospace, monospace";
-        const tw = ctx.measureText(short).width;
+        const bn = node.branchNames[0] ?? "";
+        const sh = bn.length > 12 ? "\u2026" + bn.slice(-10) : bn;
+        ctx.font = `600 9px ${F}`;
+        const tw = ctx.measureText(sh).width;
         const bx = x + node.width - tw - 12;
-        const by = y + node.height - 10;
-        ctx.beginPath();
-        ctx.roundRect(bx - 3, by - 8, tw + 6, 12, 3);
-        ctx.globalAlpha = isDimmed ? 0.1 : 0.2;
+        const by = y + node.height - 11;
+        rr(ctx, bx - 4, by - 9, tw + 8, 13, 3);
+        ctx.fillStyle = rgba(accent.startsWith("#") ? accent : C.signal, 0.18);
         ctx.fill();
-        ctx.globalAlpha = isDimmed ? 0.2 : 1;
-        ctx.fillText(short, bx, by);
+        ctx.fillStyle = accent;
+        ctx.fillText(sh, bx, by);
       }
 
       // Collapse indicator
       if (node.collapsed) {
-        ctx.fillStyle = "#fbbf24";
-        ctx.font = "bold 12px sans-serif";
-        ctx.fillText(`+${node.childCount}`, x + node.width - 30, y + 16);
+        ctx.fillStyle = C.warm;
+        ctx.font = `600 10px ${F}`;
+        ctx.fillText(`+${node.childCount}`, x + node.width - 34, y + 17);
       }
 
-      // Root indicator
+      // Root: glowing dot
       if (node.isRoot) {
-        ctx.fillStyle = "#34d399";
-        ctx.font = "9px ui-monospace, monospace";
-        ctx.fillText("ROOT", x + 10, y + node.height - 6);
+        const dx = x + 11, dy = y + node.height - 10;
+        const gp = 0.6 + 0.4 * Math.sin(t * 1.5);
+        ctx.beginPath();
+        ctx.arc(dx, dy, 3, 0, Math.PI * 2);
+        ctx.fillStyle = C.emerge;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(dx, dy, 6, 0, Math.PI * 2);
+        ctx.fillStyle = rgba(C.emerge, 0.12 * gp);
+        ctx.fill();
+        ctx.font = `8px ${F}`;
+        ctx.fillStyle = C.textDim;
+        ctx.fillText("GENESIS", dx + 8, dy + 3);
       }
 
-      // Depth badge
-      ctx.fillStyle = "#64748b";
-      ctx.font = "9px ui-monospace, monospace";
-      ctx.fillText(`d${node.depth}`, x + node.width - 24, y + 16);
+      // Depth
+      ctx.fillStyle = C.textDim;
+      ctx.font = `8px ${F}`;
+      ctx.fillText(`\u2022${node.depth}`, x + node.width - 20, y + 15);
 
       ctx.restore();
     }
 
     ctx.restore();
+
+    // ── Screen-space vignette ─────────────────────────────────
+    const vig = ctx.createRadialGradient(W / 2, H / 2, W * 0.25, W / 2, H / 2, W * 0.7);
+    vig.addColorStop(0, "rgba(0,0,0,0)");
+    vig.addColorStop(1, "rgba(0,0,0,0.35)");
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+
+    // ── Subtle scan line overlay ──────────────────────────────
+    ctx.fillStyle = "rgba(255,255,255,0.008)";
+    for (let sy = 0; sy < H; sy += 3) {
+      ctx.fillRect(0, sy, W, 1);
+    }
   }
 
-  // ── Event handlers ────────────────────────────────────────────
+  // ── Event handlers (unchanged logic) ────────────────────────
 
   function onMouseDown(e: MouseEvent) {
     if (e.button === 0) {
@@ -363,91 +527,66 @@ const DAGCanvas: Component = () => {
       setViewX(e.clientX - dragStart().x);
       setViewY(e.clientY - dragStart().y);
     } else {
-      const { x, y } = screenToGraph(e.clientX, e.clientY);
-      const node = nodeAtPoint(x, y);
-      dagStore.setHoveredNode(node?.id ?? null);
+      const g = s2g(e.clientX, e.clientY);
+      dagStore.setHoveredNode(nodeAt(g.x, g.y)?.id ?? null);
     }
   }
 
   function onMouseUp(e: MouseEvent) {
     if (isDragging()) {
       setIsDragging(false);
-      // If very short drag, treat as click
       const dx = e.clientX - dragStart().x - viewX();
       const dy = e.clientY - dragStart().y - viewY();
       if (Math.abs(dx) < 3 && Math.abs(dy) < 3) {
-        const { x, y } = screenToGraph(e.clientX, e.clientY);
-        const node = nodeAtPoint(x, y);
-        if (node) {
-          if (e.shiftKey || dagStore.diffMode()) {
-            dagStore.selectNode(node.id, true);
-          } else {
-            dagStore.selectNode(node.id);
-          }
-        } else {
-          dagStore.clearSelection();
-        }
+        const g = s2g(e.clientX, e.clientY);
+        const n = nodeAt(g.x, g.y);
+        if (n) {
+          (e.shiftKey || dagStore.diffMode()) ? dagStore.selectNode(n.id, true) : dagStore.selectNode(n.id);
+        } else dagStore.clearSelection();
       }
     }
   }
 
   function onWheel(e: WheelEvent) {
     e.preventDefault();
-    const rect = canvasRef.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    const newScale = Math.max(0.05, Math.min(5, viewScale() * factor));
-    const ratio = newScale / viewScale();
-
+    const r = canvasRef.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const f = e.deltaY < 0 ? 1.1 : 0.9;
+    const ns = Math.max(0.05, Math.min(5, viewScale() * f));
+    const ratio = ns / viewScale();
     setViewX(mx - (mx - viewX()) * ratio);
     setViewY(my - (my - viewY()) * ratio);
-    setViewScale(newScale);
+    setViewScale(ns);
   }
 
   function onDblClick(e: MouseEvent) {
-    const { x, y } = screenToGraph(e.clientX, e.clientY);
-    const node = nodeAtPoint(x, y);
-    if (node) {
-      dagStore.toggleCollapse(node.id);
-    }
+    const g = s2g(e.clientX, e.clientY);
+    const n = nodeAt(g.x, g.y);
+    if (n) dagStore.toggleCollapse(n.id);
   }
 
-  // Fit the graph into view
   function fitToView() {
     const graph = dagStore.layout();
     if (graph.nodes.size === 0) return;
-    const rect = canvasRef.getBoundingClientRect();
-    const padX = 60;
-    const padY = 60;
-    const scaleX = (rect.width - padX * 2) / graph.width;
-    const scaleY = (rect.height - padY * 2) / graph.height;
-    const scale = Math.min(scaleX, scaleY, 1.5);
-    setViewScale(scale);
-    setViewX((rect.width - graph.width * scale) / 2);
-    setViewY((rect.height - graph.height * scale) / 2);
+    const r = canvasRef.getBoundingClientRect();
+    const pad = 80;
+    const s = Math.min((r.width - pad * 2) / graph.width, (r.height - pad * 2) / graph.height, 1.5);
+    setViewScale(s);
+    setViewX((r.width - graph.width * s) / 2);
+    setViewY((r.height - graph.height * s) / 2);
   }
 
-  // Center on a specific node
-  function centerOnNode(nodeId: string) {
-    const node = dagStore.layout().nodes.get(nodeId);
-    if (!node) return;
-    const rect = canvasRef.getBoundingClientRect();
-    const scale = viewScale();
-    setViewX(rect.width / 2 - node.x * scale);
-    setViewY(rect.height / 2 - node.y * scale);
+  function centerOnNode(id: string) {
+    const n = dagStore.layout().nodes.get(id);
+    if (!n) return;
+    const r = canvasRef.getBoundingClientRect();
+    setViewX(r.width / 2 - n.x * viewScale());
+    setViewY(r.height / 2 - n.y * viewScale());
   }
-
-  // ── Lifecycle ─────────────────────────────────────────────────
 
   onMount(() => {
-    const loop = () => {
-      draw();
-      animFrame = requestAnimationFrame(loop);
-    };
+    const loop = () => { draw(); animFrame = requestAnimationFrame(loop); };
     animFrame = requestAnimationFrame(loop);
-
     canvasRef.addEventListener("wheel", onWheel, { passive: false });
   });
 
@@ -456,23 +595,9 @@ const DAGCanvas: Component = () => {
     canvasRef?.removeEventListener("wheel", onWheel);
   });
 
-  // Auto-fit when layout changes
-  createEffect(() => {
-    const graph = dagStore.layout();
-    if (graph.nodes.size > 0) {
-      fitToView();
-    }
-  });
+  createEffect(() => { if (dagStore.layout().nodes.size > 0) fitToView(); });
+  createEffect(() => { const s = dagStore.selection(); if (s.primary) centerOnNode(s.primary); });
 
-  // Center on selected node
-  createEffect(() => {
-    const sel = dagStore.selection();
-    if (sel.primary) {
-      centerOnNode(sel.primary);
-    }
-  });
-
-  // Expose fit/center for keyboard shortcuts via typed global
   window.__dagFitToView = fitToView;
   window.__dagCenterOnNode = centerOnNode;
 
@@ -482,8 +607,7 @@ const DAGCanvas: Component = () => {
       style={{
         width: "100%",
         height: "100%",
-        cursor: isDragging() ? "grabbing" : dagStore.hoveredNode() ? "pointer" : "grab",
-        "background-color": "#020617",
+        cursor: isDragging() ? "grabbing" : dagStore.hoveredNode() ? "pointer" : "crosshair",
       }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
