@@ -259,6 +259,35 @@
    #:cursor-mode
    #:cursor-force
 
+   ;; Pi provider
+   #:pi-provider
+   #:make-pi-provider
+   #:pi-thinking
+   #:pi-extension-policy
+
+   ;; NanoBot provider
+   #:nanobot-provider
+   #:make-nanobot-provider
+   #:nanobot-workspace
+
+   ;; Nanosquash provider
+   #:nanosquash-provider
+   #:make-nanosquash-provider
+   #:nanosquash-sandbox-id
+   #:nanosquash-layers
+   #:nanosquash-squash-config
+   #:nanosquash-ephemeral
+   #:nanosquash-native-p
+
+   ;; OpenCode enhanced slots
+   #:opencode-agent-mode
+   #:opencode-no-tui
+
+   ;; Meta-dispatcher
+   #:coding-primitive
+   #:select-coding-backend
+   #:ensure-coding-provider
+
    ;; Provider-backed agent
    #:provider-backed-agent
    #:make-provider-backed-agent

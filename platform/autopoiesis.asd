@@ -123,6 +123,10 @@
        (:file "provider-codex")
        (:file "provider-opencode")
        (:file "provider-cursor")
+       (:file "provider-pi")
+       (:file "provider-nanobot")
+       (:file "provider-nanosquash")
+       (:file "integrate-primitives")
        (:file "provider-agent")
        (:file "agentic-agent")
        (:file "openai-bridge")
@@ -186,8 +190,16 @@
        (:file "routes")
        (:file "mcp-server")
        (:file "rest-server")))
+      (:module "workspace"
+      :serial t
+      :depends-on ("core" "substrate" "agent")
+      :components
+      ((:file "packages")
+       (:file "agent-home")
+       (:file "workspace")
+       (:file "capabilities")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api")))))
+     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api" "workspace")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; WebSocket API server (Clack/Lack/Woo)
@@ -300,6 +312,7 @@
      (:file "bridge-protocol-tests")
      (:file "meta-agent-tests")
      (:file "skel-tests")
+     (:file "workspace-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
@@ -321,7 +334,8 @@
     ((:file "packages")
      (:file "entity-types")
      (:file "sandbox-provider")
-     (:file "conductor-dispatch")))))
+     (:file "conductor-dispatch")
+     (:file "workspace-backend")))))
 
 ;;; Research campaign layer (sandbox-backed parallel investigation)
 (asdf:defsystem #:autopoiesis/research

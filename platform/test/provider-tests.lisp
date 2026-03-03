@@ -252,6 +252,54 @@
       (is (member "--output-format" args :test #'string=))
       (is (member "--force" args :test #'string=)))))
 
+(test nanobot-provider-creation
+  "Test NanoBot provider creation and slot defaults"
+  (let ((p (autopoiesis.integration:make-nanobot-provider
+            :workspace "/tmp/test")))
+    (is (not (null p)))
+    (is (string= "nanobot" (autopoiesis.integration:provider-name p)))
+    (is (string= "nanobot" (autopoiesis.integration:provider-command p)))
+    (is (string= "/tmp/test" (autopoiesis.integration:nanobot-workspace p)))))
+
+(test nanobot-provider-build-command
+  "Test NanoBot provider command building"
+  (let ((p (autopoiesis.integration:make-nanobot-provider
+            :workspace "/tmp/ws")))
+    (multiple-value-bind (cmd args)
+        (autopoiesis.integration:provider-build-command p "do stuff")
+      (is (string= "nanobot" cmd))
+      (is (member "agent" args :test #'string=))
+      (is (member "--no-markdown" args :test #'string=))
+      (is (member "-m" args :test #'string=))
+      (is (member "--workspace" args :test #'string=)))))
+
+(test nanosquash-provider-creation
+  "Test Nanosquash provider creation and slot defaults"
+  (let ((p (autopoiesis.integration:make-nanosquash-provider
+            :layers #("000-base-alpine"))))
+    (is (not (null p)))
+    (is (string= "nanosquash" (autopoiesis.integration:provider-name p)))
+    (is (string= "nanosquash" (autopoiesis.integration:provider-command p)))
+    (is (equalp #("000-base-alpine") (autopoiesis.integration:nanosquash-layers p)))
+    (is (eq t (autopoiesis.integration:nanosquash-ephemeral p)))
+    (is (null (autopoiesis.integration:nanosquash-sandbox-id p)))))
+
+(test nanosquash-native-p-check
+  "Test nanosquash-native-p returns nil when cl-nanosquash not loaded"
+  (is (null (autopoiesis.integration:nanosquash-native-p))))
+
+(test nanosquash-provider-serialization
+  "Test nanosquash provider serialization round-trip"
+  (let ((p (autopoiesis.integration:make-nanosquash-provider
+            :name "ns-test" :sandbox-id "test-box"
+            :layers #("layer1") :ephemeral nil)))
+    (let ((sexpr (autopoiesis.integration:provider-to-sexpr p)))
+      (is (eq :provider (first sexpr)))
+      (is (string= "ns-test" (getf (rest sexpr) :name)))
+      (is (string= "test-box" (getf (rest sexpr) :sandbox-id)))
+      (is (equalp #("layer1") (getf (rest sexpr) :layers)))
+      (is (null (getf (rest sexpr) :ephemeral))))))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Tool Formatting Tests
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -320,4 +368,132 @@
   (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
                              (autopoiesis.integration:make-codex-provider))))
   (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
-                             (autopoiesis.integration:make-cursor-provider)))))
+                             (autopoiesis.integration:make-cursor-provider))))
+  (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
+                             (autopoiesis.integration:make-nanobot-provider))))
+  (is (equal '(:one-shot) (autopoiesis.integration:provider-supported-modes
+                             (autopoiesis.integration:make-nanosquash-provider)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Pi Provider Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test pi-provider-creation
+  "Test Pi provider creation and defaults"
+  (let ((p (autopoiesis.integration:make-pi-provider)))
+    (is (string= "pi" (autopoiesis.integration:provider-name p)))
+    (is (string= "pi" (autopoiesis.integration:provider-command p)))
+    (is (null (autopoiesis.integration:pi-thinking p)))
+    (is (string= "safe" (autopoiesis.integration:pi-extension-policy p)))))
+
+(test pi-provider-creation-with-options
+  "Test Pi provider creation with custom options"
+  (let ((p (autopoiesis.integration:make-pi-provider
+            :thinking "medium" :extension-policy "balanced"
+            :default-model "gpt-4o")))
+    (is (string= "medium" (autopoiesis.integration:pi-thinking p)))
+    (is (string= "balanced" (autopoiesis.integration:pi-extension-policy p)))
+    (is (string= "gpt-4o" (autopoiesis.integration:provider-default-model p)))))
+
+(test pi-command-building
+  "Test Pi provider command building"
+  (let ((p (autopoiesis.integration:make-pi-provider :thinking "high")))
+    (multiple-value-bind (cmd args)
+        (autopoiesis.integration:provider-build-command p "fix the bug")
+      (is (string= "pi" cmd))
+      (is (member "-p" args :test #'string=))
+      (is (member "--mode" args :test #'string=))
+      (is (member "json" args :test #'string=))
+      (is (member "--thinking" args :test #'string=))
+      (is (member "high" args :test #'string=)))))
+
+(test pi-command-building-with-tools
+  "Test Pi provider command building with tools"
+  (let ((p (autopoiesis.integration:make-pi-provider)))
+    (multiple-value-bind (cmd args)
+        (autopoiesis.integration:provider-build-command p "test"
+                                                        :tools (list "read_file" "write_file"))
+      (declare (ignore cmd))
+      (is (member "--tools" args :test #'string=))
+      ;; Tools should be comma-separated
+      (let ((tools-pos (position "--tools" args :test #'string=)))
+        (when tools-pos
+          (let ((tools-val (nth (1+ tools-pos) args)))
+            (is (search "read_file" tools-val))
+            (is (search "write_file" tools-val))))))))
+
+(test pi-command-building-with-model
+  "Test Pi provider command building with model"
+  (let ((p (autopoiesis.integration:make-pi-provider :default-model "claude-sonnet")))
+    (multiple-value-bind (cmd args)
+        (autopoiesis.integration:provider-build-command p "test")
+      (declare (ignore cmd))
+      (is (member "--model" args :test #'string=))
+      (is (member "claude-sonnet" args :test #'string=)))))
+
+(test pi-supported-modes
+  "Test Pi provider supported modes"
+  (let ((p (autopoiesis.integration:make-pi-provider)))
+    (is (member :one-shot (autopoiesis.integration:provider-supported-modes p)))
+    (is (member :streaming (autopoiesis.integration:provider-supported-modes p)))))
+
+(test pi-provider-serialization
+  "Test Pi provider serialization"
+  (let* ((p (autopoiesis.integration:make-pi-provider
+             :thinking "medium" :extension-policy "balanced"))
+         (sexpr (autopoiesis.integration:provider-to-sexpr p)))
+    (is (eq :provider (first sexpr)))
+    (is (string= "pi" (getf (rest sexpr) :name)))
+    (is (string= "medium" (getf (rest sexpr) :thinking)))
+    (is (string= "balanced" (getf (rest sexpr) :extension-policy)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Enhanced OpenCode Provider Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test opencode-enhanced-command-building
+  "Test OpenCode provider enhanced command building with agent-mode and no-tui"
+  (let ((p (autopoiesis.integration:make-opencode-provider
+            :agent-mode "debug" :no-tui t)))
+    (multiple-value-bind (cmd args)
+        (autopoiesis.integration:provider-build-command p "test prompt")
+      (is (string= "opencode" cmd))
+      (is (member "run" args :test #'string=))
+      (is (member "--no-tui" args :test #'string=))
+      (is (member "--agent" args :test #'string=))
+      (is (member "debug" args :test #'string=)))))
+
+(test opencode-agent-mode-default
+  "Test OpenCode provider default agent mode"
+  (let ((p (autopoiesis.integration:make-opencode-provider)))
+    (is (string= "build" (autopoiesis.integration:opencode-agent-mode p)))
+    (is (eq t (autopoiesis.integration:opencode-no-tui p)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Meta-Dispatcher Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test select-coding-backend-default
+  "Test select-coding-backend returns :claude-code for general prompts"
+  (is (eq :claude-code (autopoiesis.integration:select-coding-backend "fix the login bug")))
+  (is (eq :claude-code (autopoiesis.integration:select-coding-backend "add a new endpoint"))))
+
+(test select-coding-backend-pi
+  "Test select-coding-backend returns :pi for refactoring tasks"
+  (is (eq :pi (autopoiesis.integration:select-coding-backend "refactor all files in src/")))
+  (is (eq :pi (autopoiesis.integration:select-coding-backend "migrate from v1 to v2 API")))
+  (is (eq :pi (autopoiesis.integration:select-coding-backend "rewrite the parser module"))))
+
+(test select-coding-backend-opencode
+  "Test select-coding-backend returns :opencode for GitHub tasks"
+  (is (eq :opencode (autopoiesis.integration:select-coding-backend "create a PR for this change")))
+  (is (eq :opencode (autopoiesis.integration:select-coding-backend "open an issue for the bug")))
+  (is (eq :opencode (autopoiesis.integration:select-coding-backend "review the PR #42"))))
+
+(test ensure-coding-provider-creates
+  "Test ensure-coding-provider creates and registers providers"
+  (let ((autopoiesis.integration:*provider-registry* (make-hash-table :test 'equal)))
+    (let ((p (autopoiesis.integration:ensure-coding-provider :pi)))
+      (is (typep p 'autopoiesis.integration:pi-provider))
+      ;; Should be registered now
+      (is (eq p (autopoiesis.integration:find-provider "pi"))))))

@@ -21,10 +21,27 @@ Optionally supports HTTP server mode for persistent sessions.")
     (server-port :initarg :server-port
                  :accessor opencode-server-port
                  :initform 4096
-                 :documentation "Port for HTTP server mode"))
+                 :documentation "Port for HTTP server mode")
+    (agent-mode :initarg :agent-mode
+                :accessor opencode-agent-mode
+                :initform "build"
+                :documentation "Agent personality mode (e.g. build, review, debug)")
+    (no-tui :initarg :no-tui
+            :accessor opencode-no-tui
+            :initform t
+            :documentation "Whether to disable TUI (--no-tui flag)"))
   (:build-command (provider prompt)
     "Build opencode CLI command."
     (let ((args (list "run" prompt "--format" "json")))
+      ;; Add --no-tui for headless operation
+      (when (opencode-no-tui provider)
+        (push "--no-tui" args))
+      ;; Add --agent mode
+      (when (opencode-agent-mode provider)
+        (setf args (append args (list "--agent" (opencode-agent-mode provider)))))
+      ;; Add model if specified
+      (when (provider-default-model provider)
+        (setf args (append args (list "--model" (provider-default-model provider)))))
       (when (provider-extra-args provider)
         (setf args (append args (provider-extra-args provider))))
       (values (provider-command provider) args)))
@@ -39,12 +56,16 @@ Optionally supports HTTP server mode for persistent sessions.")
           (push (list :name (cdr (assoc :name part))
                       :input (cdr (assoc :input part)))
                 tool-calls))))
+    ("step_start"
+      ;; Track step starts for richer thought recording
+      (let ((part (cdr (assoc :part json))))
+        (declare (ignore part))
+        (incf turns)))
     ("step_finish"
       (let ((part (cdr (assoc :part json))))
         (when part
           (let ((cost (cdr (assoc :cost part))))
-            (when cost (incf total-cost cost)))
-          (incf turns))))))
+            (when cost (incf total-cost cost))))))))
 
 ;; Dynamic modes: streaming only when use-server is enabled
 (defmethod provider-supported-modes ((provider opencode-provider))
