@@ -2,8 +2,80 @@
 
 **Date:** 2026-03-02
 **Status:** PROPOSED
+**Reviewed:** 2026-03-03
 **Scope:** Major feature evolution — persistent functional core, ECS embodiment, parallel metabolism
 **Estimated Effort:** ~40 SCUD tasks across 8 waves
+
+---
+
+> **Review Notes (2026-03-03)**
+>
+> The core insight — agents *are* persistent trees, not objects that *produce* snapshots —
+> is architecturally correct. The three-layer decomposition and bridge compatibility
+> (`dual-agent`) are well-designed. However, the plan was written before `swarm/`,
+> `supervisor/`, `crystallize/` modules were added, creating major redundancy in later waves.
+> The Bend/HVM GPU layer is not implementable as specified.
+>
+> **Critical issues:**
+>
+> 1. **Wave 0: Don't reinvent persistent data structures.** Implementing a HAMT, 32-way trie
+>    vector, and persistent set from scratch is a multi-month correctness minefield (Clojure's
+>    PersistentVector took months of iteration). Use the `fset` library instead — it provides
+>    mature, tested persistent maps/sequences/sets. Wrap with `pmap-*`, `pvec-*`, `pset-*` API
+>    names. This reduces Wave 0 from ~6 weeks to ~1 week.
+>
+> 2. **Wave 4: Duplicates `autopoiesis.swarm`.** The existing swarm module already implements:
+>    `genome` class, `population` class, `evolve-generation`, `run-evolution`, `production-rule`
+>    class, `apply-production-rules`, fitness evaluation, tournament/roulette/elitism selection,
+>    crossover, mutation. Wave 4 should *integrate* persistent agents with the existing swarm
+>    module, not recreate it in `autopoiesis.agent`. Replace with:
+>    - Task 4.1: Bridge `persistent-agent` to `autopoiesis.swarm.genome`
+>    - Task 4.2: Extend `evolve-generation` to operate on persistent agents
+>    - Task 4.3: Expose swarm population to Holodeck
+>
+> 3. **Wave 5: Bend/HVM is not implementable as specified.** Three problems:
+>    - Production rules in Bend only get content *hashes* (u64), not evaluable S-expressions.
+>      Bend cannot apply CL lambdas — it can only operate on Bend ADTs. `apply_transform` in
+>      `metabolism.bend` would be operating on hash integers, not actual code.
+>    - HVM shared memory with external runtimes has no stable API. The "Apple M unified memory
+>      mmap" option has no implementation basis in current HVM tooling.
+>    - Subprocess serialization latency negates GPU benefits for populations < 10,000 agents.
+>    **Recommendation:** Demote to a single research spike task. Gate remaining tasks on the
+>    prototype demonstrating measurable speedup over `lparallel`.
+>
+> **Moderate issues:**
+>
+> 4. **`persistent-cognitive-cycle` purity claim is contradicted by design.** The `persistent-act`
+>    function invokes capabilities from the global mutable `*capability-registry*` — capabilities
+>    call into substrate, spawn threads, make HTTP requests. Rename success criterion from "Purity"
+>    to "Immutability" (old root unchanged after step). The *state transitions* are pure; the act
+>    phase is effectful.
+>
+> 5. **`agent-merge` is underspecified.** Merging divergent agent trees requires semantic understanding
+>    of what genome modifications *mean*, not just structural S-expression diffing. Two agents with
+>    conflicting capability additions or incompatible heuristic weights cannot be merged structurally.
+>    The existing `merge-branches` in snapshot is also unimplemented. Scope to "append-only merge"
+>    (union of thoughts, latest-wins for genome) or defer entirely.
+>
+> 6. **`dual-agent` threading hazard.** The persistent root *pointer* on `dual-agent` is a mutable
+>    CLOS slot. Multiple threads (conductor tick loop, Claude workers) calling `(setf agent-state)`
+>    will race on this slot. Needs per-agent lock or `sb-ext:cas`.
+>
+> 7. **Gap analysis is outdated.** The "What's Missing" section should acknowledge:
+>    - `autopoiesis.swarm` already provides population-level operations
+>    - `autopoiesis.supervisor` already provides checkpoint-and-revert via `with-checkpoint`
+>    - `autopoiesis.crystallize` already extracts capabilities/genomes/heuristics to files
+>    - Task 1.5 `persistent-snapshot-bridge` should build on existing `with-checkpoint`
+>
+> **What's valuable and should be kept:**
+>
+> - Layer 1 persistent functional core design (after using `fset` for data structures)
+> - `dual-agent` bridge strategy for backward compatibility
+> - Wave dependency DAG ordering
+> - ECS embodiment components (Wave 2) — no overlap with existing code
+> - Concrete test assertion targets per task
+> - LOC estimates are realistic (~6,000 LOC across 33 files)
+> - Fallback-first risk management approach
 
 ---
 
