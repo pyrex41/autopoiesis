@@ -304,15 +304,15 @@
    Returns commit output."
   :permissions (:shell :git-write)
   :body
-  (unless message
-    (return-from git-commit "Error: commit message is required"))
-  (let ((cmd (format nil "git commit ~a -m ~s"
+  (if (not message)
+      "Error: commit message is required"
+      (let ((cmd (format nil "git commit ~a -m ~s"
                      (if amend "--amend" "")
                      message)))
     (funcall (autopoiesis.agent:capability-function
               (autopoiesis.agent:find-capability 'run-command))
              :command cmd
-             :working-directory directory)))
+             :working-directory directory))))
 
 (autopoiesis.agent:defcapability git-checkout-branch (&key name create directory)
   "Switch to or create a git branch.
@@ -324,15 +324,15 @@
    Returns checkout output."
   :permissions (:shell :git-write)
   :body
-  (unless name
-    (return-from git-checkout-branch "Error: branch name is required"))
-  (let ((cmd (format nil "git checkout ~a ~a"
-                     (if create "-b" "")
-                     name)))
-    (funcall (autopoiesis.agent:capability-function
-              (autopoiesis.agent:find-capability 'run-command))
-             :command cmd
-             :working-directory directory)))
+  (if (not name)
+      "Error: branch name is required"
+      (let ((cmd (format nil "git checkout ~a ~a"
+                         (if create "-b" "")
+                         name)))
+        (funcall (autopoiesis.agent:capability-function
+                  (autopoiesis.agent:find-capability 'run-command))
+                 :command cmd
+                 :working-directory directory))))
 
 (autopoiesis.agent:defcapability git-create-worktree (&key path branch directory)
   "Create a git worktree.
@@ -344,15 +344,15 @@
    Returns worktree creation output."
   :permissions (:shell :git-write)
   :body
-  (unless path
-    (return-from git-create-worktree "Error: worktree path is required"))
-  (let ((cmd (if branch
-                 (format nil "git worktree add ~a ~a" path branch)
-                 (format nil "git worktree add ~a" path))))
-    (funcall (autopoiesis.agent:capability-function
-              (autopoiesis.agent:find-capability 'run-command))
-             :command cmd
-             :working-directory directory)))
+  (if (not path)
+      "Error: worktree path is required"
+      (let ((cmd (if branch
+                     (format nil "git worktree add ~a ~a" path branch)
+                     (format nil "git worktree add ~a" path))))
+        (funcall (autopoiesis.agent:capability-function
+                  (autopoiesis.agent:find-capability 'run-command))
+                 :command cmd
+                 :working-directory directory))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Self-Extension Tools

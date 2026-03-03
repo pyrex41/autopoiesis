@@ -86,7 +86,7 @@
   "Create a mutated copy of GENOME. Each mutation type occurs independently
    with probability MUTATION-RATE. The original genome is not modified."
   (let ((new-caps (copy-list (genome-capabilities genome)))
-        (new-weights (copy-alist (genome-heuristic-weights genome)))
+        (new-weights (copy-alist-fresh (genome-heuristic-weights genome)))
         (new-params (copy-list (genome-parameters genome))))
     ;; Mutate capabilities: add a random one
     (when (< (random 1.0) mutation-rate)
@@ -129,6 +129,6 @@
         (mapcar #'autopoiesis.agent:capability-name caps)
         '(:read :write :execute :communicate :introspect))))
 
-(defun copy-alist (alist)
+(defun copy-alist-fresh (alist)
   "Return a fresh copy of ALIST with new cons cells."
   (mapcar (lambda (pair) (cons (car pair) (cdr pair))) alist))
