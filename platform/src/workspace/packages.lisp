@@ -78,4 +78,13 @@
    #:*workspace-registry*
    #:find-workspace
    #:list-workspaces
-   #:list-agent-workspaces))
+   #:list-agent-workspaces
+
+   ;; Team coordination
+   #:workspace-put
+   #:workspace-get
+   #:workspace-push-task
+   #:workspace-claim-task
+   #:workspace-submit-result
+   #:workspace-list-tasks
+   #:workspace-log-entry))

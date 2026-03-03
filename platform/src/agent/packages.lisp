@@ -109,8 +109,11 @@
    #:message-content
    #:message-timestamp
    #:send-message
+   #:deliver-message
    #:receive-messages
+   #:ensure-mailbox
    #:*agent-mailboxes*
+   #:*mailboxes-lock*
 
    ;; Agent registry
    #:*agent-registry*

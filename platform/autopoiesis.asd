@@ -198,7 +198,8 @@
       ((:file "packages")
        (:file "agent-home")
        (:file "workspace")
-       (:file "capabilities")))
+       (:file "capabilities")
+       (:file "team-coordination")))
      (:module "swarm"
       :serial t
       :depends-on ("core" "agent" "snapshot")
@@ -231,6 +232,21 @@
        (:file "snapshot-integration")
        (:file "asdf-fragment")
        (:file "git-export")))
+     (:module "team"
+      :serial t
+      :depends-on ("core" "substrate" "agent" "workspace" "orchestration" "integration")
+      :components
+      ((:file "packages")
+       (:file "team")
+       (:file "strategy")
+       (:module "strategies"
+        :serial t
+        :components
+        ((:file "leader-worker")
+         (:file "parallel")
+         (:file "pipeline")
+         (:file "debate")
+         (:file "consensus")))))
      (:module "jarvis"
       :serial t
       :depends-on ("core" "agent" "integration" "supervisor" "interface")
@@ -241,7 +257,7 @@
        (:file "loop")
        (:file "human-in-the-loop")))
      ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api" "workspace" "swarm" "supervisor" "crystallize" "jarvis")))))
+     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api" "workspace" "swarm" "supervisor" "crystallize" "team" "jarvis")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; WebSocket API server (Clack/Lack/Woo)
@@ -360,6 +376,7 @@
      (:file "crystallize-tests")
      (:file "git-tools-tests")
      (:file "jarvis-tests")
+     (:file "team-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))

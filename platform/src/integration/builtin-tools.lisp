@@ -601,13 +601,17 @@
                 (if started (- (get-universal-time) started) 0)
                 result))))
 
-(autopoiesis.agent:defcapability await-agent (&key agent-id timeout)
-  "Wait for a spawned agent to complete its task.
-   AGENT-ID - The ID returned by spawn_agent.
-   TIMEOUT - Seconds to wait (default 300).
-   Returns the agent's result when complete."
-  :permissions (:orchestration)
-  :body
+(defun %format-agent-result (agent-id agent-eid)
+  "Format the result/error of a completed agent as a string."
+  (let ((status (autopoiesis.substrate:entity-attr agent-eid :agent/status))
+        (result (autopoiesis.substrate:entity-attr agent-eid :agent/result))
+        (err (autopoiesis.substrate:entity-attr agent-eid :agent/error)))
+    (format nil "Agent ~A ~(~A~): ~A" agent-id status
+            (or result err "(no details)"))))
+
+(defun %await-agent-cv (agent-id &key (timeout 300))
+  "Wait for agent AGENT-ID using substrate hooks + condition variable.
+   Returns a result string. Does NOT require *current-agent*."
   (let* ((max-wait (or timeout 300))
          (agent-eid (autopoiesis.substrate:intern-id agent-id))
          (status (autopoiesis.substrate:entity-attr agent-eid :agent/status)))
@@ -615,23 +619,123 @@
       ((not status)
        (format nil "Error: Agent ~A not found" agent-id))
       ((member status '(:complete :failed))
-       (let ((result (autopoiesis.substrate:entity-attr agent-eid :agent/result))
-             (err (autopoiesis.substrate:entity-attr agent-eid :agent/error)))
-         (format nil "Agent ~A ~(~A~): ~A" agent-id status
-                 (or result err "(no details)"))))
+       (%format-agent-result agent-id agent-eid))
       (t
-       (loop for elapsed from 0 by 2
-             while (< elapsed max-wait)
-             do (sleep 2)
-                (let ((current-status (autopoiesis.substrate:entity-attr
-                                       agent-eid :agent/status)))
-                  (when (member current-status '(:complete :failed))
-                    (let ((result (autopoiesis.substrate:entity-attr agent-eid :agent/result))
-                          (err (autopoiesis.substrate:entity-attr agent-eid :agent/error)))
-                      (return (format nil "Agent ~A ~(~A~): ~A" agent-id
-                                      current-status (or result err))))))
-             finally (return (format nil "Timeout: agent ~A still ~(~A~) after ~As"
-                                     agent-id status max-wait)))))))
+       (let ((lock (bt:make-lock "await-agent"))
+             (cv (bt:make-condition-variable :name "await-agent-cv"))
+             (done nil)
+             (hook-name (gensym "AWAIT-HOOK-")))
+         (unwind-protect
+              (progn
+                ;; Register hook to watch for status changes
+                (autopoiesis.substrate:register-hook
+                 autopoiesis.substrate:*store* hook-name
+                 (lambda (datoms tx-id)
+                   (declare (ignore tx-id))
+                   (dolist (d datoms)
+                     (when (and (eql (autopoiesis.substrate:d-entity d) agent-eid)
+                                (eq (autopoiesis.substrate:d-attribute d) :agent/status)
+                                (member (autopoiesis.substrate:d-value d)
+                                        '(:complete :failed)))
+                       (bt:with-lock-held (lock)
+                         (setf done t)
+                         (bt:condition-notify cv))))))
+                ;; Pre-flight: check again under lock (agent may have finished
+                ;; between our first check and hook registration)
+                (bt:with-lock-held (lock)
+                  (let ((current (autopoiesis.substrate:entity-attr agent-eid :agent/status)))
+                    (when (member current '(:complete :failed))
+                      (setf done t)))
+                  ;; Wait with timeout if not already done
+                  (unless done
+                    (let ((deadline (+ (get-internal-real-time)
+                                       (* max-wait internal-time-units-per-second))))
+                      (loop until done
+                            while (< (get-internal-real-time) deadline)
+                            do (bt:condition-wait cv lock :timeout 1.0))))))
+           ;; Cleanup: always unregister hook
+           (autopoiesis.substrate:unregister-hook
+            autopoiesis.substrate:*store* hook-name))
+         ;; Return result
+         (if done
+             (%format-agent-result agent-id agent-eid)
+             (format nil "Timeout: agent ~A still ~(~A~) after ~As"
+                     agent-id
+                     (autopoiesis.substrate:entity-attr agent-eid :agent/status)
+                     max-wait)))))))
+
+(defun %await-all-agents (agent-ids &key (timeout 300))
+  "Wait for all AGENT-IDS to complete using a single substrate hook.
+   Returns an alist of (agent-id . result-string)."
+  (let* ((max-wait (or timeout 300))
+         (eid-map (make-hash-table :test 'eql))  ; eid -> agent-id
+         (results (make-hash-table :test 'equal)) ; agent-id -> result
+         (remaining 0)
+         (lock (bt:make-lock "await-all"))
+         (cv (bt:make-condition-variable :name "await-all-cv"))
+         (hook-name (gensym "AWAIT-ALL-HOOK-")))
+    ;; Build eid->agent-id map and seed already-completed
+    (dolist (aid agent-ids)
+      (let* ((eid (autopoiesis.substrate:intern-id aid))
+             (status (autopoiesis.substrate:entity-attr eid :agent/status)))
+        (setf (gethash eid eid-map) aid)
+        (if (member status '(:complete :failed))
+            (setf (gethash aid results) (%format-agent-result aid eid))
+            (incf remaining))))
+    ;; If all done already, return immediately
+    (when (zerop remaining)
+      (return-from %await-all-agents
+        (mapcar (lambda (aid) (cons aid (gethash aid results))) agent-ids)))
+    ;; Register single hook for all agents
+    (unwind-protect
+         (progn
+           (autopoiesis.substrate:register-hook
+            autopoiesis.substrate:*store* hook-name
+            (lambda (datoms tx-id)
+              (declare (ignore tx-id))
+              (dolist (d datoms)
+                (when (and (eq (autopoiesis.substrate:d-attribute d) :agent/status)
+                           (member (autopoiesis.substrate:d-value d) '(:complete :failed)))
+                  (let ((aid (gethash (autopoiesis.substrate:d-entity d) eid-map)))
+                    (when (and aid (not (gethash aid results)))
+                      (bt:with-lock-held (lock)
+                        (setf (gethash aid results)
+                              (%format-agent-result aid (autopoiesis.substrate:d-entity d)))
+                        (decf remaining)
+                        (when (zerop remaining)
+                          (bt:condition-notify cv)))))))))
+           ;; Pre-flight recheck under lock
+           (bt:with-lock-held (lock)
+             (dolist (aid agent-ids)
+               (unless (gethash aid results)
+                 (let* ((eid (autopoiesis.substrate:intern-id aid))
+                        (st (autopoiesis.substrate:entity-attr eid :agent/status)))
+                   (when (member st '(:complete :failed))
+                     (setf (gethash aid results) (%format-agent-result aid eid))
+                     (decf remaining)))))
+             (unless (zerop remaining)
+               (let ((deadline (+ (get-internal-real-time)
+                                   (* max-wait internal-time-units-per-second))))
+                 (loop until (zerop remaining)
+                       while (< (get-internal-real-time) deadline)
+                       do (bt:condition-wait cv lock :timeout 1.0))))))
+      (autopoiesis.substrate:unregister-hook
+       autopoiesis.substrate:*store* hook-name))
+    ;; Build result alist — include timeout messages for incomplete agents
+    (mapcar (lambda (aid)
+              (cons aid (or (gethash aid results)
+                            (format nil "Timeout: agent ~A still running after ~As"
+                                    aid max-wait))))
+            agent-ids)))
+
+(autopoiesis.agent:defcapability await-agent (&key agent-id timeout)
+  "Wait for a spawned agent to complete its task.
+   AGENT-ID - The ID returned by spawn_agent.
+   TIMEOUT - Seconds to wait (default 300).
+   Returns the agent's result when complete."
+  :permissions (:orchestration)
+  :body
+  (%await-agent-cv agent-id :timeout (or timeout 300)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Cognitive Branching Tools (Phase 5: Meta-Agent)
@@ -720,6 +824,103 @@
         (format nil "Error: Session '~A' not found" name))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Team Coordination Tools
+;;; ═══════════════════════════════════════════════════════════════════
+
+(autopoiesis.agent:defcapability create-team-tool (&key name strategy task members leader config)
+  "Create a new team of agents.
+   NAME - Human-readable team name.
+   STRATEGY - Coordination strategy (:leader-worker :parallel :pipeline :debate :consensus).
+   TASK - The goal the team will work on.
+   MEMBERS - List of agent IDs to include.
+   LEADER - Agent ID of the team leader.
+   CONFIG - Strategy-specific configuration plist.
+   Returns team info."
+  :permissions (:orchestration)
+  :body
+  (let ((create-fn (find-symbol "CREATE-TEAM" :autopoiesis.team)))
+    (if create-fn
+        (let ((team (funcall create-fn name
+                             :strategy (when strategy
+                                         (intern (string-upcase (string strategy)) :keyword))
+                             :task task
+                             :members members
+                             :leader leader
+                             :config config)))
+          (let ((id-fn (find-symbol "TEAM-ID" :autopoiesis.team)))
+            (format nil "Team created: ~A" (when id-fn (funcall id-fn team)))))
+        "Error: Team module not loaded")))
+
+(autopoiesis.agent:defcapability start-team-work (&key team-id)
+  "Start a team working on its assigned task.
+   TEAM-ID - The team identifier returned by create_team_tool."
+  :permissions (:orchestration)
+  :body
+  (let ((find-fn (find-symbol "FIND-TEAM" :autopoiesis.team))
+        (start-fn (find-symbol "START-TEAM" :autopoiesis.team)))
+    (if (and find-fn start-fn)
+        (let ((team (funcall find-fn team-id)))
+          (if team
+              (progn (funcall start-fn team)
+                     (format nil "Team ~A started" team-id))
+              (format nil "Error: Team ~A not found" team-id)))
+        "Error: Team module not loaded")))
+
+(autopoiesis.agent:defcapability query-team-tool (&key team-id)
+  "Query the current status of a team.
+   TEAM-ID - The team identifier.
+   Returns comprehensive status."
+  :permissions (:orchestration)
+  :body
+  (let ((find-fn (find-symbol "FIND-TEAM" :autopoiesis.team))
+        (status-fn (find-symbol "QUERY-TEAM-STATUS" :autopoiesis.team)))
+    (if (and find-fn status-fn)
+        (let ((team (funcall find-fn team-id)))
+          (if team
+              (format nil "~S" (funcall status-fn team))
+              (format nil "Error: Team ~A not found" team-id)))
+        "Error: Team module not loaded")))
+
+(autopoiesis.agent:defcapability await-team (&key team-id timeout)
+  "Wait for all members of a team to complete their work.
+   TEAM-ID - The team identifier.
+   TIMEOUT - Seconds to wait (default 300).
+   Returns aggregated results."
+  :permissions (:orchestration)
+  :body
+  (let ((find-fn (find-symbol "FIND-TEAM" :autopoiesis.team))
+        (members-fn (find-symbol "TEAM-MEMBERS" :autopoiesis.team)))
+    (if (and find-fn members-fn)
+        (let ((team (funcall find-fn team-id)))
+          (if team
+              (let ((member-ids (funcall members-fn team)))
+                (if member-ids
+                    (let ((results (%await-all-agents member-ids
+                                                      :timeout (or timeout 300))))
+                      (format nil "Team ~A results:~%~{  ~A: ~A~^~%~}"
+                              team-id
+                              (loop for (id . result) in results
+                                    collect id collect result)))
+                    (format nil "Team ~A has no members" team-id)))
+              (format nil "Error: Team ~A not found" team-id)))
+        "Error: Team module not loaded")))
+
+(autopoiesis.agent:defcapability disband-team-tool (&key team-id)
+  "Disband a team, marking it complete and cleaning up resources.
+   TEAM-ID - The team identifier."
+  :permissions (:orchestration)
+  :body
+  (let ((find-fn (find-symbol "FIND-TEAM" :autopoiesis.team))
+        (disband-fn (find-symbol "DISBAND-TEAM" :autopoiesis.team)))
+    (if (and find-fn disband-fn)
+        (let ((team (funcall find-fn team-id)))
+          (if team
+              (progn (funcall disband-fn team)
+                     (format nil "Team ~A disbanded" team-id))
+              (format nil "Error: Team ~A not found" team-id)))
+        "Error: Team module not loaded")))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Tool Registration
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -744,7 +945,10 @@
     ;; Cognitive branching tools (Phase 5)
     fork-branch compare-branches
     ;; Session management tools (Phase 5)
-    save-session resume-session))
+    save-session resume-session
+    ;; Team coordination tools
+    create-team-tool start-team-work query-team-tool
+    await-team disband-team-tool))
 
 (defun register-builtin-tools (&key (registry autopoiesis.agent:*capability-registry*))
   "Register all built-in tools in the capability registry.

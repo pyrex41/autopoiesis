@@ -146,8 +146,6 @@
 
 (defun dispatch-event (conductor event-type event-data)
   "Dispatch an event based on its type. Extensible via methods later."
-  (declare (ignore conductor event-data))
-  ;; Default: log the event type. Concrete handlers added in later phases.
   (case event-type
     (:task-result
      ;; Handle task completion -- update worker datoms
@@ -156,6 +154,13 @@
            (status (getf event-data :status)))
        (when task-id
          (handle-task-result conductor task-id status result))))
+    ;; Team coordination events — increment metrics
+    ((:team-created :team-started :team-completed :team-failed)
+     (increment-metric conductor :team-events))
+    (:team-task-completed
+     (increment-metric conductor :team-tasks-completed))
+    ((:team-member-joined :team-member-left :team-task-assigned)
+     (increment-metric conductor :team-events))
     (otherwise nil)))
 
 ;;; ===================================================================

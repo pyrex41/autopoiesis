@@ -50,26 +50,64 @@
                  :to to
                  :content content))
 
+;;; Thread-safe mailbox struct — lock + condition variable per agent.
+(defstruct (agent-mailbox (:constructor %make-agent-mailbox))
+  (lock (bt:make-lock "mailbox") :type bt:lock)
+  (cv (bt:make-condition-variable :name "mailbox-cv"))
+  (messages nil :type list))
+
 (defvar *agent-mailboxes* (make-hash-table :test 'equal)
-  "Mailboxes for agent communication. Maps agent ID -> list of messages.")
+  "Mailboxes for agent communication. Maps agent ID -> agent-mailbox struct.")
+
+(defvar *mailboxes-lock* (bt:make-lock "mailboxes-registry")
+  "Lock protecting the *agent-mailboxes* hash-table itself.")
+
+(defun ensure-mailbox (agent-id)
+  "Get or create a thread-safe mailbox for AGENT-ID."
+  (bt:with-lock-held (*mailboxes-lock*)
+    (or (gethash agent-id *agent-mailboxes*)
+        (setf (gethash agent-id *agent-mailboxes*)
+              (%make-agent-mailbox)))))
 
 (defun get-mailbox (agent-id)
-  "Get or create mailbox for AGENT-ID."
-  (or (gethash agent-id *agent-mailboxes*)
-      (setf (gethash agent-id *agent-mailboxes*) nil)))
+  "Get or create mailbox for AGENT-ID. Backward-compatible wrapper."
+  (ensure-mailbox agent-id))
 
 (defun deliver-message (message)
-  "Deliver MESSAGE to recipient's mailbox."
-  (let ((to-id (message-to message)))
-    (push message (gethash to-id *agent-mailboxes*))
+  "Deliver MESSAGE to recipient's mailbox (thread-safe)."
+  (let* ((to-id (message-to message))
+         (mbox (ensure-mailbox to-id)))
+    (bt:with-lock-held ((agent-mailbox-lock mbox))
+      (setf (agent-mailbox-messages mbox)
+            (nconc (agent-mailbox-messages mbox) (list message)))
+      (bt:condition-notify (agent-mailbox-cv mbox)))
     message))
 
-(defun receive-messages (agent-id &key clear)
-  "Get all messages for AGENT-ID. If CLEAR is true, remove them from mailbox."
-  (let ((messages (reverse (gethash agent-id *agent-mailboxes*))))
-    (when clear
-      (setf (gethash agent-id *agent-mailboxes*) nil))
-    messages))
+(defun receive-messages (agent-id &key clear block timeout)
+  "Get all messages for AGENT-ID (thread-safe).
+   If CLEAR is true, remove them from mailbox after reading.
+   If BLOCK is true, wait until at least one message arrives.
+   TIMEOUT is max seconds to wait when blocking (default: no timeout)."
+  (let ((mbox (ensure-mailbox agent-id)))
+    (bt:with-lock-held ((agent-mailbox-lock mbox))
+      ;; Block until messages arrive if requested
+      (when (and block (null (agent-mailbox-messages mbox)))
+        (if timeout
+            (let ((deadline (+ (get-internal-real-time)
+                               (* timeout internal-time-units-per-second))))
+              (loop while (and (null (agent-mailbox-messages mbox))
+                               (< (get-internal-real-time) deadline))
+                    do (bt:condition-wait (agent-mailbox-cv mbox)
+                                         (agent-mailbox-lock mbox)
+                                         :timeout 0.1)))
+            (loop while (null (agent-mailbox-messages mbox))
+                  do (bt:condition-wait (agent-mailbox-cv mbox)
+                                       (agent-mailbox-lock mbox)))))
+      ;; Return messages
+      (let ((messages (copy-list (agent-mailbox-messages mbox))))
+        (when clear
+          (setf (agent-mailbox-messages mbox) nil))
+        messages))))
 
 (defun send-message (from-agent to-agent-or-id content)
   "Send CONTENT from FROM-AGENT to TO-AGENT-OR-ID."

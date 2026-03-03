@@ -19,6 +19,7 @@
 
    ;; Lifecycle
    #:start-jarvis
+   #:start-jarvis-with-team
    #:stop-jarvis
 
    ;; Conversation

@@ -30,4 +30,5 @@
    #:supervisor-tests
    #:crystallize-tests
    #:git-tools-tests
-   #:jarvis-tests))
+   #:jarvis-tests
+   #:team-tests))

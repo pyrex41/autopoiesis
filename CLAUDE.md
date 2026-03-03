@@ -35,11 +35,11 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 
 ## Architecture
 
-Eleven-layer architecture (bottom to top):
+Twelve-layer architecture (bottom to top):
 
 1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types, value indexing, interning, LMDB persistence, blob store
 2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, extension compiler, recovery, profiling, config
-3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner
+3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes
 4. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
 5. **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
 6. **Human Interface Layer** (`platform/src/interface/`) - Navigator, viewport, annotator, blocking input, CLI session
@@ -47,7 +47,8 @@ Eleven-layer architecture (bottom to top):
 8. **Holodeck Layer** (`platform/src/holodeck/`) - 3D ECS visualization with shaders, meshes, dual camera, HUD, ray picking
 9. **Integration Layer** (`platform/src/integration/`) - Claude bridge, MCP servers, tool mapping, built-in tools, event bus, multi-provider agentic loops
 10. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue and worker tracking
-11. **Cross-cutting** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
+11. **Team Layer** (`platform/src/team/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
+12. **Cross-cutting** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
 
 ## Implementation Status
 
@@ -84,7 +85,7 @@ Eleven-layer architecture (bottom to top):
 
 ## Test Suites
 
-2,775+ assertions across 14 test suites (plus holodeck):
+2,900+ assertions across 15 test suites (plus holodeck):
 
 - `substrate-tests` - Datom store, interning, transact!, hooks, take!, entity types, defsystem (112 checks)
 - `orchestration-tests` - Conductor, timer heap, event queue, workers, Claude CLI (91 checks)
@@ -99,6 +100,7 @@ Eleven-layer architecture (bottom to top):
 - `monitoring-tests` - Metrics, health checks, HTTP endpoints (48 checks)
 - `provider-tests` - Multi-provider subprocess management (70 checks)
 - `rest-api-tests` - REST API serialization and dispatch (73 checks)
+- `team-tests` - Mailbox concurrency, CV-based await, team lifecycle, strategies, workspace coordination (30 tests)
 - `e2e-tests` - End-to-end user story tests (134 checks)
 - `holodeck-tests` - ECS, shaders, meshes, camera, HUD, input, ray picking (442 tests, 1,193 assertions)
 

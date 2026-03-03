@@ -198,6 +198,73 @@
           (format nil "Installed: ~A" packages)
           (format nil "Install failed (exit ~A): ~A" exit-code stderr)))))
 
+;;; ── Team Coordination Capabilities ───────────────────────────────
+
+(autopoiesis.agent:defcapability team-workspace-read (&key workspace-id key)
+  "Read a value from the team workspace shared memory.
+   WORKSPACE-ID - The workspace identifier.
+   KEY - String key to read."
+  :permissions (:file-read)
+  :body
+  (let ((value (workspace-get workspace-id key)))
+    (if value
+        (format nil "~S" value)
+        (format nil "Key ~A not found in workspace ~A" key workspace-id))))
+
+(autopoiesis.agent:defcapability team-workspace-write (&key workspace-id key value)
+  "Write a value to the team workspace shared memory.
+   WORKSPACE-ID - The workspace identifier.
+   KEY - String key to write.
+   VALUE - Value to store."
+  :permissions (:file-write)
+  :body
+  (workspace-put workspace-id key value)
+  (format nil "Stored ~A = ~S in workspace ~A" key value workspace-id))
+
+(autopoiesis.agent:defcapability team-claim-task (&key workspace-id agent-id)
+  "Claim the next available task from the workspace queue.
+   WORKSPACE-ID - The workspace identifier.
+   AGENT-ID - Optional agent ID to track who claimed the task."
+  :permissions (:orchestration)
+  :body
+  (multiple-value-bind (task-id content)
+      (workspace-claim-task workspace-id agent-id)
+    (if task-id
+        (format nil "Claimed task ~A: ~A" task-id content)
+        (format nil "No pending tasks in workspace ~A" workspace-id))))
+
+(autopoiesis.agent:defcapability team-submit-result (&key task-id result)
+  "Submit a result for a previously claimed task.
+   TASK-ID - The task identifier from team_claim_task.
+   RESULT - The result value."
+  :permissions (:orchestration)
+  :body
+  (workspace-submit-result task-id result)
+  (format nil "Result submitted for task ~A" task-id))
+
+(autopoiesis.agent:defcapability team-broadcast (&key team-id message)
+  "Broadcast a message to all members of a team.
+   TEAM-ID - The team identifier.
+   MESSAGE - Message content to send to all members."
+  :permissions (:orchestration)
+  :body
+  (let ((find-fn (find-symbol "FIND-TEAM" :autopoiesis.team))
+        (members-fn (find-symbol "TEAM-MEMBERS" :autopoiesis.team))
+        (send-fn (find-symbol "SEND-MESSAGE" :autopoiesis.agent)))
+    (if (and find-fn members-fn send-fn)
+        (let ((team (funcall find-fn team-id)))
+          (if team
+              (let ((members (funcall members-fn team))
+                    (count 0))
+                (dolist (mid members)
+                  (funcall send-fn "team-system" mid message)
+                  (incf count))
+                (format nil "Broadcast to ~A team members" count))
+              (format nil "Error: Team ~A not found" team-id)))
+        "Error: Required modules not loaded")))
+
 (defun workspace-capability-names ()
   "Return the list of workspace-aware capability names."
-  '(ws-read-file-cap ws-write-file-cap ws-exec-cap ws-install-cap))
+  '(ws-read-file-cap ws-write-file-cap ws-exec-cap ws-install-cap
+    team-workspace-read team-workspace-write team-claim-task
+    team-submit-result team-broadcast))

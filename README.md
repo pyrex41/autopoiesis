@@ -327,6 +327,45 @@ Agents spawn specialized children with parent-child lineage, inter-agent messagi
   (autopoiesis.agent:capability-receive :clear t))
 ```
 
+### Team Coordination
+
+Create teams of agents that work together using configurable strategies. Five coordination patterns are built in:
+
+```lisp
+;; Create a team with a leader-worker strategy
+(let ((team (autopoiesis.team:create-team "code-review"
+              :strategy :leader-worker
+              :task "Review authentication module"
+              :leader "architect"
+              :members '("architect" "security-analyst" "test-writer"))))
+
+  ;; Start the team — initializes strategy, creates shared workspace
+  (autopoiesis.team:start-team team)
+
+  ;; Leader decomposes task into subtasks via workspace queue
+  ;; Workers claim subtasks atomically via take!
+  ;; Results accumulate in shared workspace
+
+  ;; Query team progress
+  (autopoiesis.team:query-team-status team)
+  ;; => (:ID "team-code-review-..." :STATUS :ACTIVE :MEMBER-COUNT 3 ...)
+
+  ;; Wait for all members to finish
+  ;; (uses CV-based substrate hooks, not polling)
+  (autopoiesis.team:disband-team team))
+```
+
+**Strategies:**
+| Strategy | Pattern | Use Case |
+|----------|---------|----------|
+| `:leader-worker` | Leader decomposes, workers claim via `take!` | Task decomposition, delegation |
+| `:parallel` | All agents get same task, best result selected | Competitive drafting, redundancy |
+| `:pipeline` | Sequential stages, output flows to next | Multi-step refinement |
+| `:debate` | N rounds of argumentation + judge evaluates | Adversarial reasoning |
+| `:consensus` | Iterative draft/review/vote until convergence | Collaborative decision-making |
+
+Teams use the substrate for coordination: shared memory via workspace datoms, atomic task claiming via `take!`, and CV-based await (no polling). Thread-safe mailboxes with per-agent locks and condition variables enable concurrent message delivery across team members.
+
 ### The Holodeck
 
 The entire snapshot DAG rendered as a 3D scene. Snapshots are holographic nodes — spheres for normal states, octahedra for decisions, branching-nodes with prongs for forks — connected by energy beams with animated flow. Fly through your agent's cognitive history.
@@ -376,6 +415,9 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Cross-Cutting         Security (permissions, audit, validation)     │
 │                        Monitoring (metrics, health, HTTP endpoints)  │
+├──────────────────────────────────────────────────────────────────────┤
+│  Team Layer            Coordination Strategies  •  Shared Workspace  │
+│                        Task Queue (take!)  •  CV-Based Await         │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Orchestration Layer   Conductor Tick Loop  •  Timer Heap            │
 │                        Substrate-Backed Event Queue  •  Workers      │
@@ -452,6 +494,10 @@ ANSI terminal timeline explorer. 256-color rendering with Unicode box drawing an
 
 Multi-provider agentic loops: direct API (Anthropic, OpenAI, Ollama) and CLI subprocess (Claude Code, Codex, OpenCode). `define-cli-provider` macro generates providers from declarative specs. Bidirectional tool mapping: kebab-case capabilities <-> snake_case tools, Lisp types <-> JSON Schema. MCP client speaking JSON-RPC 2.0 over stdio. Built-in tools for filesystem, web, shell, and git. Pub/sub event bus with 1000-event history.
 
+### Team Layer (`platform/src/team/`)
+
+Multi-agent coordination with five pluggable strategies as CLOS generic function specializations. Teams persist to substrate, maintain thread-safe in-memory registries, and coordinate via shared workspace datoms. Task assignment uses Linda `take!` for atomic claiming. `%await-agent-cv` and `%await-all-agents` use substrate hooks with condition variables for zero-polling agent completion detection. Thread-safe per-agent mailboxes with lock + CV for concurrent message delivery. Strategies: leader-worker (decompose + delegate), parallel (competitive), pipeline (sequential), debate (adversarial rounds), consensus (iterative convergence). Team lifecycle events flow through the integration event bus and conductor dispatch.
+
 ### Orchestration Layer (`platform/src/orchestration/`)
 
 Conductor tick loop (100ms heartbeat) with substrate-backed event queue. Linda `take!` for atomic event claiming. Timer heap for scheduled actions. Worker management as substrate entities. Claude CLI subprocess spawning with streaming JSON, timeout handling, and exponential backoff. HTTP webhook endpoint.
@@ -484,6 +530,7 @@ ap/
 │   │   ├── viz/           # 2D terminal timeline
 │   │   ├── holodeck/      # 3D ECS visualization
 │   │   ├── integration/   # LLM providers, MCP, tools, agentic loops
+│   │   ├── team/          # Multi-agent coordination strategies
 │   │   ├── orchestration/ # Conductor, event queue, workers
 │   │   ├── security/      # Permissions, audit, validation
 │   │   └── monitoring/    # Metrics, health checks

@@ -57,6 +57,26 @@
           (ignore-errors (funcall start-fn provider)))))
     session))
 
+(defun start-jarvis-with-team (&key agent pi-config tools)
+  "Start a Jarvis session with team coordination tools included.
+   Same as START-JARVIS but appends team capabilities to the tool list."
+  (let* ((team-tools '(autopoiesis.integration::create-team-tool
+                       autopoiesis.integration::start-team-work
+                       autopoiesis.integration::query-team-tool
+                       autopoiesis.integration::await-team
+                       autopoiesis.integration::disband-team-tool))
+         (ws-team-tools '(autopoiesis.workspace::team-workspace-read
+                          autopoiesis.workspace::team-workspace-write
+                          autopoiesis.workspace::team-claim-task
+                          autopoiesis.workspace::team-submit-result
+                          autopoiesis.workspace::team-broadcast))
+         (all-tools (append (or tools
+                                (mapcar #'autopoiesis.agent:capability-name
+                                        (autopoiesis.agent:list-capabilities)))
+                            team-tools
+                            ws-team-tools)))
+    (start-jarvis :agent agent :pi-config pi-config :tools all-tools)))
+
 (defun stop-jarvis (session)
   "Stop a Jarvis session and clean up the Pi process.
 

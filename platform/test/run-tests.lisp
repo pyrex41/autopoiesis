@@ -34,6 +34,7 @@
   (run! 'crystallize-tests)
   (run! 'git-tools-tests)
   (run! 'jarvis-tests)
+  (run! 'team-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL
@@ -116,3 +117,7 @@
 (defun test-jarvis ()
   "Run only jarvis tests."
   (run! 'jarvis-tests))
+
+(defun test-team ()
+  "Run only team coordination tests."
+  (run! 'team-tests))

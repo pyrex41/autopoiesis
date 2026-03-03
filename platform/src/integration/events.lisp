@@ -29,7 +29,16 @@
     :provider-response    ; Response received from CLI provider
     :provider-session-started  ; Provider streaming session started
     :provider-session-ended    ; Provider streaming session ended
-    :provider-error))     ; Error from CLI provider
+    :provider-error       ; Error from CLI provider
+    ;; Team coordination events
+    :team-created         ; A new team was created
+    :team-started         ; Team began active work
+    :team-completed       ; Team completed its task
+    :team-failed          ; Team failed its task
+    :team-member-joined   ; Agent joined a team
+    :team-member-left     ; Agent left a team
+    :team-task-assigned   ; Task assigned to team member
+    :team-task-completed)) ; Team member completed a task
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Integration Event Class
