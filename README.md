@@ -62,7 +62,9 @@ cd autopoiesis
 
 ### The Substrate: A Datom Store with Linda Coordination
 
-At the bottom of the stack is a Datomic-inspired datom store. All mutable state — events, workers, agents, sessions, conversation turns — is stored as EAV (Entity-Attribute-Value) triples:
+At the bottom of the stack is a datom store whose data model comes directly from [Datomic](https://www.datomic.com/), which is itself built on Datalog. The five-tuple datom `(entity, attribute, value, tx, added)`, the EAVT/AEVT index naming, immutable facts with monotonic transaction stamping, and EAV triples as the universal schema are all Datomic's design carried over. What's *not* here is Datomic's Datalog query engine — instead of declarative `[:find ?e :where [?e :status :running]]` queries, the substrate uses direct index access: `entity-attr` for O(1) point lookups, `find-entities` via an inverted value index, and `take!` for atomic claim-and-update. The trade-off is less expressive queries in exchange for predictable constant-time operations and the Linda coordination primitive.
+
+All mutable state — events, workers, agents, sessions, conversation turns — is stored as EAV triples:
 
 ```lisp
 ;; A datom: (entity, attribute, value, tx, added?)
