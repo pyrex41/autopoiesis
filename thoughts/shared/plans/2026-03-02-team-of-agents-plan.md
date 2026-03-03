@@ -2,12 +2,75 @@
 date: 2026-03-02
 author: Jarvis
 status: draft
+reviewed: 2026-03-03
 tags: [plan, team, agents, coordination, orchestration, multi-agent]
 depends_on:
   - thoughts/shared/plans/2026-02-17-coordination-and-provider-lifecycle.md
   - thoughts/shared/plans/2026-02-14-jarvis-implementation-plan.md
   - thoughts/shared/research/2026-02-06-super-agent-synthesis.md
 ---
+
+> **Review Notes (2026-03-03)**
+>
+> This plan was written before the `swarm/`, `supervisor/`, `jarvis/`, `workspace/`
+> modules were added (commit `0bc1dd9`). The architecture is sound but has significant
+> overlap with existing code that must be resolved before implementation. Key issues:
+>
+> **Critical fixes required:**
+>
+> 1. **Incorrect substrate API** — Phase 0 calls `register-store-hook` / `unregister-store-hook`
+>    which do not exist. The correct API is `(register-hook *store* name fn priority)` and
+>    `(unregister-hook *store* name)`.
+>
+> 2. **Missing pre-flight checks** — `await-agent-cv` and `await-all-agents` install hooks
+>    then wait, but if agents have already completed before hook installation, the CV never
+>    fires. Must check `(entity-attr eid :agent/status)` before installing hooks.
+>
+> 3. **`team-status` name clash** — Phase 1 defines both a CLOS accessor `(team-status)` on
+>    the `status` slot and a `(defun team-status ...)` query function. The `defun` will
+>    clobber the accessor. Rename the query to `query-team-status` or `get-team-status`.
+>
+> 4. **Unlocked `*team-registry*`** — Phase 1 creates a bare hash table with no lock, the
+>    same concurrency hazard Phase 0 is fixing. Use the pattern from `*workspace-registry-lock*`
+>    in `workspace/workspace.lisp`.
+>
+> **Duplicate code that must be eliminated:**
+>
+> 5. **Phase 1 workspace** — `platform/src/team/workspace.lisp` would duplicate the existing
+>    `autopoiesis.workspace` module (`workspace/workspace.lisp`) which already has a `workspace`
+>    class, substrate tracking, registry, and lifecycle functions. Instead, extend the existing
+>    module with team-aware attributes (`:workspace/task-queue`, `:workspace/shared-memory`, etc.).
+>
+> 6. **Phase 5 Jarvis** — `platform/src/team/jarvis.lisp` would duplicate the existing
+>    `autopoiesis.jarvis` module (`jarvis/loop.lisp`) which already implements Jarvis with
+>    Pi-provider-backed NL-to-tool dispatch. Instead, add team management tools to the existing
+>    Jarvis session's tool context.
+>
+> 7. **Phase 2 "Swarm Strategy"** — Naming collision with `autopoiesis.swarm` (evolutionary
+>    engine). Rename to `:parallel` or `:fan-out` strategy to avoid confusion.
+>
+> **Minor issues:**
+>
+> 8. **`defcapability` syntax** — Phase 4 tool definitions use `:permissions` and `:body`
+>    keywords that may not match `parse-defcapability-body`. Verify against
+>    `agent/capability.lisp` before implementation.
+>
+> 9. **Phase 3 event types** — Adding keywords to `integration-event-type` requires editing
+>    the `deftype`/`member` form in `integration/events.lisp`, not an additive registration call.
+>
+> 10. **`workspace-put`/`workspace-get` performance** — Every shared memory write goes through
+>     full `transact!` pipeline. For high-frequency coordination (consensus rounds, pipeline
+>     hand-offs), consider batching or an in-memory coordination structure with periodic
+>     substrate flush.
+>
+> **What's valuable and should be kept:**
+>
+> - Substrate-first team representation (datoms + `take!` for task claiming)
+> - Strategy-as-CLOS-generics protocol (`strategy-initialize`, `strategy-assign-work`, etc.)
+> - Phase 0 concurrency fixes (mailbox locks, CV-based await) — correct diagnosis
+> - "Agents are unaware of teams" isolation principle
+> - Team event bus integration (with corrected event type extension)
+> - Five coordination patterns are well-designed (after renaming Swarm to Parallel)
 
 # Team of Agents: Comprehensive Implementation Plan
 
