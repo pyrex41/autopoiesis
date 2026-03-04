@@ -278,6 +278,78 @@ Three built-in fitness functions: `thought-diversity-fitness` (unique thought ty
 
 ---
 
+## Design Lineage
+
+Autopoiesis draws on decades of research in programming languages, AI, and distributed systems. This section makes the intellectual debts explicit.
+
+### Autopoiesis (Maturana & Varela, 1972)
+
+The project name comes from the biological theory of self-producing systems. Chilean biologists Humberto Maturana and Francisco Varela coined "autopoiesis" to describe living systems that continuously produce and maintain themselves — the cell membrane, for instance, is both a product of the cell's internal chemistry and the boundary that makes that chemistry possible. Here, agents produce their own capabilities, evolve their own genomes, and modify their own cognitive architecture. The `membrane` in the persistent agent layer controls what genome modifications are allowed — a direct echo of the biological membrane's selective permeability.
+
+### Linda Tuple Spaces (Gelernter, 1985)
+
+David Gelernter's Linda coordination language introduced four operations on a shared associative memory: `out` (write), `rd` (read), `in` (destructive read), and `eval` (fork computation). The substrate's `take!` primitive is Linda's `in()` — an atomic find-and-remove that enables safe concurrent coordination without point-to-point messaging. The datom `(entity, attribute, value, tx, added)` IS a Linda tuple, and the EAVT/AEVT indexes provide exactly the three access patterns Linda's `rd()` needs. This isn't an analogy — the isomorphism is structural. See [`thoughts/shared/research/2026-02-16-linda-tuple-spaces-substrate-evaluation.md`](thoughts/shared/research/2026-02-16-linda-tuple-spaces-substrate-evaluation.md).
+
+### Datomic & Datalog (Hickey, 2012)
+
+Rich Hickey's Datomic contributes the five-tuple datom model, EAVT/AEVT index naming, immutable facts with monotonic transaction stamping, and EAV triples as a universal schema. The substrate's Datalog query engine implements Datomic-style `q` queries with `:find` projection, Pull API, `:in` parameters, and recursive rules. What's NOT from Datomic: `take!` (Linda), reactive hooks (`defsystem`), schemaless values, and the zero-ops single-process deployment. See [`thoughts/shared/research/2026-03-04-datomic-vs-substrate.md`](thoughts/shared/research/2026-03-04-datomic-vs-substrate.md).
+
+### Homoiconicity & Image-Based Development (Lisp, 1958–present)
+
+The entire architecture rests on Lisp's homoiconicity — code and data are the same S-expression trees. This gives you serializable agent state (it's just a plist), structural diffing (`sexpr-diff` walks cons cells), content-addressable hashing (type-tagged SHA-256 over S-expression structure), and natural self-modification (agents write code as data, compile it with `(compile nil (lambda ...))`, test it, and promote it). The project's epigraph — *"What if an AI agent had the same relationship to its own cognition that a Lisp developer has to their running system via SWANK?"* — makes the debt to image-based development explicit. Like Interlisp's structure editor or connecting to a running Genera system, you can reach into a live agent, inspect its thoughts, inject observations, and modify behavior without stopping it.
+
+### Content-Addressable Storage & Merkle Trees (Git, 2005)
+
+The snapshot DAG uses SHA-256 structural hashing for deduplication and integrity, two-character prefix sharding (matching Git's object store layout), lightweight branches as named mutable pointers into an immutable DAG, and common-ancestor finding for merge operations. Forking is O(1) — both branches share history. The diff engine operates on S-expression trees rather than text, but the operational model (branch, fork, diff, merge, time-travel) is Git's, applied to agent cognition instead of source code.
+
+### CLOS & the Meta-Object Protocol (Kiczales et al., 1991)
+
+*The Art of the Metaobject Protocol* provides the foundation for several key mechanisms. `slot-unbound` MOP methods enable lazy-loading of both snapshot proxies and substrate entities — data loads transparently on first access. `:after` methods on `(setf agent-state)` drive the dual-agent bridge's automatic persistent root updates. `define-entity-type` generates CLOS classes with MOP-driven attribute loading from the entity cache. The cognitive model spec describes an "Agent Metaobject Protocol" (AMOP) where `compute-cognitive-method` customizes per-agent cognition dispatch.
+
+### Persistent Data Structures (Okasaki, 1998; FSet)
+
+Chris Okasaki's *Purely Functional Data Structures* established the theory of persistent collections with structural sharing. The persistent agent layer uses [FSet](https://common-lisp.net/project/fset/) (Scott L. Burson's weight-balanced tree library for Common Lisp) wrapped as `pmap-*`, `pvec-*`, `pset-*` — giving O(1) agent forking where parent and child share all data via structural sharing, and all updates return new structs with the old root unmodified. The planning documents also evaluated HAMTs (Bagwell, 2001) and 32-way branching tries (as in Clojure's PersistentVector) before settling on FSet.
+
+### Condition/Restart System (Common Lisp)
+
+Common Lisp's condition/restart system — where the signaler and the handler are separated, and restarts offer multiple recovery strategies — pervades the error handling. The recovery module defines 4 condition tiers, 6 standard restarts, graceful degradation levels (`:minimal`, `:offline`, `:read-only`), and component health tracking. Substrate conditions provide `:coerce`, `:store-raw`, and `:skip` restarts. This is non-local exit done right: the signaler doesn't choose the recovery strategy, the handler does.
+
+### Cognitive Architecture: OODA Extended (Boyd, 1970s)
+
+John Boyd's OODA loop (Observe → Orient → Decide → Act) was designed for military decision-making under uncertainty. The five-phase cognitive cycle (perceive → reason → decide → act → reflect) extends OODA with a `reflect` phase that feeds insight back into future perception — closing the learning loop. Each phase produces S-expression cognitive primitives that flow to the next. The synthesis plan evaluated six orchestrator patterns — event loop, actor model, blackboard, OODA, workflow/saga, and control theory feedback loops — and the conductor emerged as a synthesis of all six.
+
+### Event Sourcing (2005–present)
+
+The substrate's immutable datoms with `(tx, added)` fields implement event sourcing: every state change is an append-only fact assertion or retraction, and current state is reconstructable by replaying the log. The spec addendum explicitly adopts event sourcing to replace full-state snapshots (which would produce ~25GB/day per active agent). Periodic checkpoints enable efficient replay.
+
+### Entity-Component-System (Game Industry, 2000s)
+
+The ECS pattern — entities as IDs, components as data, systems as behavior — appears in two places. The holodeck 3D visualization uses `cl-fast-ecs` directly for cache-friendly real-time rendering with 32 key bindings and persistent agent embodiment. More subtly, the substrate's `defsystem` macro is ECS-inspired: systems declare entity types they watch, attributes they care about, and ordering constraints (`:after`, `:before`) — the runtime builds a dispatch table for O(1) routing of attribute changes to affected systems.
+
+### Actor Model (Hewitt, 1973; Erlang/OTP)
+
+Thread-safe per-agent mailboxes with condition variables enable concurrent message delivery. The project originally ran on the BEAM (Erlang's VM) via LFE (Lisp Flavoured Erlang) for OTP supervision trees and "let it crash" fault isolation. The LFE layer was removed when the CL substrate absorbed its coordination role, but the actor model's influence persists in the mailbox architecture, the conductor's worker management, and the five team coordination strategies (leader-worker, parallel, pipeline, debate, consensus).
+
+### Blackboard Architecture (Hayes-Roth, 1985)
+
+The AI planning pattern where multiple "knowledge sources" read and write a shared knowledge structure. The substrate's datom store serves this role — agents, the conductor, and team coordination all post events and claim tasks through the same shared associative memory, coordinated by `take!` rather than a centralized scheduler. The synthesis plan explicitly evaluated blackboard architecture as one of six candidate patterns.
+
+### 1980s Lisp AI: Frames, Rete, TMS
+
+A research evaluation noted that *"the substrate unconsciously recapitulates 1980s Lisp AI. Datoms = frames/slots. Hooks = slot daemons. Standing queries = production rules. Classification = frame classification. The lineage is real and the patterns are proven."* Specific systems considered during design:
+
+- **Rete algorithm** (Forgy, 1979) — Efficient pattern matching for production rules. The `defsystem` reactive dispatch is a simplified version; full Rete incremental maintenance is deferred.
+- **Truth Maintenance Systems** (de Kleer/Doyle, 1979) — Dependency tracking for derived beliefs. Evaluated as "medium relevance" for agent belief justification chains.
+- **Frame systems** (Minsky, 1970s) — Slot-based knowledge representation with inheritance and slot daemons. The structural parallel to EAV datoms with reactive hooks is direct.
+- **SERIES** (Waters, 1989) — Lazy fused sequence operations. Evaluated for LMDB cursor pipelines.
+- **Futamura projections** (1971) — Partial evaluation of interpreters. The `compile-query` macro is a first step toward compiled standing queries.
+
+### Genetic Algorithms (Holland, 1975)
+
+The swarm module implements genome-based evolutionary optimization: S-expression genomes encoding capabilities and heuristic weights, uniform crossover, stochastic mutation, tournament/roulette/elitism selection, and production rules that bridge learned heuristics to genome transformations. Applied to persistent agents via the genome bridge — extract, evolve, patch back — with structural sharing preserving history.
+
+---
+
 ## What Can You Do With It?
 
 ### Time-Travel Debugging
