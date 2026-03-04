@@ -590,10 +590,12 @@
   :permissions (:orchestration)
   :body
   (let* ((agent-eid (autopoiesis.substrate:intern-id agent-id))
-         (status (autopoiesis.substrate:entity-attr agent-eid :agent/status))
-         (task (autopoiesis.substrate:entity-attr agent-eid :agent/task))
-         (started (autopoiesis.substrate:entity-attr agent-eid :agent/started-at))
-         (result (autopoiesis.substrate:entity-attr agent-eid :agent/result)))
+         (attrs (autopoiesis.substrate:pull agent-eid
+                  '(:agent/status :agent/task :agent/started-at :agent/result)))
+         (status (getf attrs :agent/status))
+         (task (getf attrs :agent/task))
+         (started (getf attrs :agent/started-at))
+         (result (getf attrs :agent/result)))
     (if (not status)
         (format nil "Error: Agent ~A not found in registry" agent-id)
         (format nil "Agent: ~A~%Status: ~A~%Task: ~A~%Elapsed: ~As~@[~%Result: ~A~]"
@@ -603,9 +605,11 @@
 
 (defun %format-agent-result (agent-id agent-eid)
   "Format the result/error of a completed agent as a string."
-  (let ((status (autopoiesis.substrate:entity-attr agent-eid :agent/status))
-        (result (autopoiesis.substrate:entity-attr agent-eid :agent/result))
-        (err (autopoiesis.substrate:entity-attr agent-eid :agent/error)))
+  (let* ((attrs (autopoiesis.substrate:pull agent-eid
+                  '(:agent/status :agent/result :agent/error)))
+         (status (getf attrs :agent/status))
+         (result (getf attrs :agent/result))
+         (err (getf attrs :agent/error)))
     (format nil "Agent ~A ~(~A~): ~A" agent-id status
             (or result err "(no details)"))))
 
@@ -817,10 +821,12 @@
   :permissions ()
   :body
   (let* ((session-eid (autopoiesis.substrate:intern-id name))
-         (saved-name (autopoiesis.substrate:entity-attr session-eid :session/name)))
+         (attrs (autopoiesis.substrate:pull session-eid
+                  '(:session/name :session/saved-at)))
+         (saved-name (getf attrs :session/name)))
     (if saved-name
         (format nil "Session '~A' resumed (saved at ~A)"
-                name (autopoiesis.substrate:entity-attr session-eid :session/saved-at))
+                name (getf attrs :session/saved-at))
         (format nil "Error: Session '~A' not found" name))))
 
 ;;; ═══════════════════════════════════════════════════════════════════

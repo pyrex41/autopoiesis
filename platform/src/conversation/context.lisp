@@ -19,8 +19,9 @@
 
 (defun fork-context (source-ctx-eid &key name)
   "Fork a conversation. O(1) -- creates new context pointing at same head turn."
-  (let* ((head (entity-attr source-ctx-eid :context/head))
-         (source-name (entity-attr source-ctx-eid :context/name))
+  (let* ((ctx-attrs (pull source-ctx-eid '(:context/head :context/name)))
+         (head (getf ctx-attrs :context/head))
+         (source-name (getf ctx-attrs :context/name))
          (fork-name (or name (format nil "fork-~A" source-name)))
          (fork-eid (intern-id (format nil "ctx-~A" (autopoiesis.core:make-uuid)))))
     (transact!

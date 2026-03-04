@@ -241,16 +241,21 @@
         (count 0))
     (dolist (eid prompt-eids)
       (handler-case
-          (let* ((name (autopoiesis.substrate:entity-attr eid :prompt/name))
-                 (category (autopoiesis.substrate:entity-attr eid :prompt/category))
-                 (body (autopoiesis.substrate:entity-attr eid :prompt/body))
-                 (version (autopoiesis.substrate:entity-attr eid :prompt/version))
-                 (content-hash (autopoiesis.substrate:entity-attr eid :prompt/content-hash))
-                 (parent (autopoiesis.substrate:entity-attr eid :prompt/parent))
-                 (author (autopoiesis.substrate:entity-attr eid :prompt/author))
-                 (created-at (autopoiesis.substrate:entity-attr eid :prompt/created-at))
-                 (variables (autopoiesis.substrate:entity-attr eid :prompt/variables))
-                 (includes (autopoiesis.substrate:entity-attr eid :prompt/includes)))
+          (let* ((attrs (autopoiesis.substrate:pull eid
+                          '(:prompt/name :prompt/category :prompt/body
+                            :prompt/version :prompt/content-hash :prompt/parent
+                            :prompt/author :prompt/created-at
+                            :prompt/variables :prompt/includes)))
+                 (name (getf attrs :prompt/name))
+                 (category (getf attrs :prompt/category))
+                 (body (getf attrs :prompt/body))
+                 (version (getf attrs :prompt/version))
+                 (content-hash (getf attrs :prompt/content-hash))
+                 (parent (getf attrs :prompt/parent))
+                 (author (getf attrs :prompt/author))
+                 (created-at (getf attrs :prompt/created-at))
+                 (variables (getf attrs :prompt/variables))
+                 (includes (getf attrs :prompt/includes)))
             (when (and name body)
               (let ((prompt (make-instance 'prompt-template
                                            :name name

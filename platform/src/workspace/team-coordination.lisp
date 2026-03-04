@@ -91,13 +91,15 @@
                         :task/workspace-id workspace-id))
         (results nil))
     (dolist (eid task-entities)
-      (let ((task-status (autopoiesis.substrate:entity-attr eid :task/status)))
+      (let* ((attrs (autopoiesis.substrate:pull eid
+                      '(:task/status :task/content :task/claimed-by :task/result)))
+             (task-status (getf attrs :task/status)))
         (when (or (null status) (eq task-status status))
           (push (list :id (autopoiesis.substrate:resolve-id eid)
                       :status task-status
-                      :content (autopoiesis.substrate:entity-attr eid :task/content)
-                      :claimed-by (autopoiesis.substrate:entity-attr eid :task/claimed-by)
-                      :result (autopoiesis.substrate:entity-attr eid :task/result))
+                      :content (getf attrs :task/content)
+                      :claimed-by (getf attrs :task/claimed-by)
+                      :result (getf attrs :task/result))
                 results))))
     (nreverse results)))
 

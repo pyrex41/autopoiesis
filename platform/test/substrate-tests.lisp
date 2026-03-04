@@ -884,6 +884,229 @@
       (is (equal "alice" (cdr (assoc :?name (first interp-results))))))))
 
 ;;; ===================================================================
+;;; Pull API tests
+;;; ===================================================================
+
+(test pull-specific-attributes
+  "Pull reads specific attributes from an entity."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :agent-1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :agent-1 :agent/name "scout")
+           (autopoiesis.substrate:make-datom :agent-1 :agent/task "analyze")
+           (autopoiesis.substrate:make-datom :agent-1 :agent/extra "ignored")))
+    (let ((result (autopoiesis.substrate:pull :agent-1 '(:agent/status :agent/name :agent/task))))
+      (is (eq :running (getf result :agent/status)))
+      (is (equal "scout" (getf result :agent/name)))
+      (is (equal "analyze" (getf result :agent/task)))
+      ;; :agent/extra not requested, should not appear
+      (is (null (getf result :agent/extra))))))
+
+(test pull-missing-attributes
+  "Pull returns plist without missing attributes."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :agent-2 :agent/name "minimal")))
+    (let ((result (autopoiesis.substrate:pull :agent-2 '(:agent/name :agent/status))))
+      (is (equal "minimal" (getf result :agent/name)))
+      ;; :agent/status not set, won't appear in plist
+      (is (= 2 (length result))))))
+
+(test pull-wildcard
+  "Pull with (*) returns all attributes like entity-state."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :agent-3 :agent/name "full")
+           (autopoiesis.substrate:make-datom :agent-3 :agent/status :idle)))
+    (let ((result (autopoiesis.substrate:pull :agent-3 '(*))))
+      (is (not (null result)))
+      (is (equal "full" (getf result :agent/name)))
+      (is (eq :idle (getf result :agent/status))))))
+
+(test pull-nonexistent-entity
+  "Pull on nonexistent entity returns nil."
+  (autopoiesis.substrate:with-store ()
+    (let ((result (autopoiesis.substrate:pull :no-such-entity '(:agent/name))))
+      (is (null result)))))
+
+(test pull-many-entities
+  "Pull-many reads same pattern from multiple entities."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :idle)))
+    (let ((results (autopoiesis.substrate:pull-many '(:a1 :a2) '(:agent/name :agent/status))))
+      (is (= 2 (length results)))
+      (is (equal "alice" (getf (first results) :agent/name)))
+      (is (eq :running (getf (first results) :agent/status)))
+      (is (equal "bob" (getf (second results) :agent/name)))
+      (is (eq :idle (getf (second results) :agent/status))))))
+
+;;; ===================================================================
+;;; q function tests (Datomic-style query)
+;;; ===================================================================
+
+(test q-relation-mode
+  "q returns list of tuples by default."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :idle)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")))
+    (let ((results (autopoiesis.substrate:q
+                    '(:find ?name ?status
+                      :where (?e :agent/status ?status)
+                             (?e :agent/name ?name)))))
+      (is (= 2 (length results)))
+      ;; Each result should be a 2-element list
+      (dolist (r results)
+        (is (= 2 (length r)))))))
+
+(test q-scalar-mode
+  "q with . returns single scalar value."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")))
+    (let ((result (autopoiesis.substrate:q
+                   '(:find ?name |.|
+                     :where (?e :agent/status :running)
+                            (?e :agent/name ?name)))))
+      (is (equal "alice" result)))))
+
+(test q-collection-mode
+  "q with [?var ...] returns flat list of values."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :entity/type :agent)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :entity/type :agent)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")))
+    (let ((results (autopoiesis.substrate:q
+                    '(:find (?name |...|)
+                      :where (?e :entity/type :agent)
+                             (?e :agent/name ?name)))))
+      (is (= 2 (length results)))
+      (is (member "alice" results :test #'equal))
+      (is (member "bob" results :test #'equal)))))
+
+(test q-with-negation
+  "q supports negation in :where clauses."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a2 :agent/error "crash")))
+    (let ((results (autopoiesis.substrate:q
+                    '(:find (?name |...|)
+                      :where (?e :agent/status :running)
+                             (?e :agent/name ?name)
+                             (not (?e :agent/error ?err))))))
+      (is (= 1 (length results)))
+      (is (equal "alice" (first results))))))
+
+;;; ===================================================================
+;;; q :in parameter tests
+;;; ===================================================================
+
+(test q-with-in-param
+  "q with :in binds external parameters."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :idle)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")))
+    (let ((results (autopoiesis.substrate:q
+                    '(:find (?name |...|)
+                      :in ?status
+                      :where (?e :agent/status ?status)
+                             (?e :agent/name ?name))
+                    :running)))
+      (is (= 1 (length results)))
+      (is (equal "alice" (first results))))))
+
+(test q-with-multiple-in-params
+  "q with multiple :in vars binds all of them."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a1 :entity/type :agent)
+           (autopoiesis.substrate:make-datom :a2 :agent/status :idle)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a2 :entity/type :agent)))
+    (let ((results (autopoiesis.substrate:q
+                    '(:find ?name |.|
+                      :in ?type ?status
+                      :where (?e :entity/type ?type)
+                             (?e :agent/status ?status)
+                             (?e :agent/name ?name))
+                    :agent :running)))
+      (is (equal "alice" results)))))
+
+;;; ===================================================================
+;;; Rule/recursive query tests
+;;; ===================================================================
+
+(test q-with-simple-rule
+  "q with rules expands rule definitions."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :t1 :turn/parent :t0)
+           (autopoiesis.substrate:make-datom :t0 :turn/name "root")))
+    (let ((results (autopoiesis.substrate:q
+                    '(:find ?parent |.|
+                      :in % ?start
+                      :where (parent-of ?start ?parent))
+                    '(((parent-of ?t ?p) (?t :turn/parent ?p)))
+                    :t1)))
+      ;; t1's parent is t0
+      (is (not (null results))))))
+
+(test q-with-recursive-rule
+  "q with recursive rules follows transitive closure."
+  (autopoiesis.substrate:with-store ()
+    ;; Build a chain: t3 -> t2 -> t1 -> t0
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :t3 :turn/parent :t2)
+           (autopoiesis.substrate:make-datom :t2 :turn/parent :t1)
+           (autopoiesis.substrate:make-datom :t1 :turn/parent :t0)
+           (autopoiesis.substrate:make-datom :t0 :turn/name "root")))
+    (let ((results (autopoiesis.substrate:q
+                    '(:find (?ancestor |...|)
+                      :in % ?start
+                      :where (ancestor ?start ?ancestor))
+                    '(((ancestor ?t ?a) (?t :turn/parent ?a))
+                      ((ancestor ?t ?a) (?t :turn/parent ?mid) (ancestor ?mid ?a)))
+                    :t3)))
+      ;; Should find t2, t1, and t0 as ancestors
+      (is (>= (length results) 3)))))
+
+(test q-recursive-rule-cycle-detection
+  "q with recursive rules handles cycles without infinite loops."
+  (autopoiesis.substrate:with-store ()
+    ;; Build a cycle: t1 -> t2 -> t1
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :c1 :link/next :c2)
+           (autopoiesis.substrate:make-datom :c2 :link/next :c1)))
+    ;; Should terminate without error
+    (let ((results (autopoiesis.substrate:q
+                    '(:find (?target |...|)
+                      :in % ?start
+                      :where (reachable ?start ?target))
+                    '(((reachable ?s ?t) (?s :link/next ?t))
+                      ((reachable ?s ?t) (?s :link/next ?mid) (reachable ?mid ?t)))
+                    :c1)))
+      ;; Should find at least c2 and c1 (from cycle), and terminate
+      (is (not (null results))))))
+
+;;; ===================================================================
 ;;; Hook ordering tests (Phase 9)
 ;;; ===================================================================
 

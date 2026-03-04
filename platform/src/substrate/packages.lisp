@@ -66,6 +66,11 @@
    ;; Datalog queries
    #:query
    #:compile-query
+   ;; Pull API
+   #:pull
+   #:pull-many
+   ;; Datomic-style query
+   #:q
    ;; Value index (backward compat accessor)
    #:*value-index*
    ;; Programming model (Phase 1.5)
