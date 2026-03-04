@@ -17,7 +17,7 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 
 ## Status
 
-**All phases (0-11) complete.** 3,000+ assertions across 17 test suites, all passing.
+**All phases (0-11) complete.** 4,300+ assertions across 28 test suites, all passing.
 
 ---
 
@@ -410,25 +410,39 @@ Create teams of agents that work together using configurable strategies. Five co
 
 Teams use the substrate for coordination: shared memory via workspace datoms, atomic task claiming via `take!`, and CV-based await (no polling). Thread-safe mailboxes with per-agent locks and condition variables enable concurrent message delivery across team members.
 
-### The Holodeck
+### Safe Operations with Supervisor Checkpoints
 
-The entire snapshot DAG rendered as a 3D scene. Snapshots are holographic nodes — spheres for normal states, octahedra for decisions, branching-nodes with prongs for forks — connected by energy beams with animated flow. Fly through your agent's cognitive history.
+Wrap risky operations in `with-checkpoint` — automatic rollback on failure:
 
 ```lisp
-;; Launch the holodeck
-(ql:quickload :autopoiesis/holodeck)
-(autopoiesis.holodeck:launch-holodeck :store *my-store*)
+(autopoiesis.supervisor:with-checkpoint (agent :label "deploy-attempt")
+  ;; If anything signals an error, agent reverts to pre-checkpoint state
+  (dangerous-deploy-operation agent))
 ```
 
-- **WASD/QE** — Fly camera or orbit
-- **Mouse** — Right-drag orbits, middle-drag pans, scroll zooms
-- **Click** — Select snapshot, HUD shows details
-- **[/]** — Step backward/forward through time
-- **Home/End** — Jump to first/last snapshot
-- **F** — Fork branch at selection
-- **Tab** — Cycle focus between agents
-- **1-4** — Switch view modes
-- **Space** — Toggle overview
+### Crystallize Runtime to Source
+
+Emit learned capabilities, evolved genomes, and heuristics as Lisp source files, stored in the snapshot DAG or exported to Git:
+
+```lisp
+;; Crystallize capabilities the agent learned at runtime → source files
+(autopoiesis.crystallize:crystallize-capabilities agent)
+
+;; Export to a Git repository
+(autopoiesis.crystallize:export-to-git agent "/path/to/repo")
+```
+
+### Structured LLM Outputs with Skel
+
+Typed function framework for reliable structured outputs from LLMs:
+
+```lisp
+;; Define a typed function backed by an LLM
+(autopoiesis.skel:define-skel-function extract-entities
+  :params ((text string :required t))
+  :returns (list-of entity)
+  :prompt "Extract named entities from: ~A")
+```
 
 ### Claude + MCP Integration
 
@@ -460,6 +474,9 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 │  Cross-Cutting         Security (permissions, audit, validation)     │
 │                        Monitoring (metrics, health, HTTP endpoints)  │
 ├──────────────────────────────────────────────────────────────────────┤
+│  Jarvis Layer          NL→Tool Dispatch  •  Conversational Loop     │
+│                        Human-in-the-Loop  •  Pi RPC Provider         │
+├──────────────────────────────────────────────────────────────────────┤
 │  Team Layer            Coordination Strategies  •  Shared Workspace  │
 │                        Task Queue (take!)  •  CV-Based Await         │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -467,16 +484,19 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 │                        Substrate-Backed Event Queue  •  Workers      │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Integration Layer     Claude API  •  MCP Servers  •  Tool Mapping  │
-│                        Multi-Provider Agentic Loops  •  Event Bus   │
+│                        Multi-Provider Loops  •  Skel Typed LLM Fns  │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Holodeck Layer        3D ECS Visualization  •  Shaders  •  Meshes  │
-│                        Dual Camera  •  HUD  •  Ray Picking           │
+│  API Layer             REST Server  •  WebSocket (Clack/Woo)        │
+│                        MCP Server  •  SSE  •  JSON/MessagePack       │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Visualization Layer   2D ANSI Timeline  •  256-Color Rendering     │
-│                        hjkl Navigation  •  Detail Panel              │
+│  Crystallize Layer     Emit Runtime → Source  •  Git Export          │
+│                        Capabilities  •  Heuristics  •  Genomes       │
+├──────────────────────────────────────────────────────────────────────┤
+│  Supervisor Layer      Checkpoint/Revert  •  Stable State Tracking  │
+│                        Dual-Agent Bridge  •  Risk-Wrapped Operations │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Interface Layer       Navigator  •  Viewport  •  Annotator         │
-│                        Blocking Input  •  CLI Session                │
+│                        Blocking Input  •  CLI  •  2D Terminal Viz    │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Conversation Layer    Turn DAG  •  Content-Addressed Blobs         │
 │                        Fork/Merge  •  Dual-Track History             │
@@ -490,12 +510,17 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 │  Agent Layer           Cognitive Loop  •  Capabilities  •  Learning  │
 │                        Persistent Agents (O(1) Fork)  •  Dual-Agent │
 ├──────────────────────────────────────────────────────────────────────┤
+│  Workspace Layer       Ephemeral Contexts  •  Isolation Backends    │
+│                        Team Coordination  •  Agent Home Dirs         │
+├──────────────────────────────────────────────────────────────────────┤
 │  Core Layer            S-Expression Utilities  •  Cognitive Prims    │
 │                        Persistent Structs (fset)  •  Ext. Compiler   │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Substrate Layer       Datom Store (EAV)  •  Linda take!             │
 │                        Value Index  •  Interning  •  defsystem       │
 └──────────────────────────────────────────────────────────────────────┘
+
+Separate ASDF systems: Holodeck (3D ECS viz), Sandbox (squashd containers), Research (parallel campaigns)
 ```
 
 ### Substrate Layer (`platform/src/substrate/`)
@@ -522,37 +547,51 @@ Content-addressable DAG persistence. SHA-256 structural hashing for deduplicatio
 
 Turns stored as substrate datoms linked by `:turn/parent` pointers. Content stored as content-addressed blobs. O(1) context forking via shared head pointers. Single-transaction turn writes for crash safety. Dual-track: in-memory message list for API calls, substrate entities for durable history.
 
+### Workspace Layer (`platform/src/workspace/`)
+
+Per-task ephemeral execution contexts with pluggable isolation backends (`:none`, `:directory`, `:sandbox`). Agent home directories with persistent file storage. Team coordination via shared workspace datoms and atomic task claiming.
+
 ### Interface Layer (`platform/src/interface/`)
 
-Thread-safe blocking requests using Bordeaux threads condition variables. CLI REPL session with 15 commands. Navigator with history stack. Viewport with focus path, filter predicates, and detail levels. Annotator for human commentary. Human override/approve/reject of agent decisions.
+Thread-safe blocking requests using condition variables. CLI REPL session with 15 commands. Navigator with history stack. Viewport with focus path, filter predicates, and detail levels. Annotator for human commentary. Human override/approve/reject of agent decisions. 2D ANSI terminal timeline explorer with 256-color rendering, hjkl navigation, and branch cycling.
 
-### Visualization Layer (`platform/src/viz/`)
+### Supervisor Layer (`platform/src/supervisor/`)
 
-ANSI terminal timeline explorer. 256-color rendering with Unicode box drawing and node glyphs. hjkl navigation, Tab for branch cycling, / for search. Help overlay. Automatic terminal resize.
+Checkpoint-and-revert wrapper for high-risk agent operations. `with-checkpoint` captures agent state before risky operations and automatically reverts on failure. Stable state tracking, promotion, and dual-agent bridge for persistent root checkpointing.
 
-### Holodeck Layer (`platform/src/holodeck/`)
+### Crystallize Layer (`platform/src/crystallize/`)
 
-3D ECS visualization using `cl-fast-ecs`. Three mesh generators (sphere, octahedron, branching-node) at 4 LOD levels. Shader system with Fresnel glow, animated scanlines, energy beam flow. Orbit and fly cameras with 7 easing functions. HUD with 4 panels and timeline scrubber. Ray picking. 32 key bindings. 60fps main loop with live agent sync.
+Emits live runtime changes — capabilities, heuristics, genomes — as Lisp source files stored in the snapshot DAG. Capability crystallizer, heuristic crystallizer, genome crystallizer, ASDF fragment generator, and Git export for version-controlled runtime artifacts.
+
+### API Layer (`platform/src/api/`)
+
+Multi-protocol API server: REST endpoints via Hunchentoot, WebSocket via Clack/Woo for real-time frontends, MCP server support, SSE for streaming events. JSON and MessagePack serialization. Authentication middleware.
 
 ### Integration Layer (`platform/src/integration/`)
 
-Multi-provider agentic loops: direct API (Anthropic, OpenAI, Ollama) and CLI subprocess (Claude Code, Codex, OpenCode). `define-cli-provider` macro generates providers from declarative specs. Bidirectional tool mapping: kebab-case capabilities <-> snake_case tools, Lisp types <-> JSON Schema. MCP client speaking JSON-RPC 2.0 over stdio. Built-in tools for filesystem, web, shell, and git. Pub/sub event bus with 1000-event history.
-
-### Team Layer (`platform/src/team/`)
-
-Multi-agent coordination with five pluggable strategies as CLOS generic function specializations. Teams persist to substrate, maintain thread-safe in-memory registries, and coordinate via shared workspace datoms. Task assignment uses Linda `take!` for atomic claiming. `%await-agent-cv` and `%await-all-agents` use substrate hooks with condition variables for zero-polling agent completion detection. Thread-safe per-agent mailboxes with lock + CV for concurrent message delivery. Strategies: leader-worker (decompose + delegate), parallel (competitive), pipeline (sequential), debate (adversarial rounds), consensus (iterative convergence). Team lifecycle events flow through the integration event bus and conductor dispatch.
+Multi-provider agentic loops: direct API (Anthropic, OpenAI, Ollama) and CLI subprocess (Claude Code, Codex, OpenCode). `define-cli-provider` macro generates providers from declarative specs. Bidirectional tool mapping: kebab-case capabilities <-> snake_case tools, Lisp types <-> JSON Schema. MCP client speaking JSON-RPC 2.0 over stdio. Skel typed LLM function framework with structured types, JSON schema generation, and streaming. Built-in tools for filesystem, web, shell, and git. Pub/sub event bus with 1000-event history.
 
 ### Orchestration Layer (`platform/src/orchestration/`)
 
 Conductor tick loop (100ms heartbeat) with substrate-backed event queue. Linda `take!` for atomic event claiming. Timer heap for scheduled actions. Worker management as substrate entities. Claude CLI subprocess spawning with streaming JSON, timeout handling, and exponential backoff. HTTP webhook endpoint.
 
-### Security (`platform/src/security/`)
+### Team Layer (`platform/src/team/`)
 
-Permission system with resource x action matrix. Audit logging with thread-safe 10MB rotation. Input validation framework with 17 types and combinators (`:and`, `:or`, `:not`, `:nullable`). HTML sanitization.
+Multi-agent coordination with five pluggable strategies as CLOS generic function specializations. Teams persist to substrate, maintain thread-safe in-memory registries, and coordinate via shared workspace datoms. Task assignment uses Linda `take!` for atomic claiming. CV-based await for zero-polling agent completion detection. Thread-safe per-agent mailboxes. Strategies: leader-worker, parallel, pipeline, debate, consensus.
 
-### Monitoring (`platform/src/monitoring/`)
+### Jarvis Layer (`platform/src/jarvis/`)
 
-Prometheus-compatible `/metrics` endpoint. Kubernetes-style probes: `/healthz`, `/readyz`, `/health`. Thread-safe counters, gauges, histograms. Hunchentoot HTTP server.
+Unified conversational loop using Pi RPC provider for NL→tool dispatch. Integrates agent backing, supervisor checkpoints, and human-in-the-loop approval into a single interactive session.
+
+### Holodeck Layer (`platform/src/holodeck/`, separate ASDF system)
+
+3D ECS visualization of the snapshot DAG and persistent agent state. Uses `cl-fast-ecs` for entity management. Persistent agent embodiment with cognitive/metabolic/lineage/genome ECS components. Orbit and fly cameras, HUD panels, ray picking, 32 key bindings.
+
+### Cross-Cutting
+
+**Security** (`platform/src/security/`): Permission matrix, audit logging with thread-safe 10MB rotation, input validation with 17 types and combinators, HTML sanitization.
+
+**Monitoring** (`platform/src/monitoring/`): Prometheus-compatible `/metrics`, Kubernetes-style probes (`/healthz`, `/readyz`), thread-safe counters/gauges/histograms, Hunchentoot HTTP server.
 
 ---
 
@@ -565,20 +604,27 @@ ap/
 │   ├── substrate.asd
 │   ├── src/
 │   │   ├── substrate/     # Datom store, Linda, interning, defsystem
-│   │   ├── core/          # S-expr utils, cognitive primitives, compiler
-│   │   ├── agent/         # Cognitive loop, capabilities, learning, persistent agents
-│   │   ├── swarm/         # Evolutionary optimization, persistent agent evolution
-│   │   ├── snapshot/      # Content-addressable DAG, branches, diff
+│   │   ├── core/          # S-expr utils, cognitive prims, persistent structs (fset)
+│   │   ├── agent/         # Cognitive loop, capabilities, persistent agents, dual-agent
+│   │   ├── workspace/     # Ephemeral execution contexts, agent homes, team coordination
+│   │   ├── swarm/         # Genome evolution, persistent agent evolution, fitness
+│   │   ├── snapshot/      # Content-addressable DAG, branches, diff, time-travel
+│   │   ├── supervisor/    # Checkpoint/revert, stable state, risk-wrapped ops
+│   │   ├── crystallize/   # Emit runtime → source, Git export
 │   │   ├── conversation/  # Turn DAG, context forking
-│   │   ├── interface/     # CLI, blocking input, viewport
-│   │   ├── viz/           # 2D terminal timeline
-│   │   ├── holodeck/      # 3D ECS visualization
-│   │   ├── integration/   # LLM providers, MCP, tools, agentic loops
-│   │   ├── team/          # Multi-agent coordination strategies
+│   │   ├── interface/     # CLI, blocking input, viewport, 2D viz
+│   │   ├── integration/   # LLM providers, MCP, tools, skel, agentic loops
+│   │   ├── skel/          # Typed LLM functions, BAML parser, SAP preprocessor
+│   │   ├── api/           # REST, WebSocket, MCP server, SSE
+│   │   ├── team/          # Multi-agent coordination (5 strategies)
 │   │   ├── orchestration/ # Conductor, event queue, workers
+│   │   ├── jarvis/        # NL→tool conversational loop
+│   │   ├── holodeck/      # 3D ECS visualization (separate ASDF system)
+│   │   ├── sandbox/       # Squashd container integration (separate ASDF system)
+│   │   ├── research/      # Parallel research campaigns (separate ASDF system)
 │   │   ├── security/      # Permissions, audit, validation
 │   │   └── monitoring/    # Metrics, health checks
-│   ├── test/
+│   ├── test/              # 28 test suites, 4,300+ assertions
 │   ├── scripts/
 │   ├── docs/
 │   └── Dockerfile
@@ -596,23 +642,35 @@ ap/
 ```
 Substrate tests:      112 assertions    Datom store, interning, transact!, hooks, take!, entity types
 Orchestration tests:   91 assertions    Conductor, timer heap, event queue, workers, Claude CLI
-Conversation tests:    45 assertions    Turn creation, context management, forking, history
 Core tests:           470 assertions    S-expression ops, cognitive primitives, compiler, recovery
 Agent tests:          363 assertions    Lifecycle, capabilities, context window, learning, spawning
 Snapshot tests:       267 assertions    Persistence, DAG traversal, compaction, branches
-Interface tests:       40 assertions    Blocking requests, sessions
-Integration tests:    649 assertions    Claude API, MCP, tools, events, agentic loops
-Provider tests:        70 assertions    Multi-provider subprocess management
-REST API tests:        73 assertions    REST API serialization and dispatch
+Conversation tests:    45 assertions    Turn creation, context management, forking, history
+Interface tests:       40 assertions    Blocking requests, sessions, viewport
 Viz tests:             92 assertions    Timeline rendering, navigation, filters, help
-Holodeck tests:     1,193 assertions    ECS, shaders, meshes, camera, HUD, input, ray picking
+Integration tests:    649 assertions    Claude API, MCP, tools, events, agentic loops
+Agentic tests:        195 assertions    Agentic loop, tool dispatch, provider integration
+Provider tests:        70 assertions    Multi-provider subprocess management
+Prompt registry:       71 assertions    Prompt templates, registration, retrieval
+Skel tests:           523 assertions    Typed LLM functions, BAML parser, SAP, JSON schema
+REST API tests:        73 assertions    REST API serialization and dispatch
+Swarm tests:          110 assertions    Genome evolution, crossover, mutation, selection
+Supervisor tests:      63 assertions    Checkpoint/revert, stable state, promotion
+Crystallize tests:     60 assertions    Emit capabilities/heuristics/genomes to source
+Git tools tests:       38 assertions    Git read/write tool integration
+Jarvis tests:          69 assertions    NL dispatch, tool invocation, session management
+Team tests:            30 assertions    Mailbox concurrency, CV-based await, strategies
+Workspace tests:       69 assertions    Ephemeral contexts, isolation, team coordination
+Persistent agent:      80 assertions    Persistent structs, cognition, fork, lineage, dual-agent
+Swarm integration:     23 assertions    Genome bridge, persistent evolution, fitness
+Bridge protocol:       14 assertions    Claude bridge protocol, message format
+Meta-agent tests:      36 assertions    Meta-agent capabilities, self-inspection
 Security tests:       322 assertions    Permissions, audit, validation, 65 sandbox escape tests
 Monitoring tests:      48 assertions    Metrics, health checks, HTTP endpoints
-Persistent agent:      80 assertions    Structs, cognition, fork, lineage, membrane, dual-agent
-Swarm integration:     23 assertions    Genome bridge, evolution, fitness, population
 E2E tests:            134 assertions    All 15 user stories end-to-end
+Holodeck tests:     1,193 assertions    ECS, shaders, meshes, camera, HUD (separate system)
 ───────────────────────────────────
-Total:              3,000+ assertions   All passing
+Total:              4,300+ assertions   All passing
 ```
 
 ## Dependencies
@@ -632,13 +690,11 @@ Total:              3,000+ assertions   All passing
 | `cl-ppcre` | Regex (input validation) |
 | `cl-charms` | ncurses terminal UI (2D visualization) |
 | `log4cl` | Logging |
-| `3d-vectors` | Vector math (holodeck) |
-| `3d-matrices` | Matrix math (holodeck) |
-| `cl-fast-ecs` | Entity-Component-System (holodeck) |
 | `fset` | Persistent functional collections (structural sharing for agents) |
 | `lparallel` | Parallel evaluation (swarm fitness) |
-
-The holodeck is a separate ASDF system (`autopoiesis/holodeck`) to avoid requiring 3D dependencies for core usage.
+| `3d-vectors` | Vector math (holodeck, separate system) |
+| `3d-matrices` | Matrix math (holodeck, separate system) |
+| `cl-fast-ecs` | Entity-Component-System (holodeck, separate system) |
 
 ## Documentation
 

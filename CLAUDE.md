@@ -35,20 +35,25 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 
 ## Architecture
 
-Twelve-layer architecture (bottom to top):
+Layered architecture (bottom to top):
 
 1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types, value indexing, interning, LMDB persistence, blob store
 2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, persistent data structures (fset wrappers: pmap/pvec/pset), extension compiler, recovery, profiling, config
 3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes, persistent agents (O(1) fork, immutable cognition, lineage, membrane), dual-agent bridge
-4. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
-5. **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
-6. **Human Interface Layer** (`platform/src/interface/`) - Navigator, viewport, annotator, blocking input, CLI session
-7. **Visualization Layer** (`platform/src/viz/`) - 2D terminal timeline with ANSI rendering and interactive navigation
-8. **Holodeck Layer** (`platform/src/holodeck/`) - 3D ECS visualization with shaders, meshes, dual camera, HUD, ray picking, persistent agent embodiment (cognitive/metabolic/lineage components)
-9. **Integration Layer** (`platform/src/integration/`) - Claude bridge, MCP servers, tool mapping, built-in tools, event bus, multi-provider agentic loops, persistent agentic/provider agents
-10. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue and worker tracking
-11. **Team Layer** (`platform/src/team/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
-12. **Cross-cutting** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
+4. **Workspace Layer** (`platform/src/workspace/`) - Ephemeral execution contexts, isolation backends, agent home directories, team coordination
+5. **Swarm Layer** (`platform/src/swarm/`) - Genome evolution, crossover/mutation, selection, persistent agent evolution, fitness functions
+6. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
+7. **Supervisor Layer** (`platform/src/supervisor/`) - Checkpoint/revert for high-risk ops, stable state tracking, dual-agent bridge
+8. **Crystallize Layer** (`platform/src/crystallize/`) - Emit runtime changes to source files, ASDF fragments, Git export
+9. **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
+10. **Interface Layer** (`platform/src/interface/`, `platform/src/viz/`) - Navigator, viewport, CLI session, blocking input, 2D ANSI terminal timeline
+11. **API Layer** (`platform/src/api/`) - REST, WebSocket (Clack/Woo), MCP server, SSE, JSON/MessagePack
+12. **Integration Layer** (`platform/src/integration/`, `platform/src/skel/`) - Claude bridge, MCP client, multi-provider agentic loops, skel typed LLM functions, tool mapping, event bus
+13. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue
+14. **Team Layer** (`platform/src/team/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
+15. **Jarvis Layer** (`platform/src/jarvis/`) - NL→tool conversational loop, Pi RPC provider, human-in-the-loop
+16. **Cross-cutting** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
+17. **Separate systems**: Holodeck (3D ECS viz), Sandbox (squashd containers), Research (parallel campaigns)
 
 ## Implementation Status
 
@@ -88,26 +93,37 @@ Twelve-layer architecture (bottom to top):
 
 ## Test Suites
 
-3,000+ assertions across 17 test suites (plus holodeck):
+4,300+ assertions across 28 test suites:
 
 - `substrate-tests` - Datom store, interning, transact!, hooks, take!, entity types, defsystem (112 checks)
 - `orchestration-tests` - Conductor, timer heap, event queue, workers, Claude CLI (91 checks)
-- `conversation-tests` - Turn creation, context management, forking, history (45 checks)
-- `core-tests` - S-expression operations, cognitive primitives (470 checks)
+- `core-tests` - S-expression operations, cognitive primitives, persistent structs (470 checks)
 - `agent-tests` - Agent creation, capabilities, context window, learning (363 checks)
 - `snapshot-tests` - Persistence, DAG traversal, compaction (267 checks)
+- `conversation-tests` - Turn creation, context management, forking, history (45 checks)
 - `interface-tests` - Blocking requests, sessions (40 checks)
-- `integration-tests` - Claude API, MCP, tools, events, agentic loops (649 checks)
 - `viz-tests` - Timeline rendering, navigation, filters, help overlay (92 checks)
+- `integration-tests` - Claude API, MCP, tools, events, agentic loops (649 checks)
+- `agentic-tests` - Agentic loop, tool dispatch, provider integration (195 checks)
+- `provider-tests` - Multi-provider subprocess management (70 checks)
+- `prompt-registry-tests` - Prompt templates, registration, retrieval (71 checks)
+- `skel-tests` - Typed LLM functions, BAML parser, SAP, JSON schema (523 checks)
+- `rest-api-tests` - REST API serialization and dispatch (73 checks)
+- `swarm-tests` - Genome evolution, crossover, mutation, selection (110 checks)
+- `supervisor-tests` - Checkpoint/revert, stable state, promotion (63 checks)
+- `crystallize-tests` - Emit capabilities/heuristics/genomes to source (60 checks)
+- `git-tools-tests` - Git read/write tool integration (38 checks)
+- `jarvis-tests` - NL dispatch, tool invocation, session management (69 checks)
+- `team-tests` - Mailbox concurrency, CV-based await, strategies, workspace coordination (30 checks)
+- `workspace-tests` - Ephemeral contexts, isolation, team coordination (69 checks)
+- `persistent-agent-tests` - Persistent structs, cognition, fork, lineage, membrane, dual-agent (80 checks)
+- `swarm-integration-tests` - Genome bridge, persistent evolution, fitness (23 checks)
+- `bridge-protocol-tests` - Claude bridge protocol, message format (14 checks)
+- `meta-agent-tests` - Meta-agent capabilities, self-inspection (36 checks)
 - `security-tests` - Permissions, audit, validation, sandbox escapes (322 checks)
 - `monitoring-tests` - Metrics, health checks, HTTP endpoints (48 checks)
-- `provider-tests` - Multi-provider subprocess management (70 checks)
-- `rest-api-tests` - REST API serialization and dispatch (73 checks)
-- `team-tests` - Mailbox concurrency, CV-based await, team lifecycle, strategies, workspace coordination (30 tests)
-- `persistent-agent-tests` - Persistent structs, cognition, fork, lineage, membrane, dual-agent (80 checks)
-- `swarm-integration-tests` - Genome bridge, evolution, fitness functions, population (23 checks)
 - `e2e-tests` - End-to-end user story tests (134 checks)
-- `holodeck-tests` - ECS, shaders, meshes, camera, HUD, input, ray picking (442 tests, 1,193 assertions)
+- `holodeck-tests` - ECS, shaders, meshes, camera, HUD, ray picking (1,193 checks, separate ASDF system)
 
 ## Specification Documents
 
