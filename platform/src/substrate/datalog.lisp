@@ -251,20 +251,408 @@
     bindings))
 
 ;;; ===================================================================
-;;; Compiled query
+;;; Compiled query — Futamura first projection
 ;;; ===================================================================
 
-(defmacro compile-query (name clauses)
-  "Compile a Datalog query into a named function.
-   The function takes no arguments and returns binding alists.
+;;; Part 1: Static binding analysis
+;;; Walk clauses maintaining a set of bound variables to select
+;;; a strategy for each clause.
 
-   Example:
-     (compile-query running-agents
-       ((?e :agent/status :running) (?e :agent/name ?name)))
-     ;; Defines function RUNNING-AGENTS"
-  `(defun ,name ()
-     ,(format nil "Compiled Datalog query: ~S" clauses)
-     (query ',clauses)))
+(defun %analyze-clauses (clauses in-vars)
+  "Analyze clauses statically, returning a list of analysis plists.
+   Each plist: (:clause c :strategy s :bound-before vars :new-bindings vars).
+   IN-VARS is a list of variable symbols that are bound from :in parameters."
+  (let ((bound (make-hash-table :test 'eq)))
+    ;; Seed with :in variables
+    (dolist (v in-vars)
+      (setf (gethash v bound) t))
+    (loop for clause in clauses
+          collect
+          (cond
+            ;; Negation clause — always uses interpreter-style filter
+            ((and (listp clause) (eq (car clause) 'not))
+             (list :clause clause :strategy :negation
+                   :bound-before (hash-table-keys bound)
+                   :new-bindings nil))
+            ;; Normal clause
+            (t
+             (destructuring-bind (e-pat a-pat v-pat) clause
+               (let* ((e-class (cond ((not (variable-p e-pat)) :const)
+                                     ((gethash e-pat bound) :bound)
+                                     (t :free)))
+                      (a-class (cond ((not (variable-p a-pat)) :const)
+                                     ((gethash a-pat bound) :bound)
+                                     (t :free)))
+                      (v-class (cond ((not (variable-p v-pat)) :const)
+                                     ((gethash v-pat bound) :bound)
+                                     (t :free)))
+                      (strategy
+                        (cond
+                          ;; a=const, v=const/bound → value-index O(1)
+                          ((and (member a-class '(:const :bound))
+                                (member v-class '(:const :bound)))
+                           :value-index)
+                          ;; e=bound, a=const → direct cache lookup O(1)
+                          ((and (member e-class '(:bound))
+                                (member a-class '(:const :bound)))
+                           :direct-lookup)
+                          ;; a=const, v=free → cache scan by attribute
+                          ((member a-class '(:const :bound))
+                           :cache-scan)
+                          ;; Fallback
+                          (t :full-scan)))
+                      (new-bindings nil))
+                 ;; Record new bindings introduced
+                 (dolist (pat (list e-pat a-pat v-pat))
+                   (when (and (variable-p pat) (not (gethash pat bound)))
+                     (push pat new-bindings)
+                     (setf (gethash pat bound) t)))
+                 (list :clause clause :strategy strategy
+                       :bound-before nil
+                       :new-bindings (nreverse new-bindings)))))))))
+
+;;; Part 2: Code generation
+;;; Each strategy maps to a code template. Generated code resolves
+;;; attribute IDs once at the top and unrolls clauses inline.
+
+(defun %emit-var-key (var)
+  "Emit the keyword form of a variable for use in generated code."
+  (variable-key var))
+
+(defun %emit-initial-clause-code (analysis clause-idx)
+  "Emit code for the first clause (no prior bindings)."
+  (let* ((clause (getf analysis :clause))
+         (strategy (getf analysis :strategy))
+         (e-pat (first clause))
+         (a-pat (second clause))
+         (v-pat (third clause))
+         (aid-var (intern (format nil "AID-~D" clause-idx) :autopoiesis.substrate))
+         (bindings-var 'current-bindings))
+    (ecase strategy
+      (:value-index
+       ;; a=const, v=const/bound → use value-index
+       (let ((v-form (if (variable-p v-pat)
+                         `(cdr (assoc ,(%emit-var-key v-pat) in-binding))
+                         `',v-pat)))
+         `(let ((eid-set (gethash (cons ,aid-var ,v-form) value-idx)))
+            (when eid-set
+              (maphash (lambda (eid %_)
+                         (declare (ignore %_))
+                         (let ((b nil))
+                           ,@(when (variable-p e-pat)
+                               `((push (cons ,(%emit-var-key e-pat) eid) b)))
+                           ,@(when (and (variable-p v-pat)
+                                        (not (member v-pat (getf analysis :new-bindings)
+                                                     :test #'eq)))
+                               nil)
+                           ,@(when (member v-pat (getf analysis :new-bindings) :test #'eq)
+                               `((push (cons ,(%emit-var-key v-pat) ,v-form) b)))
+                           (push b ,bindings-var)))
+                       eid-set)))))
+      (:cache-scan
+       ;; a=const, v=free → scan cache by attribute
+       `(maphash (lambda (key value)
+                   (when (= (cdr key) ,aid-var)
+                     (let ((eid (car key))
+                           (b nil)
+                           (match t))
+                       ,@(cond
+                           ((variable-p e-pat)
+                            `((push (cons ,(%emit-var-key e-pat) eid) b)))
+                           (t
+                            `((unless (eql eid (gethash ',e-pat intern-tbl))
+                                (setf match nil)))))
+                       (when match
+                         ,@(when (variable-p v-pat)
+                             `((push (cons ,(%emit-var-key v-pat) value) b)))
+                         (push b ,bindings-var)))))
+                 cache))
+      (:full-scan
+       ;; Fallback — delegate to interpreter
+       `(setf ,bindings-var
+              (generate-initial-bindings ',e-pat ',a-pat ',v-pat))))))
+
+(defun %emit-extend-clause-code (analysis clause-idx)
+  "Emit code for a join clause (has prior bindings)."
+  (let* ((clause (getf analysis :clause))
+         (strategy (getf analysis :strategy))
+         (e-pat (first clause))
+         (a-pat (second clause))
+         (v-pat (third clause))
+         (aid-var (intern (format nil "AID-~D" clause-idx) :autopoiesis.substrate))
+         (bindings-var 'current-bindings))
+    (ecase strategy
+      (:value-index
+       ;; a=const, v=const/bound → use value-index to get eid set, intersect
+       (let ((v-form (cond
+                       ((not (variable-p v-pat)) `',v-pat)
+                       (t `(cdr (assoc ,(%emit-var-key v-pat) b))))))
+         `(let ((next nil))
+            (dolist (b ,bindings-var)
+              (let ((eid-set (gethash (cons ,aid-var ,v-form) value-idx)))
+                (when eid-set
+                  ,@(cond
+                      ;; e is bound in binding — check membership
+                      ((variable-p e-pat)
+                       `((let ((eid (cdr (assoc ,(%emit-var-key e-pat) b))))
+                           (if eid
+                               ;; Already bound — check it's in the set
+                               (when (gethash eid eid-set)
+                                 (push b next))
+                               ;; Unbound — iterate all eids
+                               (maphash (lambda (eid %_)
+                                          (declare (ignore %_))
+                                          (push (list* (cons ,(%emit-var-key e-pat) eid) b) next))
+                                        eid-set)))))
+                      ;; e is const — just check membership
+                      (t
+                       (let ((e-form `(gethash ',e-pat intern-tbl)))
+                         `((let ((eid ,e-form))
+                             (when (and eid (gethash eid eid-set))
+                               (push b next))))))))))
+            (setf ,bindings-var (nreverse next)))))
+      (:direct-lookup
+       ;; e=bound, a=const → single cache lookup per binding
+       (let ((e-form `(cdr (assoc ,(%emit-var-key e-pat) b))))
+         `(let ((next nil))
+            (dolist (b ,bindings-var)
+              (let ((eid ,e-form))
+                (when eid
+                  (multiple-value-bind (val found-p)
+                      (gethash (cons eid ,aid-var) cache)
+                    (when found-p
+                      ,@(cond
+                          ;; v is a free variable — bind it
+                          ((and (variable-p v-pat)
+                                (member v-pat (getf analysis :new-bindings) :test #'eq))
+                           `((push (list* (cons ,(%emit-var-key v-pat) val) b) next)))
+                          ;; v is a bound variable — check match
+                          ((variable-p v-pat)
+                           `((let ((existing (cdr (assoc ,(%emit-var-key v-pat) b))))
+                               (if existing
+                                   (when (equal val existing) (push b next))
+                                   (push (list* (cons ,(%emit-var-key v-pat) val) b) next)))))
+                          ;; v is const — check equality
+                          (t
+                           `((when (equal val ',v-pat) (push b next))))))))))
+            (setf ,bindings-var (nreverse next)))))
+      (:cache-scan
+       ;; a=const — scan cache filtering by attribute
+       `(let ((next nil))
+          (dolist (b ,bindings-var)
+            (maphash (lambda (key value)
+                       (when (= (cdr key) ,aid-var)
+                         (let ((eid (car key))
+                               (new-b (copy-alist b))
+                               (match t))
+                           ,@(cond
+                               ((variable-p e-pat)
+                                `((let ((existing (cdr (assoc ,(%emit-var-key e-pat) new-b))))
+                                    (if existing
+                                        (unless (eql eid existing) (setf match nil))
+                                        (push (cons ,(%emit-var-key e-pat) eid) new-b)))))
+                               (t
+                                `((unless (eql eid (gethash ',e-pat intern-tbl))
+                                    (setf match nil)))))
+                           (when match
+                             ,@(cond
+                                 ((variable-p v-pat)
+                                  `((let ((existing (cdr (assoc ,(%emit-var-key v-pat) new-b))))
+                                      (if existing
+                                          (unless (equal value existing) (setf match nil))
+                                          (push (cons ,(%emit-var-key v-pat) value) new-b)))))
+                                 (t
+                                  `((unless (equal value ',v-pat) (setf match nil))))))
+                           (when match
+                             (push new-b next)))))
+                     cache))
+          (setf ,bindings-var (nreverse next))))
+      (:full-scan
+       ;; Fallback — delegate to interpreter
+       `(let ((next nil))
+          (dolist (b ,bindings-var)
+            (setf next (nconc next (extend-binding b ',e-pat ',a-pat ',v-pat))))
+          (setf ,bindings-var next))))))
+
+(defun %emit-negation-clause-code (analysis)
+  "Emit code for a negation clause."
+  (let* ((clause (getf analysis :clause))
+         (inner (second clause))
+         (e-pat (first inner))
+         (a-pat (second inner))
+         (v-pat (third inner)))
+    `(setf current-bindings
+            (remove-if (lambda (b)
+                         (let ((results (extend-binding b ',e-pat ',a-pat ',v-pat)))
+                           (not (null results))))
+                       current-bindings))))
+
+;;; Part 3: Compilation entry points
+
+(defun %compile-query-clauses (clauses &key in-vars find-spec)
+  "Generate a lambda form for the given clauses.
+   Returns a lambda expression or NIL if compilation is not possible."
+  (let* ((analyses (%analyze-clauses clauses in-vars))
+         ;; Collect all constant attributes for pre-interning
+         (attr-constants nil)
+         (clause-bodies nil))
+    ;; Gather attribute constants and generate clause code
+    (loop for analysis in analyses
+          for idx from 0
+          do (let ((strategy (getf analysis :strategy)))
+               (unless (eq strategy :negation)
+                 (let* ((clause (getf analysis :clause))
+                        (a-pat (second clause)))
+                   (when (and (not (variable-p a-pat)) (not (integerp a-pat)))
+                     (pushnew a-pat attr-constants :test #'eq))))
+               (push
+                (cond
+                  ((eq strategy :negation)
+                   (%emit-negation-clause-code analysis))
+                  ((= idx 0)
+                   (if (eq strategy :full-scan)
+                       (%emit-initial-clause-code analysis idx)
+                       (%emit-initial-clause-code analysis idx)))
+                  (t
+                   (%emit-extend-clause-code analysis idx)))
+                clause-bodies)))
+    (setf clause-bodies (nreverse clause-bodies))
+    (setf attr-constants (nreverse attr-constants))
+    ;; Build the aid-N let bindings
+    (let* ((aid-bindings
+             (loop for analysis in analyses
+                   for idx from 0
+                   unless (eq (getf analysis :strategy) :negation)
+                   collect (let* ((clause (getf analysis :clause))
+                                  (a-pat (second clause))
+                                  (aid-var (intern (format nil "AID-~D" idx)
+                                                   :autopoiesis.substrate)))
+                             (cond
+                               ((integerp a-pat) `(,aid-var ,a-pat))
+                               ((variable-p a-pat) `(,aid-var nil)) ; bound at runtime
+                               (t `(,aid-var (gethash ',a-pat intern-tbl)))))))
+           (in-var-keys (mapcar #'variable-key in-vars))
+           (body
+             `(lambda (&rest in-args)
+                (let* ((cache (get-entity-cache))
+                       (intern-tbl (get-intern-table))
+                       (value-idx (get-value-index))
+                       ;; Bind :in params
+                       (in-binding (loop for k in ',in-var-keys
+                                         for v in in-args
+                                         collect (cons k v)))
+                       ;; Pre-resolve attribute IDs
+                       ,@aid-bindings
+                       (current-bindings (when in-binding (list in-binding))))
+                  (declare (ignorable cache intern-tbl value-idx in-binding))
+                  ,@clause-bodies
+                  ,(if find-spec
+                       `(%project-bindings current-bindings ',find-spec)
+                       'current-bindings)))))
+      body)))
+
+(defun %has-rule-invocations-p (where-clauses)
+  "Check if any where-clause looks like a rule invocation.
+   A rule invocation is a list whose car is a non-variable, non-keyword symbol
+   and which is not a negation clause."
+  (some (lambda (clause)
+          (and (listp clause)
+               (not (eq (car clause) 'not))
+               (symbolp (car clause))
+               (not (variable-p (car clause)))
+               (not (keywordp (car clause)))))
+        where-clauses))
+
+(defun %compile-query-form (query-form)
+  "Compile a Datomic-style query form into a lambda expression.
+   Returns NIL for queries with rules (falls back to interpreter)."
+  (multiple-value-bind (find-spec in-vars where-clauses rules-var)
+      (%parse-query query-form)
+    ;; Fall back to interpreter if rules are detected
+    (when (or rules-var
+              ;; Also detect % in in-vars by symbol-name (cross-package compat)
+              (some (lambda (v) (and (symbolp v) (string= (symbol-name v) "%")))
+                    in-vars)
+              ;; Or if where-clauses contain rule invocations
+              (%has-rule-invocations-p where-clauses))
+      (return-from %compile-query-form nil))
+    (%compile-query-clauses where-clauses
+                            :in-vars in-vars
+                            :find-spec find-spec)))
+
+(defun %lambda-body (lambda-form)
+  "Extract the body forms from a lambda expression.
+   (lambda (&rest in-args) body...) → body..."
+  (cddr lambda-form))
+
+(defun %lambda-params (lambda-form)
+  "Extract the parameter list from a lambda expression."
+  (second lambda-form))
+
+(defmacro compile-query (name &rest args)
+  "Compile a Datalog query into a named function.
+   Two forms:
+
+   ;; Simple (backward-compatible): returns binding alists
+   (compile-query running-agents
+     ((?e :agent/status :running) (?e :agent/name ?name)))
+
+   ;; Datomic-style: returns projected results
+   (compile-query find-by-status
+     :find (?name) :in (?status)
+     :where ((?e :agent/status ?status) (?e :agent/name ?name)))"
+  (cond
+    ;; Datomic-style: (compile-query name :find ... :in ... :where ...)
+    ((and args (keywordp (first args)))
+     (let* ((form (%parse-datomic-compile-args args)))
+       (destructuring-bind (find-spec in-vars where-clauses) form
+         (let ((lambda-form (%compile-query-clauses where-clauses
+                                                     :in-vars in-vars
+                                                     :find-spec find-spec)))
+           `(defun ,name ,(%lambda-params lambda-form)
+              ,(format nil "Compiled Datalog query: ~S" args)
+              ,@(%lambda-body lambda-form))))))
+    ;; Simple form: (compile-query name (clauses...))
+    (t
+     (let* ((clauses (first args))
+            (lambda-form (%compile-query-clauses clauses :in-vars nil :find-spec nil)))
+       `(defun ,name ()
+          ,(format nil "Compiled Datalog query: ~S" clauses)
+          (let ((in-args nil))
+            ,@(%lambda-body lambda-form)))))))
+
+(defun %parse-datomic-compile-args (args)
+  "Parse compile-query Datomic-style macro args into (find-spec in-vars where-clauses).
+   Macro form: :find (?a ?b) :in (?x) :where ((c1) (c2))
+   Each section keyword is followed by exactly one list argument."
+  (let ((find-spec nil)
+        (in-vars nil)
+        (where-clauses nil)
+        (rest args))
+    (loop while rest do
+      (let ((key (pop rest)))
+        (ecase key
+          (:find (setf find-spec (pop rest)))
+          (:in (setf in-vars (pop rest)))
+          (:where (setf where-clauses (pop rest))))))
+    (list find-spec in-vars where-clauses)))
+
+;;; Runtime JIT compilation
+
+(defvar *compiled-query-cache* (make-hash-table :test 'equal)
+  "Cache of JIT-compiled query functions, keyed by query form.")
+
+(defun compile-query-fn (query-form)
+  "JIT-compile a Datomic-style query form into a callable function.
+   Caches by structure. Falls back to interpreter for queries with rules."
+  (or (gethash query-form *compiled-query-cache*)
+      (setf (gethash query-form *compiled-query-cache*)
+            (let ((form (%compile-query-form query-form)))
+              (if form
+                  (compile nil form)
+                  ;; Fallback: wrap interpreter
+                  (lambda (&rest args)
+                    (apply #'q query-form args)))))))
 
 ;;; ===================================================================
 ;;; Pull API (Datomic-style entity reads)

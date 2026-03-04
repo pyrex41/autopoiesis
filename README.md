@@ -62,7 +62,7 @@ cd autopoiesis
 
 ### The Substrate: A Datom Store with Linda Coordination
 
-At the bottom of the stack is a datom store whose data model comes directly from [Datomic](https://www.datomic.com/), which is itself built on Datalog. The five-tuple datom `(entity, attribute, value, tx, added)`, the EAVT/AEVT index naming, immutable facts with monotonic transaction stamping, and EAV triples as the universal schema are all Datomic's design carried over. The substrate includes a Datalog query engine with Datomic-style `q` queries, Pull API, `:in` parameters, and recursive rules — alongside direct index access (`entity-attr` for O(1) point lookups, `find-entities` via an inverted value index) and `take!` for atomic claim-and-update.
+At the bottom of the stack is a datom store whose data model comes directly from [Datomic](https://www.datomic.com/), which is itself built on Datalog. The five-tuple datom `(entity, attribute, value, tx, added)`, the EAVT/AEVT index naming, immutable facts with monotonic transaction stamping, and EAV triples as the universal schema are all Datomic's design carried over. The substrate includes a Datalog query engine with Datomic-style `q` queries, Pull API, `:in` parameters, recursive rules, and compiled queries via Futamura's first projection (`compile-query` for static compilation, `compile-query-fn` for runtime JIT) — alongside direct index access (`entity-attr` for O(1) point lookups, `find-entities` via an inverted value index) and `take!` for atomic claim-and-update.
 
 **Why not actual Datomic?** Datomic is JVM-only. From Common Lisp, the only option is Datomic's REST Peer Service — meaning every query becomes an HTTP round-trip (~1ms+), losing the Peer cache that is Datomic's key performance advantage. The substrate's in-process reads are sub-microsecond (~50ns). Beyond latency, the substrate's `take!` (Linda coordination) and reactive hooks have no Datomic equivalent, and arbitrary Lisp objects can be stored as datom values without serialization. Zero-ops deployment (single SBCL binary + LMDB file) vs. running a JVM transactor + REST peer + storage backend seals it. See [`thoughts/shared/research/2026-03-04-datomic-vs-substrate.md`](thoughts/shared/research/2026-03-04-datomic-vs-substrate.md) for the full analysis.
 
@@ -342,7 +342,7 @@ A research evaluation noted that *"the substrate unconsciously recapitulates 198
 - **Truth Maintenance Systems** (de Kleer/Doyle, 1979) — Dependency tracking for derived beliefs. Evaluated as "medium relevance" for agent belief justification chains.
 - **Frame systems** (Minsky, 1970s) — Slot-based knowledge representation with inheritance and slot daemons. The structural parallel to EAV datoms with reactive hooks is direct.
 - **SERIES** (Waters, 1989) — Lazy fused sequence operations. Evaluated for LMDB cursor pipelines.
-- **Futamura projections** (1971) — Partial evaluation of interpreters. The `compile-query` macro is a first step toward compiled standing queries.
+- **Futamura projections** (1971) — Partial evaluation of interpreters. `compile-query` implements the first projection: specializing the Datalog interpreter against a known query to produce native compiled code. Static binding analysis selects per-clause strategies (value-index O(1), direct-lookup O(1), cache-scan, full-scan), then code generation emits specialized Lisp that `(compile nil ...)` JIT-compiles to machine code. Attribute IDs are resolved once per call instead of N×M times per binding.
 
 ### Genetic Algorithms (Holland, 1975)
 

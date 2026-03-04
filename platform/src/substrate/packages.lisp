@@ -66,6 +66,8 @@
    ;; Datalog queries
    #:query
    #:compile-query
+   #:compile-query-fn
+   #:*compiled-query-cache*
    ;; Pull API
    #:pull
    #:pull-many

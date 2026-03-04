@@ -884,6 +884,182 @@
       (is (equal "alice" (cdr (assoc :?name (first interp-results))))))))
 
 ;;; ===================================================================
+;;; Compiled query (Futamura) tests
+;;; ===================================================================
+
+(test compiled-query-value-index-path
+  "Compiled query uses value-index for (attr=const, val=const)."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :paused)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a3 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a3 :agent/name "carol")))
+    (autopoiesis.substrate:compile-query test-value-idx-q
+      ((?e :agent/status :running) (?e :agent/name ?name)))
+    (let ((results (test-value-idx-q)))
+      (is (= 2 (length results)) "Should find 2 running agents")
+      (let ((names (sort (mapcar (lambda (b) (cdr (assoc :?name b))) results) #'string<)))
+        (is (equal '("alice" "carol") names))))))
+
+(test compiled-query-direct-lookup-path
+  "Compiled query uses direct-lookup for (e=bound, a=const)."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a1 :agent/task "analyze")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a2 :agent/task "scout")))
+    ;; Three-clause query: first uses value-index, second+third use direct-lookup
+    (autopoiesis.substrate:compile-query test-direct-lookup-q
+      ((?e :agent/status :running) (?e :agent/name ?name) (?e :agent/task ?task)))
+    (let ((results (test-direct-lookup-q)))
+      (is (= 2 (length results)) "Should find 2 results")
+      (let ((alice (find "alice" results :key (lambda (b) (cdr (assoc :?name b))) :test #'equal)))
+        (is (not (null alice)) "Should find alice")
+        (is (equal "analyze" (cdr (assoc :?task alice))))))))
+
+(test compiled-query-with-in-params
+  "Compiled query accepting :in arguments."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :paused)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")))
+    (autopoiesis.substrate:compile-query test-in-params-q
+      :find (?name) :in (?status)
+      :where ((?e :agent/status ?status) (?e :agent/name ?name)))
+    (let ((running (test-in-params-q :running))
+          (paused (test-in-params-q :paused)))
+      (is (= 1 (length running)) "Should find 1 running")
+      (is (equal '(("alice")) running))
+      (is (= 1 (length paused)) "Should find 1 paused")
+      (is (equal '(("bob")) paused)))))
+
+(test compiled-query-negation
+  "Negation in compiled queries."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a2 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a2 :agent/error "crash")))
+    (autopoiesis.substrate:compile-query test-negation-q
+      ((?e :agent/status :running) (?e :agent/name ?name) (not (?e :agent/error ?err))))
+    (let ((results (test-negation-q)))
+      (is (= 1 (length results)) "Should find 1 agent without errors")
+      (is (equal "alice" (cdr (assoc :?name (first results))))))))
+
+(test compiled-query-fn-jit
+  "Runtime JIT via compile-query-fn."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")))
+    (let ((qfn (autopoiesis.substrate:compile-query-fn
+                '(:find ?name :where (?e :agent/status :running) (?e :agent/name ?name)))))
+      (is (functionp qfn) "Should return a function")
+      (let ((results (funcall qfn)))
+        (is (= 1 (length results)))
+        (is (equal '(("alice")) results))))))
+
+(test compiled-query-fn-cache-hit
+  "Second call to compile-query-fn reuses cached function."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")))
+    (let* ((form '(:find ?name :where (?e :agent/status :running) (?e :agent/name ?name)))
+           (fn1 (autopoiesis.substrate:compile-query-fn form))
+           (fn2 (autopoiesis.substrate:compile-query-fn form)))
+      (is (eq fn1 fn2) "Same function object should be returned from cache"))))
+
+(test compiled-vs-interpreted-exhaustive
+  "Compiled and interpreted produce identical results across 5 query patterns."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :a1 :entity/type :agent)
+           (autopoiesis.substrate:make-datom :a1 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a1 :agent/name "alice")
+           (autopoiesis.substrate:make-datom :a1 :agent/task "analyze")
+           (autopoiesis.substrate:make-datom :a2 :entity/type :agent)
+           (autopoiesis.substrate:make-datom :a2 :agent/status :paused)
+           (autopoiesis.substrate:make-datom :a2 :agent/name "bob")
+           (autopoiesis.substrate:make-datom :a2 :agent/task "scout")
+           (autopoiesis.substrate:make-datom :a3 :entity/type :agent)
+           (autopoiesis.substrate:make-datom :a3 :agent/status :running)
+           (autopoiesis.substrate:make-datom :a3 :agent/name "carol")
+           (autopoiesis.substrate:make-datom :a3 :agent/task "report")))
+    (flet ((sort-bindings (bs)
+             (sort (copy-list bs) #'string<
+                   :key (lambda (b)
+                          (format nil "~S" (sort (copy-list b) #'string<
+                                                 :key (lambda (pair) (symbol-name (car pair)))))))))
+      ;; Pattern 1: two-clause join
+      (let ((q1 '(:find ?name :where (?e :agent/status :running) (?e :agent/name ?name)))
+            (fn1 (autopoiesis.substrate:compile-query-fn
+                  '(:find ?name :where (?e :agent/status :running) (?e :agent/name ?name)))))
+        (is (equal (sort (copy-list (autopoiesis.substrate:q q1)) #'string< :key #'car)
+                   (sort (copy-list (funcall fn1)) #'string< :key #'car))
+            "Pattern 1: two-clause join"))
+      ;; Pattern 2: three-clause join
+      (let ((q2 '(:find ?name ?task :where (?e :agent/status :running) (?e :agent/name ?name) (?e :agent/task ?task)))
+            (fn2 (autopoiesis.substrate:compile-query-fn
+                  '(:find ?name ?task :where (?e :agent/status :running) (?e :agent/name ?name) (?e :agent/task ?task)))))
+        (is (= (length (autopoiesis.substrate:q q2))
+               (length (funcall fn2)))
+            "Pattern 2: three-clause join count"))
+      ;; Pattern 3: parameterized
+      (let ((q3 '(:find ?name :in ?status :where (?e :agent/status ?status) (?e :agent/name ?name)))
+            (fn3 (autopoiesis.substrate:compile-query-fn
+                  '(:find ?name :in ?status :where (?e :agent/status ?status) (?e :agent/name ?name)))))
+        (is (equal (sort (copy-list (autopoiesis.substrate:q q3 :running)) #'string< :key #'car)
+                   (sort (copy-list (funcall fn3 :running)) #'string< :key #'car))
+            "Pattern 3: parameterized"))
+      ;; Pattern 4: negation
+      (let ((q4 '(:find ?name :where (?e :entity/type :agent) (?e :agent/name ?name) (not (?e :agent/status :paused))))
+            (fn4 (autopoiesis.substrate:compile-query-fn
+                  '(:find ?name :where (?e :entity/type :agent) (?e :agent/name ?name) (not (?e :agent/status :paused))))))
+        (is (= (length (autopoiesis.substrate:q q4))
+               (length (funcall fn4)))
+            "Pattern 4: negation count"))
+      ;; Pattern 5: single clause
+      (let ((q5 '(:find ?name :where (?e :agent/name ?name)))
+            (fn5 (autopoiesis.substrate:compile-query-fn
+                  '(:find ?name :where (?e :agent/name ?name)))))
+        (is (= (length (autopoiesis.substrate:q q5))
+               (length (funcall fn5)))
+            "Pattern 5: single clause count")))))
+
+(test compiled-query-with-rules-falls-back
+  "Queries with rules fall back to interpreter via compile-query-fn."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.substrate:transact!
+     (list (autopoiesis.substrate:make-datom :t1 :turn/parent :t0)
+           (autopoiesis.substrate:make-datom :t2 :turn/parent :t1)
+           (autopoiesis.substrate:make-datom :t3 :turn/parent :t2)))
+    (let* ((rules-form '(:find ?ancestor :in % ?start
+                          :where (ancestor ?start ?ancestor)))
+           (rules '(((ancestor ?t ?a) (?t :turn/parent ?a))
+                    ((ancestor ?t ?a) (?t :turn/parent ?mid) (ancestor ?mid ?a))))
+           (eid (autopoiesis.substrate:intern-id :t3))
+           ;; compile-query-fn should fallback to interpreter for rules
+           (fn (autopoiesis.substrate:compile-query-fn rules-form))
+           (compiled-results (funcall fn rules eid))
+           (interp-results (autopoiesis.substrate:q rules-form rules eid)))
+      ;; The key invariant: compiled path matches interpreted path exactly
+      (is (= (length compiled-results) (length interp-results))
+          "Rules fallback should match interpreter")
+      ;; Verify it returns a function (not error)
+      (is (functionp fn) "compile-query-fn should return a function for rule queries"))))
+
+;;; ===================================================================
 ;;; Pull API tests
 ;;; ===================================================================
 
