@@ -57,4 +57,18 @@
    #:rule-priority
    #:rule-source
    #:apply-production-rules
-   #:extract-production-rules))
+   #:extract-production-rules
+
+   ;; Persistent agent genome bridge
+   #:persistent-agent-to-genome
+   #:genome-to-persistent-agent-patch
+   #:pa-genome-round-trip-p
+   ;; Persistent evolution
+   #:make-persistent-population
+   #:evolve-persistent-agents
+   #:persistent-agent-fitness-evaluator
+   ;; Persistent fitness functions
+   #:thought-diversity-fitness
+   #:capability-breadth-fitness
+   #:genome-efficiency-fitness
+   #:make-standard-pa-evaluator))

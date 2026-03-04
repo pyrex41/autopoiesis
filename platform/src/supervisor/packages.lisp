@@ -15,4 +15,7 @@
    #:checkpoint-agent
    #:revert-to-stable
    #:promote-checkpoint
-   #:supervisor-status))
+   #:supervisor-status
+   ;; Persistent agent bridge
+   #:checkpoint-dual-agent
+   #:revert-dual-agent))

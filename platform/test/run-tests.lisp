@@ -35,6 +35,8 @@
   (run! 'git-tools-tests)
   (run! 'jarvis-tests)
   (run! 'team-tests)
+  (run! 'persistent-agent-tests)
+  (run! 'swarm-integration-tests)
   (run! 'e2e-tests))
 
 ;; Make tests easy to run from REPL

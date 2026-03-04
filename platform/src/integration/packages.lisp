@@ -385,4 +385,10 @@
    #:*event-history*
    #:*max-event-history*
    #:*events-enabled*
-   #:*default-handlers-installed*))
+   #:*default-handlers-installed*
+
+   ;; Persistent agent integrations
+   #:persistent-agentic-agent
+   #:make-persistent-agentic-agent
+   #:persistent-provider-agent
+   #:make-persistent-provider-agent))

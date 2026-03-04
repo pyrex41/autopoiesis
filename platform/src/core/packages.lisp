@@ -262,6 +262,47 @@
    #:memory-usage
    #:with-memory-tracking
 
+   ;; Persistent data structures (fset wrappers)
+   #:pmap-empty
+   #:pmap-get
+   #:pmap-put
+   #:pmap-remove
+   #:pmap-contains-p
+   #:pmap-keys
+   #:pmap-values
+   #:pmap-count
+   #:pmap-merge
+   #:pmap-to-alist
+   #:alist-to-pmap
+   #:pmap-equal
+   #:pmap-hash
+   #:pmap-map-values
+   #:pvec-empty
+   #:pvec-push
+   #:pvec-ref
+   #:pvec-set
+   #:pvec-length
+   #:pvec-last
+   #:pvec-to-list
+   #:list-to-pvec
+   #:pvec-map
+   #:pvec-equal
+   #:pvec-concat
+   #:pvec-subseq
+   #:pset-empty
+   #:pset-add
+   #:pset-remove
+   #:pset-contains-p
+   #:pset-count
+   #:pset-union
+   #:pset-intersection
+   #:pset-difference
+   #:pset-to-list
+   #:list-to-pset
+   #:pset-equal
+   #:pset-subset-p
+   #:pset-hash
+
    ;; Configuration management
    #:*default-config*
    #:*current-config*

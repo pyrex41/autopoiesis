@@ -208,4 +208,57 @@
    #:adjust-decision-weights
    #:alternative-matches-pattern-p
    #:context-key-matches-p
-   #:update-heuristic-confidence))
+   #:update-heuristic-confidence
+
+   ;; Persistent agent
+   #:persistent-agent
+   #:make-persistent-agent
+   #:persistent-agent-id
+   #:persistent-agent-name
+   #:persistent-agent-version
+   #:persistent-agent-timestamp
+   #:persistent-agent-membrane
+   #:persistent-agent-genome
+   #:persistent-agent-thoughts
+   #:persistent-agent-capabilities
+   #:persistent-agent-heuristics
+   #:persistent-agent-children
+   #:persistent-agent-parent-root
+   #:persistent-agent-metadata
+   #:persistent-agent-hash
+   #:persistent-agent-to-sexpr
+   #:sexpr-to-persistent-agent
+   #:copy-persistent-agent
+   ;; Persistent cognition
+   #:persistent-perceive
+   #:persistent-reason
+   #:persistent-decide
+   #:persistent-act
+   #:persistent-reflect
+   #:persistent-cognitive-cycle
+   ;; Persistent lineage
+   #:persistent-fork
+   #:persistent-agent-diff
+   #:persistent-agent-merge
+   #:persistent-ancestors
+   #:persistent-common-ancestor
+   #:persistent-generation
+   ;; Persistent membrane
+   #:membrane-allows-p
+   #:membrane-update
+   #:propose-genome-modification
+   #:promote-to-genome
+   ;; Dual-mode agent (persistent bridge)
+   #:dual-agent
+   #:dual-agent-root
+   #:dual-agent-history
+   #:dual-agent-auto-snapshot-p
+   #:dual-agent-undo
+   #:upgrade-to-dual
+   #:agent-to-persistent
+   #:sync-persistent-to-agent
+   #:sync-agent-to-persistent
+   ;; Persistent substrate integration
+   #:record-agent-transition
+   #:query-agent-versions
+   #:record-fork-event))

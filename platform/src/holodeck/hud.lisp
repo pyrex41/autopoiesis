@@ -273,14 +273,21 @@
                                :branch nil
                                :snapshot-id nil
                                :snapshot-type nil))
-    ;; Update agent panel from focused agent entity
-    (let ((agent-entity (find-focused-agent-entity)))
-      (if agent-entity
-          (update-agent-panel hud
-                              :agent-name (agent-binding-agent-name agent-entity)
-                              :agent-status "active"
-                              :agent-task nil)
-          (update-agent-panel hud :agent-name nil)))
+    ;; Update agent panel from focused agent entity or persistent agent
+    (let ((agent-entity (find-focused-agent-entity))
+          (persistent-entity (find-selected-persistent-entity)))
+      (cond
+        ;; Persistent agent takes priority when selected
+        (persistent-entity
+         (update-persistent-agent-panel hud persistent-entity))
+        ;; Fall back to live agent binding
+        (agent-entity
+         (update-agent-panel hud
+                             :agent-name (agent-binding-agent-name agent-entity)
+                             :agent-status "active"
+                             :agent-task nil))
+        (t
+         (update-agent-panel hud :agent-name nil))))
     ;; Update timeline panel with snapshot counts
     (let ((total (length *snapshot-entities*))
           (current-idx (if selected (selected-entity-index selected) 0))
@@ -805,3 +812,38 @@
 (defun hud-timeline-scrubber (hud)
   "Retrieve the timeline-scrubber object from HUD, or NIL if not set."
   (hud-timeline-scrubber-slot hud))
+
+;;; ===================================================================
+;;; Persistent Agent HUD Panel
+;;; ===================================================================
+
+(defun find-selected-persistent-entity ()
+  "Find the first selected entity that has a persistent-root component.
+   Returns the entity ID or NIL."
+  (dolist (entity *snapshot-entities*)
+    (when (and (entity-valid-p entity)
+               (interactive-selected-p entity)
+               (gethash entity *persistent-root-table*))
+      (return entity))))
+
+(defun update-persistent-agent-panel (hud entity-id)
+  "Update the agent HUD panel with persistent agent information.
+   Shows agent name, version, generation, thought count, capability count,
+   and cognitive phase."
+  (let ((panel (hud-panel hud :agent))
+        (agent (gethash entity-id *persistent-root-table*)))
+    (when (and panel agent)
+      (setf (panel-visible-p panel) t)
+      (setf (panel-content panel)
+            (list (format nil "Agent: ~A"
+                          (autopoiesis.agent::persistent-agent-name agent))
+                  (format nil "Version: ~D"
+                          (autopoiesis.agent::persistent-agent-version agent))
+                  (format nil "Generation: ~D"
+                          (lineage-binding-generation entity-id))
+                  (format nil "Thoughts: ~D"
+                          (cognitive-state-thought-count entity-id))
+                  (format nil "Capabilities: ~D"
+                          (genome-state-capability-count entity-id))
+                  (format nil "Phase: ~A"
+                          (cognitive-state-phase entity-id)))))))

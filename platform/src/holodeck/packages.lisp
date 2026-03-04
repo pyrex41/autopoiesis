@@ -82,6 +82,55 @@
    #:detail-level-low-distance
    #:detail-level-cull-distance
 
+   ;; Persistent agent ECS components
+   #:*persistent-root-table*
+   #:persistent-root
+   #:make-persistent-root
+   #:persistent-root-version-hash
+   #:persistent-root-dirty-p
+   #:cognitive-state
+   #:make-cognitive-state
+   #:cognitive-state-phase
+   #:cognitive-state-thought-count
+   #:genome-state
+   #:make-genome-state
+   #:genome-state-capability-count
+   #:genome-state-genome-size
+   #:genome-state-mutation-count
+   #:lineage-binding
+   #:make-lineage-binding
+   #:lineage-binding-parent-entity
+   #:lineage-binding-child-count
+   #:lineage-binding-generation
+   #:lineage-binding-fork-type
+   #:metabolic-state
+   #:make-metabolic-state
+   #:metabolic-state-energy
+   #:metabolic-state-production-rate
+   #:metabolic-state-fitness
+
+   ;; Persistent agent systems
+   #:persistent-sync-system
+   #:cognitive-animation-system
+   #:metabolic-glow-system
+   #:lineage-rendering-system
+   #:compute-agent-version-hash
+   #:phase-color
+   #:*lineage-connections*
+
+   ;; Persistent agent entity factory
+   #:*persistent-agent-entity-map*
+   #:make-persistent-agent-entity
+   #:materialize-agent-tree
+   #:update-agent-entity
+   #:default-agent-layout
+   #:compute-agent-generation
+   #:collect-agent-family
+
+   ;; Persistent agent HUD
+   #:find-selected-persistent-entity
+   #:update-persistent-agent-panel
+
    ;; Simulation state
    #:*delta-time*
    #:*elapsed-time*

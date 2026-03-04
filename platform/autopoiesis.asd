@@ -22,7 +22,8 @@
                #:dexador         ; For HTTP client
                #:cl-charms       ; For ncurses terminal UI
                #:hunchentoot     ; For HTTP server (monitoring endpoints)
-               #:lparallel)      ; For parallel swarm evaluation
+               #:lparallel       ; For parallel swarm evaluation
+               #:fset)           ; Persistent functional collections
   :components
   ((:module "src"
     :components
@@ -35,6 +36,7 @@
        (:file "s-expr")
        (:file "cognitive-primitives")
        (:file "thought-stream")
+       (:file "persistent-structs")
        (:file "extension-compiler")
        (:file "profiling")
        (:file "config")))
@@ -65,7 +67,13 @@
        (:file "cognitive-loop")
        (:file "spawner")
        (:file "registry")
-       (:file "builtin-capabilities")))
+       (:file "builtin-capabilities")
+       (:file "persistent-agent")
+       (:file "persistent-cognition")
+       (:file "persistent-lineage")
+       (:file "persistent-membrane")
+       (:file "dual-agent")
+       (:file "persistent-substrate")))
      (:module "snapshot"
       :serial t
       :depends-on ("core" "agent")
@@ -131,7 +139,9 @@
        (:file "provider-agent")
        (:file "agentic-agent")
        (:file "openai-bridge")
-       (:file "provider-inference")))
+       (:file "provider-inference")
+       (:file "agentic-persistent")
+       (:file "provider-persistent")))
      (:module "skel"
       :serial t
       :depends-on ("core" "integration")
@@ -211,7 +221,10 @@
        (:file "operators")
        (:file "population")
        (:file "production-rules")
-       (:file "gpu-stub")))
+       (:file "gpu-stub")
+       (:file "persistent-genome-bridge")
+       (:file "persistent-evolution")
+       (:file "persistent-fitness")))
      (:module "supervisor"
       :serial t
       :depends-on ("core" "agent" "snapshot")
@@ -219,7 +232,8 @@
       ((:file "packages")
        (:file "checkpoint")
        (:file "supervisor")
-       (:file "integration")))
+       (:file "integration")
+       (:file "persistent-supervisor-bridge")))
      (:module "crystallize"
       :serial t
       :depends-on ("core" "agent" "supervisor" "snapshot")
@@ -318,7 +332,10 @@
     :components
     ((:file "packages")
      (:file "components")
+     (:file "agent-components")
      (:file "systems")
+     (:file "agent-systems")
+     (:file "agent-entities")
      (:file "window")
      (:file "shaders")
      (:file "meshes")
@@ -377,6 +394,8 @@
      (:file "git-tools-tests")
      (:file "jarvis-tests")
      (:file "team-tests")
+     (:file "persistent-agent-tests")
+     (:file "swarm-integration-tests")
      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))

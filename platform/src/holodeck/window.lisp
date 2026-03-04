@@ -550,7 +550,13 @@ void main() {
     
     ;; 3. Run ECS systems
     (holodeck-update window dt-f)
-    
+
+    ;; 3b. Run persistent agent systems
+    (persistent-sync-system dt-f)
+    (cognitive-animation-system dt-f)
+    (metabolic-glow-system dt-f)
+    (lineage-rendering-system dt-f)
+
     ;; 4. Collect snapshot entity render descriptions
     (let ((snapshot-descs (collect-snapshot-render-descriptions)))
       

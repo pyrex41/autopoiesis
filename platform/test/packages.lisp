@@ -31,4 +31,6 @@
    #:crystallize-tests
    #:git-tools-tests
    #:jarvis-tests
-   #:team-tests))
+   #:team-tests
+   #:persistent-agent-tests
+   #:swarm-integration-tests))
