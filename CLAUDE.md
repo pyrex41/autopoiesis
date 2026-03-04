@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Autopoiesis is a self-configuring, self-extending agent platform built on Common Lisp's homoiconic foundation. Agent cognition, conversation, and configuration are represented as S-expressions (code-as-data, data-as-code), enabling agents to modify their own behavior, full state snapshots for time-travel debugging, and human-in-the-loop interaction at any point.
 
-**Current Status:** All phases (0-10) complete plus CL consolidation. Pure Common Lisp architecture with substrate-backed state management, conductor orchestration, and multi-provider agentic loops. The LFE layer has been removed.
+**Current Status:** All phases (0-10) complete plus CL consolidation and persistent agent architecture. Pure Common Lisp architecture with substrate-backed state management, conductor orchestration, multi-provider agentic loops, and persistent functional agents with O(1) forking via structural sharing. The LFE layer has been removed.
 
 ## Build & Development Commands
 
@@ -38,14 +38,14 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 Twelve-layer architecture (bottom to top):
 
 1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types, value indexing, interning, LMDB persistence, blob store
-2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, extension compiler, recovery, profiling, config
-3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes
+2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, persistent data structures (fset wrappers: pmap/pvec/pset), extension compiler, recovery, profiling, config
+3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes, persistent agents (O(1) fork, immutable cognition, lineage, membrane), dual-agent bridge
 4. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
 5. **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
 6. **Human Interface Layer** (`platform/src/interface/`) - Navigator, viewport, annotator, blocking input, CLI session
 7. **Visualization Layer** (`platform/src/viz/`) - 2D terminal timeline with ANSI rendering and interactive navigation
-8. **Holodeck Layer** (`platform/src/holodeck/`) - 3D ECS visualization with shaders, meshes, dual camera, HUD, ray picking
-9. **Integration Layer** (`platform/src/integration/`) - Claude bridge, MCP servers, tool mapping, built-in tools, event bus, multi-provider agentic loops
+8. **Holodeck Layer** (`platform/src/holodeck/`) - 3D ECS visualization with shaders, meshes, dual camera, HUD, ray picking, persistent agent embodiment (cognitive/metabolic/lineage components)
+9. **Integration Layer** (`platform/src/integration/`) - Claude bridge, MCP servers, tool mapping, built-in tools, event bus, multi-provider agentic loops, persistent agentic/provider agents
 10. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue and worker tracking
 11. **Team Layer** (`platform/src/team/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
 12. **Cross-cutting** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
@@ -65,6 +65,7 @@ Twelve-layer architecture (bottom to top):
 | 8 | 3D holodeck visualization | Complete |
 | 9 | Self-extension, agent-written code | Complete |
 | 10 | Performance, security, deployment | Complete |
+| 11 | Persistent agent architecture (fset, dual-agent, swarm integration) | Complete |
 
 ## Key Dependencies
 
@@ -82,10 +83,12 @@ Twelve-layer architecture (bottom to top):
 - `3d-vectors` - Vector math (holodeck)
 - `3d-matrices` - Matrix math (holodeck)
 - `cl-fast-ecs` - Entity-Component-System (holodeck)
+- `fset` - Persistent functional collections (persistent agents: pmaps, pvecs, psets)
+- `lparallel` - Parallel evaluation (swarm fitness)
 
 ## Test Suites
 
-2,900+ assertions across 15 test suites (plus holodeck):
+3,000+ assertions across 17 test suites (plus holodeck):
 
 - `substrate-tests` - Datom store, interning, transact!, hooks, take!, entity types, defsystem (112 checks)
 - `orchestration-tests` - Conductor, timer heap, event queue, workers, Claude CLI (91 checks)
@@ -101,6 +104,8 @@ Twelve-layer architecture (bottom to top):
 - `provider-tests` - Multi-provider subprocess management (70 checks)
 - `rest-api-tests` - REST API serialization and dispatch (73 checks)
 - `team-tests` - Mailbox concurrency, CV-based await, team lifecycle, strategies, workspace coordination (30 tests)
+- `persistent-agent-tests` - Persistent structs, cognition, fork, lineage, membrane, dual-agent (80 checks)
+- `swarm-integration-tests` - Genome bridge, evolution, fitness functions, population (23 checks)
 - `e2e-tests` - End-to-end user story tests (134 checks)
 - `holodeck-tests` - ECS, shaders, meshes, camera, HUD, input, ray picking (442 tests, 1,193 assertions)
 
@@ -182,6 +187,27 @@ Twelve-layer architecture (bottom to top):
 ;; Monitoring
 (start-monitoring-server &key port host)
 (record-metric name value &key type labels)
+
+;; Persistent data structures (fset wrappers)
+(pmap-empty) (pmap-get m k) (pmap-put m k v) (pmap-remove m k)
+(pvec-empty) (pvec-push v elem) (pvec-ref v idx) (pvec-length v)
+(pset-empty) (pset-add s elem) (pset-contains-p s elem) (pset-union s1 s2)
+
+;; Persistent agents
+(make-persistent-agent :name n :capabilities caps)  ; immutable agent struct
+(persistent-fork agent)                              ; O(1) fork via structural sharing
+(persistent-cognitive-cycle agent env)               ; returns new agent, old unchanged
+(persistent-agent-diff a b)                          ; structural diff
+(persistent-agent-merge a b)                         ; append-only merge
+
+;; Dual-agent bridge (mutable ↔ persistent)
+(upgrade-to-dual agent)                              ; upgrade mutable agent
+(dual-agent-root dual)                               ; thread-safe persistent root access
+(dual-agent-undo dual)                               ; revert to previous version
+
+;; Swarm evolution of persistent agents
+(evolve-persistent-agents agents evaluator env :generations 10)
+(make-standard-pa-evaluator)                         ; composite fitness evaluator
 ```
 
 ## Development Notes
@@ -192,6 +218,10 @@ Twelve-layer architecture (bottom to top):
 - The LFE layer has been removed; all orchestration is now in pure Common Lisp
 - Substrate special variables (`*intern-table*`, `*resolve-table*`, etc.) are NOT exported — use `autopoiesis.substrate::*intern-table*` when capturing bindings for child threads
 - `with-store` creates dynamic bindings that threads do NOT inherit — always capture and rebind substrate specials when spawning threads
+- Persistent agents use `fset` library for structural sharing — all updates return new structs, old roots are never modified
+- `dual-agent` uses `bt:make-recursive-lock` (not plain lock) because `:after` methods on `(setf agent-name)` etc. call `(setf dual-agent-root)` which re-acquires the lock
+- `persistent-supervisor-bridge.lisp` lives in the `supervisor` module (not `agent`) because it depends on both `autopoiesis.agent` and `autopoiesis.supervisor` packages
+- Holodeck agent embodiment uses `*persistent-root-table*` side hash-table because `cl-fast-ecs` components can't hold object references
 
 ## SCUD Task Management
 

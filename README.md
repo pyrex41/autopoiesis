@@ -17,7 +17,7 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 
 ## Status
 
-**All phases (0-10) complete.** 2,775+ assertions across 14 test suites, all passing.
+**All phases (0-11) complete.** 3,000+ assertions across 17 test suites, all passing.
 
 ---
 
@@ -230,6 +230,50 @@ The swarm module implements genome-based evolutionary optimization of agent conf
 
 The learning system extracts patterns from agent experience using n-gram analysis on action sequences and frequency-based context key extraction, generating heuristics with confidence scores that decay on failed applications.
 
+### Persistent Agents: O(1) Forking via Structural Sharing
+
+Agents can be represented as persistent (immutable) structs backed by the [FSet](https://common-lisp.net/project/fset/) library's balanced trees. All updates return new structs — old roots are never modified. This enables:
+
+- **O(1) forking**: `persistent-fork` allocates one struct; all data is shared via structural sharing
+- **Automatic version history**: The `dual-agent` bridge wraps a mutable CLOS agent with a persistent root, pushing old versions to history on every state change
+- **Immutable cognitive loop**: `persistent-perceive`, `persistent-reason`, `persistent-decide`, `persistent-act`, `persistent-reflect` — each returns a new agent struct
+- **Append-only merge**: Union of thoughts, union of capabilities, latest-wins for genome/membrane
+- **Lineage tracking**: Parent-child relationships, ancestor walking, common ancestor, generation counting
+- **Membrane safety**: Boundary rules control what genome modifications are allowed
+
+```lisp
+;; Create a persistent agent
+(let ((agent (autopoiesis.agent:make-persistent-agent
+               :name "scout"
+               :capabilities '(:search :analyze :report))))
+
+  ;; Fork — O(1), returns child + updated parent
+  (multiple-value-bind (child parent)
+      (autopoiesis.agent:persistent-fork agent "scout-alpha")
+    ;; child and parent share all data via structural sharing
+    ;; Run independent cognitive cycles on each
+    (let ((evolved-child (autopoiesis.agent:persistent-cognitive-cycle child env)))
+      ;; Original agent is unchanged
+      (assert (eq (autopoiesis.agent:persistent-agent-thoughts agent)
+                  (autopoiesis.agent:persistent-agent-thoughts parent))))))
+```
+
+**Swarm integration** bridges persistent agents to the existing evolutionary infrastructure — extract genomes, run `evolve-generation`, patch results back:
+
+```lisp
+;; Evolve a population of persistent agents
+(let ((evolved (autopoiesis.swarm:evolve-persistent-agents
+                 agents
+                 (autopoiesis.swarm:make-standard-pa-evaluator)
+                 environment
+                 :generations 10)))
+  ;; evolved is a list of new persistent-agent structs with evolved traits
+  ;; Original agents are unmodified
+  evolved)
+```
+
+Three built-in fitness functions: `thought-diversity-fitness` (unique thought types / total), `capability-breadth-fitness` (count / max), `genome-efficiency-fitness` (capabilities / genome-size).
+
 ---
 
 ## What Can You Do With It?
@@ -441,13 +485,13 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 │                        Structural Diff/Patch  •  Lazy Loading        │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Swarm Layer           Genome Evolution  •  Crossover/Mutation       │
-│                        Tournament/Roulette Selection  •  Fitness     │
+│                        Selection  •  Persistent Agent Evolution      │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Agent Layer           Cognitive Loop  •  Capabilities  •  Learning  │
-│                        Context Window  •  Spawner  •  Messaging      │
+│                        Persistent Agents (O(1) Fork)  •  Dual-Agent │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Core Layer            S-Expression Utilities  •  Cognitive Prims    │
-│                        Extension Compiler  •  Recovery  •  Profiling │
+│                        Persistent Structs (fset)  •  Ext. Compiler   │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Substrate Layer       Datom Store (EAV)  •  Linda take!             │
 │                        Value Index  •  Interning  •  defsystem       │
@@ -460,15 +504,15 @@ Datom store with EAV triples, three synchronized indexes (EAVT, AEVT, EA-CURRENT
 
 ### Core Layer (`platform/src/core/`)
 
-The homoiconic foundation. S-expression diff/patch/hash with type-tagged SHA-256 digesting. Five cognitive primitives (Thought, Decision, Action, Observation, Reflection) as CLOS classes with S-expression content. Append-only thought streams with O(1) ID lookup. Sandboxed extension compiler with code walking, forbidden-symbol checking, and package restrictions. Condition/restart error recovery. Nanosecond profiling.
+The homoiconic foundation. S-expression diff/patch/hash with type-tagged SHA-256 digesting. Five cognitive primitives (Thought, Decision, Action, Observation, Reflection) as CLOS classes with S-expression content. Append-only thought streams with O(1) ID lookup. Persistent data structures via FSet wrappers: `pmap-*` (maps), `pvec-*` (vectors), `pset-*` (sets) with structural sharing for O(1) forking. Sandboxed extension compiler with code walking, forbidden-symbol checking, and package restrictions. Condition/restart error recovery. Nanosecond profiling.
 
 ### Agent Layer (`platform/src/agent/`)
 
-Five-phase cognitive loop (perceive -> reason -> decide -> act -> reflect) as CLOS generic functions. `defcapability` macro for declaring capabilities with parameter specs and permissions. Priority-queue context window for working memory (default 100K tokens). Learning system: n-gram action sequence analysis, frequency-based context patterns, heuristic generation with confidence decay. Parent-child agent spawning with mailbox messaging.
+Five-phase cognitive loop (perceive -> reason -> decide -> act -> reflect) as CLOS generic functions. `defcapability` macro for declaring capabilities with parameter specs and permissions. Priority-queue context window for working memory (default 100K tokens). Learning system: n-gram action sequence analysis, frequency-based context patterns, heuristic generation with confidence decay. Parent-child agent spawning with mailbox messaging. Persistent agents: immutable `defstruct` with pvec thoughts, pset capabilities, pmap membrane/metadata — O(1) fork via structural sharing, immutable cognitive cycle, lineage tracking, membrane boundary rules. Dual-agent bridge wraps mutable CLOS agents with thread-safe persistent root + automatic version history.
 
 ### Swarm Layer (`platform/src/swarm/`)
 
-Evolutionary optimization of agent configurations. Genomes encode capabilities, heuristic weights, and parameters. Uniform crossover, stochastic mutation, tournament/roulette/elitism selection. Production rules bridge learned heuristics to genome transformations. Optional parallel fitness evaluation.
+Evolutionary optimization of agent configurations. Genomes encode capabilities, heuristic weights, and parameters. Uniform crossover, stochastic mutation, tournament/roulette/elitism selection. Production rules bridge learned heuristics to genome transformations. Optional parallel fitness evaluation. Persistent agent genome bridge: extract genomes from persistent agents, run evolution, patch results back. Three built-in fitness functions (thought diversity, capability breadth, genome efficiency) composable via `make-standard-pa-evaluator`.
 
 ### Snapshot Layer (`platform/src/snapshot/`)
 
@@ -522,8 +566,8 @@ ap/
 │   ├── src/
 │   │   ├── substrate/     # Datom store, Linda, interning, defsystem
 │   │   ├── core/          # S-expr utils, cognitive primitives, compiler
-│   │   ├── agent/         # Cognitive loop, capabilities, learning
-│   │   ├── swarm/         # Evolutionary optimization
+│   │   ├── agent/         # Cognitive loop, capabilities, learning, persistent agents
+│   │   ├── swarm/         # Evolutionary optimization, persistent agent evolution
 │   │   ├── snapshot/      # Content-addressable DAG, branches, diff
 │   │   ├── conversation/  # Turn DAG, context forking
 │   │   ├── interface/     # CLI, blocking input, viewport
@@ -564,9 +608,11 @@ Viz tests:             92 assertions    Timeline rendering, navigation, filters,
 Holodeck tests:     1,193 assertions    ECS, shaders, meshes, camera, HUD, input, ray picking
 Security tests:       322 assertions    Permissions, audit, validation, 65 sandbox escape tests
 Monitoring tests:      48 assertions    Metrics, health checks, HTTP endpoints
+Persistent agent:      80 assertions    Structs, cognition, fork, lineage, membrane, dual-agent
+Swarm integration:     23 assertions    Genome bridge, evolution, fitness, population
 E2E tests:            134 assertions    All 15 user stories end-to-end
 ───────────────────────────────────
-Total:              2,775+ assertions   All passing
+Total:              3,000+ assertions   All passing
 ```
 
 ## Dependencies
@@ -589,6 +635,8 @@ Total:              2,775+ assertions   All passing
 | `3d-vectors` | Vector math (holodeck) |
 | `3d-matrices` | Matrix math (holodeck) |
 | `cl-fast-ecs` | Entity-Component-System (holodeck) |
+| `fset` | Persistent functional collections (structural sharing for agents) |
+| `lparallel` | Parallel evaluation (swarm fitness) |
 
 The holodeck is a separate ASDF system (`autopoiesis/holodeck`) to avoid requiring 3D dependencies for core usage.
 
