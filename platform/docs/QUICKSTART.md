@@ -8,16 +8,48 @@ A self-configuring agent platform where cognition is code and code is cognition.
 
 ## 1. One-Command Local Setup (5 minutes)
 
-### Path A: Docker Compose (recommended)
+### Path A: Earthly (recommended)
+
+[Earthly](https://earthly.dev) provides reproducible, containerized builds without needing to install SBCL or Quicklisp locally.
 
 ```bash
 git clone https://github.com/pyrex41/autopoiesis.git && cd autopoiesis
 
-# Start the backend (REPL + HTTP server)
+# Build and test
+cd platform && earthly +test
+
+# Build Docker images (repl + server)
+earthly +all
+
+# Run the REPL image
+docker run -it autopoiesis-repl:latest
+
+# Run the server (conductor + API + monitoring)
+docker run -p 8080:8080 -p 8081:8081 autopoiesis-server:latest
+```
+
+The Earthfile defines these targets:
+
+| Target | What it does |
+|--------|-------------|
+| `+deps` | Base image with SBCL 2.6.1, Quicklisp, system libraries |
+| `+build` | Compile the full Autopoiesis system |
+| `+test` | Run 4,300+ assertions across 28 test suites |
+| `+docker` | Base Docker image with health checks |
+| `+repl` | Interactive REPL image |
+| `+server` | Full server: conductor + API + monitoring |
+| `+all` | Build everything |
+
+### Path B: Docker Compose
+
+```bash
 cd platform && docker-compose up -d
 
 # Verify it's running
 curl -s http://localhost:8081/healthz | python3 -m json.tool
+
+# Attach to the interactive REPL
+docker attach autopoiesis
 ```
 
 The compose file starts two services:
@@ -25,19 +57,18 @@ The compose file starts two services:
 | Service | Port | Purpose |
 |---------|------|---------|
 | `autopoiesis` | — | Interactive SBCL REPL (attach with `docker attach autopoiesis`) |
-| `autopoiesis-server` | 8080, 8081 | WebSocket API + REST/monitoring endpoints |
+| `autopoiesis-server` | 8080, 8081 | Monitoring endpoints |
 
 Set your API key for Claude integration:
 
 ```bash
-# In platform/docker-compose.yml or via env
 export ANTHROPIC_API_KEY=sk-ant-...
 docker-compose up -d
 ```
 
-### Path B: Native Install (SBCL + Quicklisp + Rust)
+### Path C: Native Install (SBCL + Quicklisp)
 
-**Prerequisites:** SBCL 2.4+, Quicklisp, Rust 1.75+ (for Nexus/Holodeck).
+**Prerequisites:** SBCL 2.4+, Quicklisp. Rust 1.75+ only needed for Nexus/Holodeck frontends.
 
 ```bash
 # 1. Install SBCL (macOS)
@@ -48,35 +79,40 @@ brew install sbcl
 
 # 2. Install Quicklisp (if not already present)
 curl -O https://beta.quicklisp.org/quicklisp.lisp
-sbcl --load quicklisp.lisp --eval '(quicklisp-quickstart:install)' --eval '(ql:add-to-init-file)' --quit
+sbcl --load quicklisp.lisp \
+     --eval '(quicklisp-quickstart:install)' \
+     --eval '(ql:add-to-init-file)' \
+     --quit
 
 # 3. Build the Lisp platform
 ./platform/scripts/build.sh
 
-# 4. Run tests (2,775+ assertions across 14 suites)
+# 4. Run tests (4,300+ assertions across 28 suites)
 ./platform/scripts/test.sh
 
-# 5. Build the Nexus TUI cockpit
+# 5. Build the Nexus TUI cockpit (optional, requires Rust)
 cd nexus && cargo build --release
 
-# 6. Build the 3D Holodeck (optional, requires GPU)
+# 6. Build the 3D Holodeck (optional, requires Rust + GPU)
 cd holodeck && cargo build --release
 ```
 
-### One-Liner: Start Everything
+### Start the Backend
+
+Each `--eval` must contain a single expression. Use separate flags:
 
 ```bash
 # Terminal 1: Start the Lisp backend with conductor + REST + WebSocket
-sbcl --load ~/quicklisp/setup.lisp --eval '
-  (push #P"platform/" asdf:*central-registry*)
-  (ql:quickload :autopoiesis/api :silent t)
-  (autopoiesis.substrate:with-store ()
-    (autopoiesis.orchestration:start-system :monitoring-port 8081)
-    (autopoiesis.api:start-api-server)
-    (format t "~&Ready. REST on :8081, WebSocket on :8080~%")
-    (loop (sleep 60)))'
+sbcl --load ~/quicklisp/setup.lisp \
+     --eval '(push #P"platform/" asdf:*central-registry*)' \
+     --eval '(ql:quickload :autopoiesis/api :silent t)' \
+     --eval '(autopoiesis.substrate:with-store ()
+               (autopoiesis.orchestration:start-system :monitoring-port 8081)
+               (autopoiesis.api:start-api-server)
+               (format t "~&Ready. REST on :8081, WebSocket on :8080~%")
+               (loop (sleep 60)))'
 
-# Terminal 2: Launch the Nexus TUI cockpit
+# Terminal 2: Launch the Nexus TUI cockpit (optional)
 ./nexus/target/release/nexus
 
 # Terminal 3 (optional): Launch the 3D Holodeck
@@ -98,6 +134,7 @@ Open an SBCL REPL with the system loaded (or attach to the Docker container with
 
 ```lisp
 ;; Load the system
+(push #P"platform/" asdf:*central-registry*)
 (ql:quickload :autopoiesis :silent t)
 
 ;; Open a substrate store (in-memory by default)
@@ -252,6 +289,10 @@ This opens a Bevy window with custom shaders (grid, agent shells, energy beams, 
 
 ## 4. Understanding the 3-Layer Mental Model
 
+Autopoiesis adopts a three-layer mental model to reduce cognitive load while preserving all functionality. The platform is organized into **6-7 focused core layers** that represent the unique homoiconic agent substrate, with additional powerful capabilities available as optional extensions.
+
+See `platform/docs/layers.md` for the complete layered architecture with Mermaid diagrams and detailed descriptions.
+
 ```mermaid
 graph TB
     subgraph "Presentation Layer"
@@ -396,14 +437,17 @@ This is intentional. For most agent workloads (< 100 concurrent agents, < 10M da
 ### Running the Test Suite as a Benchmark
 
 ```bash
-# Full test suite: 2,775+ assertions across 14 suites + holodeck
+# Full test suite: 4,300+ assertions across 28 suites
 ./platform/scripts/test.sh
 
+# Or via Earthly (no local SBCL needed):
+cd platform && earthly +test
+
 # Or from the REPL for more control:
-sbcl --load ~/quicklisp/setup.lisp --eval '
-  (push #P"platform/" asdf:*central-registry*)
-  (ql:quickload :autopoiesis/test :silent t)
-  (time (asdf:test-system :autopoiesis))'
+sbcl --load ~/quicklisp/setup.lisp \
+     --eval '(push #P"platform/" asdf:*central-registry*)' \
+     --eval '(ql:quickload :autopoiesis/test :silent t)' \
+     --eval '(time (asdf:test-system :autopoiesis))'
 ```
 
 The test suite exercises substrate transact/query, conductor tick processing, provider subprocess management, extension compilation, and full end-to-end agent workflows. Use `time` to get your hardware baseline.
@@ -419,9 +463,12 @@ The test suite exercises substrate transact/query, conductor tick processing, pr
 
 ### Production Deployment Checklist
 
-The Docker image includes health checks and monitoring:
+The Earthly `+docker` target produces images with health checks and monitoring:
 
 ```bash
+# Build production images
+cd platform && earthly +all
+
 # Health endpoint (used by K8s probes)
 curl http://localhost:8081/healthz
 
@@ -459,6 +506,7 @@ autopoiesis/
 │   │   └── holodeck/      CL-native ECS visualization (cl-fast-ecs)
 │   ├── test/              FiveAM test suites
 │   ├── scripts/           build.sh, test.sh
+│   ├── Earthfile          Earthly build (recommended)
 │   ├── Dockerfile
 │   └── docker-compose.yml
 │
@@ -467,7 +515,9 @@ autopoiesis/
 │   └── crates/
 │       ├── nexus-tui/     ratatui app, layouts, widgets, keybinds
 │       ├── nexus-protocol/ WebSocket/REST client, codec
-│       └── nexus-holodeck/ Headless Bevy renderer for TUI viewport
+│       ├── nexus-holodeck/ Headless Bevy renderer for TUI viewport
+│       ├── nexus-mcp/     MCP integration
+│       └── nexus-voice/   Voice input support
 │
 ├── holodeck/          ← Rust (standalone 3D visualization)
 │   └── src/               Bevy app with custom shaders, particles, egui
@@ -558,7 +608,30 @@ apcli thoughts $AGENT_ID
 
 ---
 
-## 8. Next Steps & Where to Go Deeper
+## 8. Standalone Demo Scripts
+
+Five runnable demo scripts in `platform/docs/demo/` that exercise specific subsystems without needing a full REPL session:
+
+```bash
+# Persistent agent create/perceive/fork
+sbcl --noinform --non-interactive --load platform/docs/demo/agent-demo.lisp
+
+# Persistent data structures (pmap, pvec, pset)
+sbcl --noinform --non-interactive --load platform/docs/demo/pstructs-demo.lisp
+
+# Dual-agent bridge (mutable <-> persistent) with undo
+sbcl --noinform --non-interactive --load platform/docs/demo/dual-demo.lisp
+
+# Evolutionary swarm (crossover, mutation, selection)
+sbcl --noinform --non-interactive --load platform/docs/demo/swarm-demo.lisp
+
+# Run specific test suites
+sbcl --noinform --non-interactive --load platform/docs/demo/test-demo.lisp
+```
+
+---
+
+## 9. Next Steps & Where to Go Deeper
 
 ### Documentation
 
@@ -590,7 +663,7 @@ scud commit -m "message"  # Task-aware git commits
 ### Contribution Workflow
 
 1. Read `CLAUDE.md` for code conventions and function signatures
-2. Run the full test suite: `./platform/scripts/test.sh`
+2. Run the full test suite: `./platform/scripts/test.sh` (or `earthly +test`)
 3. Use the extension compiler's `:strict` sandbox for any agent-facing code
 4. The conductor's `queue-event` / `take!` pattern is the canonical way to add async work
 
@@ -639,6 +712,14 @@ sbcl --load quicklisp.lisp \
 ```
 
 Then re-run `./platform/scripts/build.sh`.
+
+### SBCL `--eval` Errors
+
+```
+Multiple expressions in --eval option
+```
+
+SBCL's `--eval` flag accepts exactly one expression. Use separate `--eval` flags for each top-level form, or wrap multiple forms in a single `(progn ...)`.
 
 ### Holodeck Viewport Shows Nothing / Garbled Output
 
