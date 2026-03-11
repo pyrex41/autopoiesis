@@ -13,6 +13,8 @@
   (:use #:autopoiesis.integration)
   (:use #:autopoiesis.skel)
   (:use #:autopoiesis.viz)
+  ;; Shadow session-* before USE-ing security to avoid conflict with interface:session-*
+  (:shadow #:session #:session-id #:session-active-p)
   (:use #:autopoiesis.security)
   (:use #:autopoiesis.monitoring)
   (:use #:autopoiesis.api)

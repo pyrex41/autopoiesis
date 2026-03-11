@@ -11,6 +11,16 @@
 
 (defpackage #:autopoiesis.security
   (:use #:cl #:alexandria)
+  (:import-from #:autopoiesis.substrate
+                #:define-entity-type
+                #:intern-id
+                #:resolve-id
+                #:transact!
+                #:find-entities
+                #:find-entities-by-type
+                #:entity-state
+                #:entity-attr
+                #:make-datom)
   (:export
    ;; Permission classes
    #:permission
@@ -69,18 +79,79 @@
    #:make-full-access-permission
    #:make-execute-only-permission
    
-   ;; Permission matrix
-   #:permission-matrix
-   #:make-permission-matrix
-   #:matrix-check
-   #:matrix-grant
-   #:matrix-revoke
-   #:matrix-to-list
-   
-   ;; Default permission sets
-   #:*default-agent-permissions*
-   #:*admin-permissions*
-   #:*sandbox-permissions*
+    ;; Permission matrix
+    #:permission-matrix
+    #:make-permission-matrix
+    #:matrix-check
+    #:matrix-grant
+    #:matrix-revoke
+    #:matrix-to-list
+
+    ;; Default permission sets
+    #:*default-agent-permissions*
+    #:*admin-permissions*
+    #:*sandbox-permissions*
+
+    ;; Password utilities
+    #:hash-password
+    #:verify-password
+    #:generate-session-token
+
+    ;; User authentication
+    #:user
+    #:user-p
+    #:user-id
+    #:user-username
+    #:user-email
+    #:user-password-hash
+    #:user-created-at
+    #:user-last-login
+    #:user-active-p
+    #:user-roles
+    #:make-user-from-entity
+    #:create-user
+    #:find-user-by-username
+    #:find-user-by-id
+    #:update-user-last-login
+    #:list-users
+    #:change-user-password
+
+    ;; Session management
+    #:session
+    #:session-p
+    #:session-id
+    #:session-token
+    #:session-user-id
+    #:session-created-at
+    #:session-expires-at
+    #:session-active-p
+    #:session-ip-address
+    #:session-user-agent
+    #:make-session-from-entity
+    #:create-session
+    #:find-session-by-token
+    #:invalidate-session
+    #:cleanup-expired-sessions
+
+    ;; Authentication functions
+    #:authenticate-user
+    #:logout-user
+    #:validate-session-token
+    #:setup-user-permissions
+    #:get-user-permissions
+    #:init-authentication-system
+
+    ;; Authentication conditions
+    #:authentication-error
+    #:authentication-error-username
+    #:invalid-credentials
+    #:account-inactive
+
+    ;; Configuration
+    #:*session-lifetime*
+    #:*session-token-length*
+    #:*bcrypt-cost*
+    #:*authentication-initialized*
    
    ;; Audit logging
    #:audit-entry
@@ -141,4 +212,4 @@
    #:*validation-spec-branch-name*
    #:*validation-spec-capability-name*
    #:*validation-spec-action*
-   #:*validation-spec-resource-type*))
+    #:*validation-spec-resource-type*))

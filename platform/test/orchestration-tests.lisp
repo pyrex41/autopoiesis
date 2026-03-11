@@ -406,6 +406,71 @@
   (is (null (autopoiesis.orchestration:extract-result nil))))
 
 ;;; ===================================================================
+;;; Crystallization trigger checking
+;;; ===================================================================
+
+(test conductor-has-tick-counter
+  "Conductor has tick counter initialized to 0."
+  (let ((c (make-instance 'autopoiesis.orchestration:conductor)))
+    (is (= 0 (autopoiesis.orchestration::conductor-tick-counter c)))))
+
+(test check-crystallization-triggers-increments-counter
+  "check-crystallization-triggers increments tick counter."
+  (autopoiesis.substrate:with-store ()
+    (let ((c (make-instance 'autopoiesis.orchestration:conductor)))
+      (is (= 0 (autopoiesis.orchestration::conductor-tick-counter c)))
+      (autopoiesis.orchestration::check-crystallization-triggers c)
+      (is (= 1 (autopoiesis.orchestration::conductor-tick-counter c)))
+      (autopoiesis.orchestration::check-crystallization-triggers c)
+      (is (= 2 (autopoiesis.orchestration::conductor-tick-counter c))))))
+
+(test check-crystallization-triggers-resets-at-interval
+  "check-crystallization-triggers resets counter at trigger check interval."
+  (autopoiesis.substrate:with-store ()
+    (let ((c (make-instance 'autopoiesis.orchestration:conductor)))
+      ;; Set counter to just before interval
+      (setf (autopoiesis.orchestration::conductor-tick-counter c) 99)
+      (autopoiesis.orchestration::check-crystallization-triggers c)
+      ;; Should reset to 0 after hitting interval
+      (is (= 0 (autopoiesis.orchestration::conductor-tick-counter c))))))
+
+(test check-crystallization-triggers-loads-from-store
+  "start-conductor loads triggers from store if crystallize is available."
+  (when (find-package :autopoiesis.crystallize)
+    (autopoiesis.substrate:with-store ()
+      ;; Create and save a trigger
+      (let ((create-trigger-fn (find-symbol "CREATE-PERFORMANCE-TRIGGER" :autopoiesis.crystallize))
+            (save-triggers-fn (find-symbol "SAVE-TRIGGERS-TO-STORE" :autopoiesis.crystallize))
+            (get-trigger-fn (find-symbol "GET-TRIGGER" :autopoiesis.crystallize))
+            (trigger-id-fn (find-symbol "TRIGGER-CONDITION-ID" :autopoiesis.crystallize))
+            (trigger-name-fn (find-symbol "TRIGGER-CONDITION-NAME" :autopoiesis.crystallize)))
+        (let ((trigger (funcall create-trigger-fn
+                               "test-trigger" "Test trigger" :heuristic-confidence 0.8)))
+          (funcall save-triggers-fn)
+          ;; Start conductor (should load triggers)
+          (let ((c (autopoiesis.orchestration:start-conductor)))
+            (unwind-protect
+                 (let ((loaded (funcall get-trigger-fn
+                                       (funcall trigger-id-fn trigger))))
+                   (is (not (null loaded)))
+                   (is (string= "test-trigger" (funcall trigger-name-fn loaded))))
+              (autopoiesis.orchestration:stop-conductor :conductor c))))))))
+
+(test conductor-status-includes-crystallization-metrics
+  "conductor-status includes crystallization metrics if crystallize is available."
+  (let ((c (make-instance 'autopoiesis.orchestration:conductor)))
+    (let ((status (autopoiesis.orchestration:conductor-status :conductor c)))
+      (if (find-package :autopoiesis.crystallize)
+          (progn
+            (is (member :triggers-checked status))
+            (is (member :crystallizations-performed status))
+            (is (member :trigger-check-errors status)))
+          (progn
+            (is (not (member :triggers-checked status)))
+            (is (not (member :crystallizations-performed status)))
+            (is (not (member :trigger-check-errors status))))))))
+
+;;; ===================================================================
 ;;; Claude worker: schedule-infra-watcher
 ;;; ===================================================================
 

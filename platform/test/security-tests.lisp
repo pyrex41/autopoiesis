@@ -1110,6 +1110,322 @@
     (is (= 1 (length (autopoiesis.security:validation-result-errors result))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Authentication Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+;;; Password Hashing Tests
+
+(test password-hashing-basic
+  "Test basic password hashing and verification"
+  ;; Hash a password
+  (let ((hash (autopoiesis.security:hash-password "test-password")))
+    (is (stringp hash))
+    (is (> (length hash) 0))
+
+    ;; Verify correct password
+    (is-true (autopoiesis.security:verify-password "test-password" hash))
+
+    ;; Reject incorrect password
+    (is-false (autopoiesis.security:verify-password "wrong-password" hash))))
+
+(test password-hashing-different-inputs
+  "Test that different passwords produce different hashes"
+  (let ((hash1 (autopoiesis.security:hash-password "password1"))
+        (hash2 (autopoiesis.security:hash-password "password2")))
+    (is (string/= hash1 hash2))))
+
+;;; User Management Tests
+
+(test create-user-basic
+  "Test basic user creation"
+  (with-store ()
+    ;; Create a user
+    (let ((user (autopoiesis.security:create-user "test-user" "password123"
+                                                  :email "test@example.com"
+                                                  :roles '(:user))))
+      (is-true (autopoiesis.security:user-p user))
+      (is (string= "test-user" (autopoiesis.security:user-username user)))
+      (is (string= "test@example.com" (autopoiesis.security:user-email user)))
+      (is (equal '(:user) (autopoiesis.security:user-roles user)))
+      (is-true (autopoiesis.security:user-active-p user))
+      (is (integerp (autopoiesis.security:user-created-at user))))
+
+    ;; User should be findable
+    (let ((found-user (autopoiesis.security:find-user-by-username "test-user")))
+      (is-true found-user)
+      (is (string= "test-user" (autopoiesis.security:user-username found-user))))))
+
+(test create-user-validation
+  "Test user creation validation"
+  (with-store ()
+    ;; Invalid username
+    (signals autopoiesis.security:validation-error
+      (autopoiesis.security:create-user "user with spaces" "password"))
+
+    ;; Invalid password (too short)
+    (signals autopoiesis.security:validation-error
+      (autopoiesis.security:create-user "valid-user" "short"))
+
+    ;; Invalid email
+    (signals autopoiesis.security:validation-error
+      (autopoiesis.security:create-user "valid-user" "valid-password"
+                                        :email "not-an-email"))
+
+    ;; Duplicate username
+    (autopoiesis.security:create-user "duplicate-user" "password")
+    (signals autopoiesis.security:validation-error
+      (autopoiesis.security:create-user "duplicate-user" "different-password"))))
+
+(test user-entity-persistence
+  "Test user entity persistence in substrate"
+  (with-store ()
+    (let* ((user (autopoiesis.security:create-user "persist-user" "password"))
+           (user-id (autopoiesis.security:user-id user)))
+
+      ;; Check entity exists in substrate
+      (is-true (autopoiesis.substrate:entity-attr user-id :user/username))
+      (is (string= "persist-user"
+                   (autopoiesis.substrate:entity-attr user-id :user/username)))
+
+      ;; Reload user from entity
+      (let ((reloaded (autopoiesis.security:make-user-from-entity user-id)))
+        (is (string= "persist-user" (autopoiesis.security:user-username reloaded)))
+        (is-true (autopoiesis.security:user-active-p reloaded))))))
+
+;;; Session Management Tests
+
+(test session-creation
+  "Test session creation and properties"
+  (with-store ()
+    (let* ((user (autopoiesis.security:create-user "session-user" "password"))
+           (session (autopoiesis.security:create-session user
+                                                         :ip-address "192.168.1.1"
+                                                         :user-agent "Test Browser")))
+
+      (is-true (autopoiesis.security:session-p session))
+      (is (stringp (autopoiesis.security:session-token session)))
+      (= (length (autopoiesis.security:session-token session)) 64)  ; 32 bytes * 2 hex chars
+      (is (eq (autopoiesis.security:user-id user) (autopoiesis.security:session-user-id session)))
+      (is-true (autopoiesis.security:session-active-p session))
+      (is (string= "192.168.1.1" (autopoiesis.security:session-ip-address session)))
+      (is (string= "Test Browser" (autopoiesis.security:session-user-agent session)))
+      (is (integerp (autopoiesis.security:session-created-at session)))
+      (is (integerp (autopoiesis.security:session-expires-at session)))
+      (is (> (autopoiesis.security:session-expires-at session)
+             (autopoiesis.security:session-created-at session))))))
+
+(test session-token-validation
+  "Test session token validation"
+  (with-store ()
+    (let* ((user (autopoiesis.security:create-user "token-user" "password"))
+           (session (autopoiesis.security:create-session user))
+           (token (autopoiesis.security:session-token session)))
+
+      ;; Valid token should return user and session
+      (multiple-value-bind (found-user found-session)
+          (autopoiesis.security:validate-session-token token)
+        (is-true found-user)
+        (is-true found-session)
+        (is (eq (autopoiesis.security:user-id user) (autopoiesis.security:user-id found-user))))
+
+      ;; Invalid token should return NIL
+      (multiple-value-bind (found-user found-session)
+          (autopoiesis.security:validate-session-token "invalid-token")
+        (is-false found-user)
+        (is-false found-session)))))
+
+(test session-expiration
+  "Test session expiration"
+  (with-store ()
+    ;; Create a session with very short lifetime
+    (let* ((user (autopoiesis.security:create-user "expire-user" "password"))
+           (session (autopoiesis.security:create-session user :lifetime 1)))  ; 1 second
+
+      ;; Wait for expiration
+      (sleep 2)
+
+      ;; Token should no longer be valid
+      (multiple-value-bind (found-user found-session)
+          (autopoiesis.security:validate-session-token
+           (autopoiesis.security:session-token session))
+        (is-false found-user)
+        (is-false found-session)))))
+
+(test session-invalidation
+  "Test session invalidation"
+  (with-store ()
+    (let* ((user (autopoiesis.security:create-user "invalidate-user" "password"))
+           (session (autopoiesis.security:create-session user))
+           (token (autopoiesis.security:session-token session)))
+
+      ;; Session should be valid initially
+      (multiple-value-bind (found-user found-session)
+          (autopoiesis.security:validate-session-token token)
+        (is-true found-user)
+        (is-true found-session))
+
+      ;; Invalidate session
+      (autopoiesis.security:invalidate-session session)
+
+      ;; Session should no longer be valid
+      (multiple-value-bind (found-user found-session)
+          (autopoiesis.security:validate-session-token token)
+        (is-false found-user)
+        (is-false found-session))
+
+      ;; Session object should reflect invalidation
+      (is-false (autopoiesis.security:session-active-p session)))))
+
+;;; Authentication Function Tests
+
+(test authenticate-user-success
+  "Test successful user authentication"
+  (with-store ()
+    (autopoiesis.security:create-user "auth-user" "correct-password")
+
+    ;; Successful authentication
+    (let ((session (autopoiesis.security:authenticate-user "auth-user" "correct-password"
+                                                           :ip-address "127.0.0.1")))
+      (is-true session)
+      (is (string= "auth-user" (autopoiesis.security:user-username
+                                (autopoiesis.security:find-user-by-id
+                                 (autopoiesis.security:session-user-id session))))))))
+
+(test authenticate-user-failures
+  "Test authentication failure cases"
+  (with-store ()
+    (autopoiesis.security:create-user "fail-user" "correct-password")
+
+    ;; Wrong password
+    (signals autopoiesis.security:invalid-credentials
+      (autopoiesis.security:authenticate-user "fail-user" "wrong-password"))
+
+    ;; Non-existent user
+    (signals autopoiesis.security:invalid-credentials
+      (autopoiesis.security:authenticate-user "nonexistent" "password"))
+
+    ;; Inactive user
+    (autopoiesis.security:create-user "inactive-user" "password" :active nil)
+    (signals autopoiesis.security:account-inactive
+      (autopoiesis.security:authenticate-user "inactive-user" "password"))))
+
+(test user-logout
+  "Test user logout functionality"
+  (with-store ()
+    (let* ((user (autopoiesis.security:create-user "logout-user" "password"))
+           (session (autopoiesis.security:authenticate-user "logout-user" "password"))
+           (token (autopoiesis.security:session-token session)))
+
+      ;; Session should be valid
+      (multiple-value-bind (found-user found-session)
+          (autopoiesis.security:validate-session-token token)
+        (is-true found-user)
+        (is-true found-session))
+
+      ;; Logout
+      (autopoiesis.security:logout-user session)
+
+      ;; Session should be invalid
+      (multiple-value-bind (found-user found-session)
+          (autopoiesis.security:validate-session-token token)
+        (is-false found-user)
+        (is-false found-session)))))
+
+(test change-user-password
+  "Test password change functionality"
+  (with-store ()
+    (autopoiesis.security:create-user "change-pass-user" "old-password")
+
+    ;; Change password
+    (autopoiesis.security:change-user-password "change-pass-user" "old-password" "new-password")
+
+    ;; Old password should no longer work
+    (signals autopoiesis.security:invalid-credentials
+      (autopoiesis.security:authenticate-user "change-pass-user" "old-password"))
+
+    ;; New password should work
+    (let ((session (autopoiesis.security:authenticate-user "change-pass-user" "new-password")))
+      (is-true session))))
+
+;;; Permission Integration Tests
+
+(test setup-user-permissions-basic
+  "Test setting up permissions for users based on roles"
+  (with-store ()
+    (let ((user (autopoiesis.security:create-user "perm-user" "password" :roles '(:user))))
+      ;; Setup permissions
+      (let ((permissions (autopoiesis.security:setup-user-permissions user)))
+        (is (listp permissions))
+        (is (plusp (length permissions)))
+
+        ;; Should have default user permissions
+        (is (>= (length (autopoiesis.security:get-user-permissions
+                         (autopoiesis.security:user-username user)))
+                (length autopoiesis.security:*default-agent-permissions*)))))))
+
+(test setup-user-permissions-admin
+  "Test admin user gets admin permissions"
+  (with-store ()
+    (let ((admin-user (autopoiesis.security:create-user "admin-user" "password" :roles '(:admin))))
+      (autopoiesis.security:setup-user-permissions admin-user)
+
+      ;; Admin should have all permissions
+      (is-true (autopoiesis.security:check-permission
+                (autopoiesis.security:user-username admin-user)
+                :snapshot :delete))
+      (is-true (autopoiesis.security:check-permission
+                (autopoiesis.security:user-username admin-user)
+                :agent :admin)))))
+
+;;; User Listing and Management Tests
+
+(test list-users-basic
+  "Test listing users"
+  (with-store ()
+    (autopoiesis.security:create-user "list-user1" "password" :active t)
+    (autopoiesis.security:create-user "list-user2" "password" :active nil)
+    (autopoiesis.security:create-user "list-user3" "password" :active t)
+
+    ;; List all active users
+    (let ((active-users (autopoiesis.security:list-users :active-only t)))
+      (is (= 2 (length active-users)))
+      (is (every #'autopoiesis.security:user-active-p active-users)))
+
+    ;; List all users
+    (let ((all-users (autopoiesis.security:list-users :active-only nil)))
+      (is (= 3 (length all-users))))))
+
+;;; Authentication System Initialization Tests
+
+(test authentication-system-init
+  "Test authentication system initialization"
+  ;; Should be able to call init without error
+  (finishes (autopoiesis.security:init-authentication-system))
+  (is-true autopoiesis.security:*authentication-initialized*))
+
+;;; Session Cleanup Tests
+
+(test session-cleanup
+  "Test expired session cleanup"
+  (with-store ()
+    ;; Create a session with very short lifetime
+    (let ((user (autopoiesis.security:create-user "cleanup-user" "password"))
+          (old-lifetime autopoiesis.security:*session-lifetime*))
+      ;; Temporarily set very short lifetime
+      (setf autopoiesis.security:*session-lifetime* 1)
+      (autopoiesis.security:create-session user)
+
+      ;; Wait for expiration
+      (sleep 2)
+
+      ;; Cleanup should remove expired sessions
+      (let ((cleaned-count (autopoiesis.security:cleanup-expired-sessions)))
+        (is (>= cleaned-count 1)))
+
+      ;; Restore original lifetime
+      (setf autopoiesis.security:*session-lifetime* old-lifetime))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Sandbox Escape Attempt Tests (Phase 10.2)
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;;
