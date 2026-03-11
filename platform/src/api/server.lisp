@@ -47,7 +47,7 @@ If NIL, no static files are served.")
           (""))
         ;; Normal response with CORS headers
         (let ((response (funcall app env)))
-          (when response
+          (when (and response (listp response))
             (let ((headers (second response)))
               (setf (second response)
                     (append headers
@@ -61,43 +61,53 @@ If NIL, no static files are served.")
 ;;; ═══════════════════════════════════════════════════════════════════ b374f5a (Add MCP server, Go client SDK, and PicoClaw Skill integration)
 
 (defun make-websocket-handler (env)
-  "Create a WebSocket connection handler for the given request ENV."
-  (let* ((ws (websocket-driver:make-server env))
-         (connection (make-instance 'api-connection :ws ws)))
+  "Create a WebSocket connection handler using Woo's native WebSocket support."
+  (let* ((socket (getf env :clack.io))
+         (headers (getf env :headers))
+         (ws-key (gethash "sec-websocket-key" headers))
+         (accept-key (woo.websocket:compute-accept-key ws-key))
+         (connection (make-instance 'api-connection :ws socket)))
 
-    ;; On open: register connection, send welcome
-    (websocket-driver:on :open ws
-      (lambda ()
-        (register-connection connection)
-        (let ((welcome (encode-message
-                        (ok-response "connected"
-                                     "connectionId" (connection-id connection)
-                                     "version" (autopoiesis:version)))))
-          (websocket-driver:send ws welcome))))
-
-    ;; On message: dispatch to handler
-    (websocket-driver:on :message ws
-      (lambda (json-string)
-        (let ((response (handle-message connection json-string)))
-          (when response
-            (websocket-driver:send ws response)))))
-
-    ;; On error: log and clean up
-    (websocket-driver:on :error ws
-      (lambda (error)
-        (log:warn "WebSocket error for ~a: ~a" (connection-id connection) error)
-        (unregister-connection connection)))
-
-    ;; On close: unregister connection
-    (websocket-driver:on :close ws
-      (lambda (&key code reason)
-        (declare (ignore code reason))
-        (unregister-connection connection)))
-
-    ;; Return the WebSocket upgrade response
+    ;; Use delayed response: Woo calls our lambda with a responder.
+    ;; We write the 101 upgrade ourselves, set up WebSocket, then
+    ;; call responder with a streaming writer (which we won't use)
+    ;; so Woo keeps the socket in its event loop.
     (lambda (responder)
-      (declare (ignore responder))
-      (websocket-driver:start-connection ws))))
+      ;; Write 101 Switching Protocols
+      (woo.websocket:write-websocket-upgrade-response socket accept-key)
+
+      ;; Set up WebSocket frame handling on this socket
+      (woo.websocket:setup-websocket socket
+        :on-message (lambda (opcode payload)
+                      (declare (ignore opcode))
+                      (handler-case
+                          (let* ((json-string (trivial-utf-8:utf-8-bytes-to-string payload))
+                                 (response (handle-message connection json-string)))
+                            (when response
+                              (woo.websocket:send-text-frame socket response)))
+                        (error (e)
+                          (log:warn "WebSocket message error for ~a: ~a"
+                                    (connection-id connection) e))))
+        :on-close (lambda (code reason)
+                    (declare (ignore code reason))
+                    (cleanup-chat-sessions-for-connection connection)
+                    (unregister-connection connection))
+        :on-error (lambda (error)
+                    (log:warn "WebSocket error for ~a: ~a" (connection-id connection) error)
+                    (cleanup-chat-sessions-for-connection connection)
+                    (unregister-connection connection)))
+
+      ;; Register and send welcome
+      (register-connection connection)
+      (let ((welcome (encode-message
+                      (ok-response "connected"
+                                   "connectionId" (connection-id connection)
+                                   "version" (autopoiesis:version)))))
+        (woo.websocket:send-text-frame socket welcome))
+
+      ;; Don't call responder - we've already written the upgrade response
+      ;; and set up the WebSocket frame parser on the socket
+      nil)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; HTTP Routes

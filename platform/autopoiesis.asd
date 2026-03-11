@@ -237,6 +237,7 @@
      (:file "serializers")
      (:file "connections")
      (:file "handlers")
+     (:file "chat-handlers")
      (:file "events")
      (:file "server")))))
 

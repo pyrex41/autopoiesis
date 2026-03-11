@@ -183,7 +183,8 @@ impl App {
         if let Some(chat_area) = layout.chat_area {
             let is_active = self.state.focused_pane == FocusedPane::Chat;
             frame.render_widget(
-                Chat::new(&self.state.chat_messages, &self.state.chat_input, is_active),
+                Chat::new(&self.state.chat_messages, &self.state.chat_input, is_active)
+                    .waiting(self.state.chat_waiting_response),
                 chat_area,
             );
         }
@@ -516,9 +517,24 @@ impl App {
                     self.state.chat_messages.push(
                         crate::widgets::chat::ChatMessage {
                             sender: crate::widgets::chat::ChatSender::User,
-                            content,
+                            content: content.clone(),
                         },
                     );
+
+                    if let Some(agent_id) = self.state.selected_agent_id() {
+                        // Auto-start session on first message
+                        if !self.state.chat_session_active {
+                            self.send_ws(ClientMessage::StartChat {
+                                agent_id,
+                                provider_config: None,
+                            });
+                        }
+                        self.send_ws(ClientMessage::ChatPrompt {
+                            agent_id,
+                            text: content,
+                        });
+                        self.state.chat_waiting_response = true;
+                    }
                     self.state.chat_input.clear();
                 }
             }
@@ -726,6 +742,48 @@ impl App {
             }
             ServerMessage::Events { .. } => {}
             ServerMessage::Event { .. } => {}
+            ServerMessage::ChatStarted { session_id, .. } => {
+                self.state.chat_session_active = true;
+                self.state.chat_messages.push(crate::widgets::chat::ChatMessage {
+                    sender: crate::widgets::chat::ChatSender::System,
+                    content: format!(
+                        "Chat started (session {})",
+                        &session_id[..8.min(session_id.len())]
+                    ),
+                });
+            }
+            ServerMessage::ChatResponse {
+                agent_id, text, ..
+            } => {
+                self.state.chat_waiting_response = false;
+                let name = self
+                    .state
+                    .agents
+                    .iter()
+                    .find(|a| a.id == agent_id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_else(|| "agent".into());
+                self.state.chat_messages.push(crate::widgets::chat::ChatMessage {
+                    sender: crate::widgets::chat::ChatSender::Agent(name),
+                    content: text,
+                });
+            }
+            ServerMessage::ChatStopped { .. } => {
+                self.state.chat_session_active = false;
+                self.state.chat_messages.push(crate::widgets::chat::ChatMessage {
+                    sender: crate::widgets::chat::ChatSender::System,
+                    content: "Chat ended".into(),
+                });
+            }
+            ServerMessage::ChatError { error, .. } => {
+                self.state.chat_waiting_response = false;
+                self.state.chat_messages.push(crate::widgets::chat::ChatMessage {
+                    sender: crate::widgets::chat::ChatSender::System,
+                    content: format!("Error: {error}"),
+                });
+                self.state
+                    .push_notification(&format!("Chat error: {error}"), NotificationLevel::Error);
+            }
             ServerMessage::Unknown => {}
         }
     }

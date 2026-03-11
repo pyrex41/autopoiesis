@@ -152,7 +152,7 @@ DATA is a hash-table or plist to be encoded."
     (dolist (conn dead)
       (unregister-connection conn))))
 
-(defun broadcast-stream (data &key subscription-type)
+(defun broadcast-stream-data (data &key subscription-type)
   "Send a data stream to all subscribed connections using each one's preferred format.
 DATA is a hash-table or plist to be encoded per-connection."
   ;; Snapshot connections under lock, then encode and send outside lock
@@ -188,4 +188,4 @@ DATA is a hash-table or plist to be encoded per-connection."
 (defun broadcast-to-agent-subscribers (agent-id data)
   "Send a data stream to all connections subscribed to a specific agent's updates."
   (let ((sub-type (format nil "thoughts:~a" agent-id)))
-    (broadcast-stream data :subscription-type sub-type)))
+    (broadcast-stream-data data :subscription-type sub-type)))

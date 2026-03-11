@@ -47,7 +47,7 @@
    #:list-connections
    #:find-connection
    #:broadcast-message
-   #:broadcast-stream
+   #:broadcast-stream-data
    #:send-to-connection
    #:send-stream-to-connection
 
@@ -95,4 +95,11 @@
    ;; MCP server
    #:mcp-tool-definitions
    #:handle-mcp-endpoint
-   #:*mcp-sessions*))
+   #:*mcp-sessions*
+
+   ;; Chat handlers (Jarvis bridge)
+   #:*chat-sessions*
+   #:*chat-sessions-lock*
+   #:*chat-session-owners*
+   #:cleanup-chat-sessions-for-connection
+   #:hash-table-to-plist))

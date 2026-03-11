@@ -205,6 +205,21 @@ pub enum ClientMessage {
         #[serde(rename = "agentId", skip_serializing_if = "Option::is_none")]
         agent_id: Option<Uuid>,
     },
+    StartChat {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        #[serde(rename = "providerConfig", skip_serializing_if = "Option::is_none")]
+        provider_config: Option<serde_json::Value>,
+    },
+    ChatPrompt {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        text: String,
+    },
+    StopChat {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+    },
 }
 
 // Server -> Client
@@ -300,6 +315,32 @@ pub enum ServerMessage {
     },
     Event {
         event: EventData,
+    },
+    #[serde(rename = "chat_started")]
+    ChatStarted {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    #[serde(rename = "chat_response")]
+    ChatResponse {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        text: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    #[serde(rename = "chat_stopped")]
+    ChatStopped {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+    },
+    #[serde(rename = "chat_error")]
+    ChatError {
+        #[serde(rename = "agentId")]
+        agent_id: Uuid,
+        error: String,
     },
     #[serde(other)]
     Unknown,
@@ -839,6 +880,132 @@ mod tests {
                 assert_eq!(blocking_request_id, "req-99");
             }
             _ => panic!("Expected BlockingResponded"),
+        }
+    }
+
+    #[test]
+    fn test_client_message_start_chat() {
+        let id = Uuid::new_v4();
+        let msg = ClientMessage::StartChat {
+            agent_id: id,
+            provider_config: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "start_chat");
+        assert_eq!(v["agentId"], id.to_string());
+        assert!(v.get("providerConfig").is_none());
+    }
+
+    #[test]
+    fn test_client_message_start_chat_with_config() {
+        let id = Uuid::new_v4();
+        let msg = ClientMessage::StartChat {
+            agent_id: id,
+            provider_config: Some(serde_json::json!({"type": "rho", "model": "grok-4.20"})),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "start_chat");
+        assert_eq!(v["providerConfig"]["type"], "rho");
+    }
+
+    #[test]
+    fn test_client_message_chat_prompt() {
+        let id = Uuid::new_v4();
+        let msg = ClientMessage::ChatPrompt {
+            agent_id: id,
+            text: "hello agent".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "chat_prompt");
+        assert_eq!(v["agentId"], id.to_string());
+        assert_eq!(v["text"], "hello agent");
+    }
+
+    #[test]
+    fn test_client_message_stop_chat() {
+        let id = Uuid::new_v4();
+        let msg = ClientMessage::StopChat { agent_id: id };
+        let json = serde_json::to_string(&msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "stop_chat");
+        assert_eq!(v["agentId"], id.to_string());
+    }
+
+    #[test]
+    fn test_server_message_chat_started() {
+        let id = Uuid::new_v4();
+        let json = format!(
+            r#"{{"type": "chat_started", "agentId": "{}", "sessionId": "sess-1"}}"#,
+            id
+        );
+        let msg: ServerMessage = serde_json::from_str(&json).unwrap();
+        match msg {
+            ServerMessage::ChatStarted {
+                agent_id,
+                session_id,
+            } => {
+                assert_eq!(agent_id, id);
+                assert_eq!(session_id, "sess-1");
+            }
+            _ => panic!("Expected ChatStarted"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_chat_response() {
+        let id = Uuid::new_v4();
+        let json = format!(
+            r#"{{"type": "chat_response", "agentId": "{}", "text": "hello human", "sessionId": "sess-1"}}"#,
+            id
+        );
+        let msg: ServerMessage = serde_json::from_str(&json).unwrap();
+        match msg {
+            ServerMessage::ChatResponse {
+                agent_id,
+                text,
+                session_id,
+            } => {
+                assert_eq!(agent_id, id);
+                assert_eq!(text, "hello human");
+                assert_eq!(session_id, "sess-1");
+            }
+            _ => panic!("Expected ChatResponse"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_chat_stopped() {
+        let id = Uuid::new_v4();
+        let json = format!(
+            r#"{{"type": "chat_stopped", "agentId": "{}"}}"#,
+            id
+        );
+        let msg: ServerMessage = serde_json::from_str(&json).unwrap();
+        match msg {
+            ServerMessage::ChatStopped { agent_id } => {
+                assert_eq!(agent_id, id);
+            }
+            _ => panic!("Expected ChatStopped"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_chat_error() {
+        let id = Uuid::new_v4();
+        let json = format!(
+            r#"{{"type": "chat_error", "agentId": "{}", "error": "provider timeout"}}"#,
+            id
+        );
+        let msg: ServerMessage = serde_json::from_str(&json).unwrap();
+        match msg {
+            ServerMessage::ChatError { agent_id, error } => {
+                assert_eq!(agent_id, id);
+                assert_eq!(error, "provider timeout");
+            }
+            _ => panic!("Expected ChatError"),
         }
     }
 

@@ -23,6 +23,7 @@ pub struct Chat<'a> {
     messages: &'a [ChatMessage],
     input: &'a str,
     is_active: bool,
+    waiting: bool,
 }
 
 impl<'a> Chat<'a> {
@@ -31,7 +32,13 @@ impl<'a> Chat<'a> {
             messages,
             input,
             is_active,
+            waiting: false,
         }
+    }
+
+    pub fn waiting(mut self, waiting: bool) -> Self {
+        self.waiting = waiting;
+        self
     }
 }
 
@@ -97,15 +104,27 @@ impl<'a> Widget for Chat<'a> {
             .render(messages_area, buf);
 
         // Render input line
-        let input_line = Line::from(vec![
-            Span::styled(" > ", Style::default().fg(Color::Rgb(0, 200, 255))),
-            Span::styled(self.input, Style::default().fg(Color::White)),
-            if self.is_active {
-                Span::styled("|", Style::default().fg(Color::Rgb(0, 200, 255)))
-            } else {
-                Span::raw("")
-            },
-        ]);
+        let input_line = if self.waiting {
+            Line::from(vec![
+                Span::styled(" > ", Style::default().fg(Color::Rgb(0, 200, 255))),
+                Span::styled(
+                    "thinking...",
+                    Style::default()
+                        .fg(Color::Rgb(120, 120, 140))
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled(" > ", Style::default().fg(Color::Rgb(0, 200, 255))),
+                Span::styled(self.input, Style::default().fg(Color::White)),
+                if self.is_active {
+                    Span::styled("|", Style::default().fg(Color::Rgb(0, 200, 255)))
+                } else {
+                    Span::raw("")
+                },
+            ])
+        };
         Paragraph::new(input_line).render(input_area, buf);
     }
 }

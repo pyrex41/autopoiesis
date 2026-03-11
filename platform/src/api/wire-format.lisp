@@ -137,17 +137,17 @@ Looks at the 'type' field to decide JSON vs MessagePack."
 ;;; WebSocket Send Helpers
 ;;; ═══════════════════════════════════════════════════════════════════
 
-(defun ws-send-text (ws string)
-  "Send a JSON text frame."
-  (websocket-driver:send ws string))
+(defun ws-send-text (socket string)
+  "Send a JSON text frame via Woo's native WebSocket."
+  (woo.websocket:send-text-frame socket string))
 
-(defun ws-send-binary (ws bytes)
-  "Send a MessagePack binary frame."
-  (websocket-driver:send-binary ws bytes))
+(defun ws-send-binary (socket bytes)
+  "Send a binary frame via Woo's native WebSocket."
+  (woo.websocket:send-binary-frame socket bytes))
 
-(defun ws-send-auto (ws data)
+(defun ws-send-auto (socket data)
   "Send data over WebSocket, auto-selecting text or binary format."
   (multiple-value-bind (encoded frame-type) (encode-auto data)
     (if (eq frame-type :binary)
-        (ws-send-binary ws encoded)
-        (ws-send-text ws encoded))))
+        (ws-send-binary socket encoded)
+        (ws-send-text socket encoded))))

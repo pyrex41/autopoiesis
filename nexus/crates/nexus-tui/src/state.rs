@@ -63,6 +63,8 @@ pub struct AppState {
     pub leader_key_prefix: Option<char>,
     pub chat_messages: Vec<ChatMessage>,
     pub chat_input: String,
+    pub chat_session_active: bool,
+    pub chat_waiting_response: bool,
     pub auto_scroll_thoughts: bool,
     // Phase 6 fields:
     pub snapshots: Vec<SnapshotData>,
@@ -112,6 +114,8 @@ impl Default for AppState {
             leader_key_prefix: None,
             chat_messages: Vec::new(),
             chat_input: String::new(),
+            chat_session_active: false,
+            chat_waiting_response: false,
             auto_scroll_thoughts: true,
             snapshots: Vec::new(),
             branches: Vec::new(),

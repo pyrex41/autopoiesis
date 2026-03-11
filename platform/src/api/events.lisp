@@ -40,11 +40,11 @@ Uses binary (MessagePack) frames for compact delivery."
          (data (ok-response "event"
                             "event" (event-to-json-plist event))))
     ;; Send as data stream (binary) to subscribed connections
-    (broadcast-stream data :subscription-type "events")
-    (broadcast-stream data
+    (broadcast-stream-data data :subscription-type "events")
+    (broadcast-stream-data data
                       :subscription-type (format nil "events:~a" event-type))
     (when agent-id
-      (broadcast-stream data
+      (broadcast-stream-data data
                         :subscription-type (format nil "agent:~a" agent-id)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -97,7 +97,7 @@ and pushes them to all connected clients."
         (unless (gethash id *known-blocking-ids*)
           (setf (gethash id *known-blocking-ids*) t)
           ;; Push as binary stream to all clients
-          (broadcast-stream
+          (broadcast-stream-data
            (ok-response "blocking_request"
                         "request" (blocking-request-to-json-plist req))))))
     ;; Clean up known IDs for requests that are no longer pending

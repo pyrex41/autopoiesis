@@ -135,7 +135,7 @@
          (agent (make-agent :name name :capabilities capabilities)))
     (register-agent agent)
     ;; Broadcast to agent subscribers (binary stream)
-    (broadcast-stream (ok-response "agent_created"
+    (broadcast-stream-data (ok-response "agent_created"
                                    "agent" (agent-to-json-plist agent))
                       :subscription-type "agents")
     (ok-response "agent_created"
@@ -166,7 +166,7 @@
                                            (format nil "Unknown action: ~a" action)))))))
         (declare (ignore result))
         ;; Broadcast state change (binary stream)
-        (broadcast-stream (ok-response "agent_state_changed"
+        (broadcast-stream-data (ok-response "agent_state_changed"
                                        "agentId" agent-id
                                        "state" (string-downcase
                                                 (symbol-name (agent-state agent))))
@@ -229,30 +229,29 @@
       (unless content
         (return-from handle-inject-thought
           (error-response "missing_field" "inject_thought requires 'content'")))
-      (let* ((thought (cond
-                        ((equal thought-type "observation")
-                         (make-observation content :source :api))
-                        ((equal thought-type "reflection")
-                         (make-reflection nil content))
-                        ((member thought-type '("decision" "action") :test #'equal)
-                         (make-thought content
-                                       :type (find-symbol (string-upcase thought-type) :keyword)))
-                        (t
-                         (return-from handle-inject-thought
-                           (error-response "invalid_type"
-                                           (format nil "Unknown thought type: ~a. Valid: observation, reflection, decision, action" thought-type)))))))
-             (_ (stream-append (agent-thought-stream agent) thought))
-             (thought-json (thought-to-json-plist thought)))
-        (declare (ignore _))
-        ;; Push to thought subscribers (binary stream)
-        (broadcast-to-agent-subscribers
-         agent-id
-         (ok-response "thought_added"
-                      "agentId" agent-id
-                      "thought" thought-json))
-        (ok-response "thought_added"
-                     "agentId" agent-id
-                     "thought" thought-json)))))
+      (let ((thought (cond
+                       ((equal thought-type "observation")
+                        (make-observation content :source :api))
+                       ((equal thought-type "reflection")
+                        (make-reflection nil content))
+                       ((member thought-type '("decision" "action") :test #'equal)
+                        (make-thought content
+                                      :type (find-symbol (string-upcase thought-type) :keyword)))
+                       (t
+                        (return-from handle-inject-thought
+                          (error-response "invalid_type"
+                                          (format nil "Unknown thought type: ~a. Valid: observation, reflection, decision, action" thought-type)))))))
+        (stream-append (agent-thought-stream agent) thought)
+        (let ((thought-json (thought-to-json-plist thought)))
+          ;; Push to thought subscribers (binary stream)
+          (broadcast-to-agent-subscribers
+           agent-id
+           (ok-response "thought_added"
+                        "agentId" agent-id
+                        "thought" thought-json))
+          (ok-response "thought_added"
+                       "agentId" agent-id
+                       "thought" thought-json))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Snapshot Handlers
