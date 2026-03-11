@@ -513,7 +513,7 @@ const DAGCanvas: Component = () => {
     }
   }
 
-  // ── Event handlers (unchanged logic) ────────────────────────
+  // ── Event handlers (mouse and touch) ────────────────────────
 
   function onMouseDown(e: MouseEvent) {
     if (e.button === 0) {
@@ -543,6 +543,65 @@ const DAGCanvas: Component = () => {
         if (n) {
           (e.shiftKey || dagStore.diffMode()) ? dagStore.selectNode(n.id, true) : dagStore.selectNode(n.id);
         } else dagStore.clearSelection();
+      }
+    }
+  }
+
+  // ── Touch event handlers for mobile ──────────────────────────
+
+  // Double tap detection
+  let lastTapTime = 0;
+  let lastTapPosition = { x: 0, y: 0 };
+
+  function onTouchStart(e: TouchEvent) {
+    e.preventDefault(); // Prevent scrolling and other default behaviors
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      setIsDragging(true);
+      setDragStart({ x: touch.clientX - viewX(), y: touch.clientY - viewY() });
+    }
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    e.preventDefault();
+    if (isDragging() && e.touches.length === 1) {
+      const touch = e.touches[0];
+      setViewX(touch.clientX - dragStart().x);
+      setViewY(touch.clientY - dragStart().y);
+    }
+  }
+
+  function onTouchEnd(e: TouchEvent) {
+    e.preventDefault();
+    if (isDragging()) {
+      setIsDragging(false);
+      if (e.changedTouches.length === 1) {
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - dragStart().x - viewX();
+        const dy = touch.clientY - dragStart().y - viewY();
+
+        // Check for double tap
+        const currentTime = Date.now();
+        const timeDiff = currentTime - lastTapTime;
+        const posDiff = Math.sqrt(
+          Math.pow(touch.clientX - lastTapPosition.x, 2) +
+          Math.pow(touch.clientY - lastTapPosition.y, 2)
+        );
+
+        if (timeDiff < 300 && posDiff < 30) { // Double tap within 300ms and 30px
+          const g = s2g(touch.clientX, touch.clientY);
+          const n = nodeAt(g.x, g.y);
+          if (n) dagStore.toggleCollapse(n.id);
+        } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) { // Single tap (larger threshold for touch)
+          const g = s2g(touch.clientX, touch.clientY);
+          const n = nodeAt(g.x, g.y);
+          if (n) {
+            dagStore.selectNode(n.id); // Single tap selects
+          } else dagStore.clearSelection();
+        }
+
+        lastTapTime = currentTime;
+        lastTapPosition = { x: touch.clientX, y: touch.clientY };
       }
     }
   }
@@ -608,11 +667,15 @@ const DAGCanvas: Component = () => {
         width: "100%",
         height: "100%",
         cursor: isDragging() ? "grabbing" : dagStore.hoveredNode() ? "pointer" : "crosshair",
+        "touch-action": "none", // Prevent default touch behaviors
       }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onDblClick={onDblClick}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     />
   );
 };
