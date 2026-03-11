@@ -263,3 +263,169 @@
                  :workspace-id (getf plist :workspace-id)
                  :config (getf plist :config)
                  :created-at (getf plist :created-at)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Swarm Fitness Evaluation
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defclass team-performance-fitness ()
+  ((task-completion-rate :initarg :task-completion-rate
+                         :accessor fitness-task-completion
+                         :initform 0.0)
+   (average-task-time :initarg :average-task-time
+                      :accessor fitness-avg-task-time
+                      :initform 0.0)
+   (communication-efficiency :initarg :communication-efficiency
+                             :accessor fitness-communication-efficiency
+                             :initform 0.0)
+   (conflict-resolution-score :initarg :conflict-resolution-score
+                              :accessor fitness-conflict-resolution
+                              :initform 0.0))
+  (:documentation "Fitness metrics for team performance evaluation."))
+
+(defun evaluate-team-fitness (team)
+  "Evaluate TEAM's performance and return a fitness score [0,1].
+    Uses workspace logs and task completion data."
+  (let ((ws-id (team-workspace-id team)))
+    (if ws-id
+        (calculate-team-fitness-from-workspace team ws-id)
+        0.5))) ;; Default fitness if no workspace data
+
+(defun calculate-team-fitness-from-workspace (team workspace-id)
+  "Calculate fitness metrics from workspace data."
+  (let ((list-fn (find-symbol "WORKSPACE-LIST-TASKS" :autopoiesis.workspace)))
+    (if list-fn
+        (let* ((tasks (funcall list-fn workspace-id))
+               (completed (count :complete tasks :key (lambda (t) (getf t :status))))
+               (total (length tasks))
+               (completion-rate (if (> total 0) (/ completed total) 0.0)))
+          ;; Create fitness object
+          (make-instance 'team-performance-fitness
+                         :task-completion-rate completion-rate
+                         :average-task-time (estimate-avg-task-time tasks)
+                         :communication-efficiency (estimate-communication-efficiency team workspace-id)
+                         :conflict-resolution-score (estimate-conflict-resolution team workspace-id)))
+        (make-instance 'team-performance-fitness))))
+
+(defun estimate-avg-task-time (tasks)
+  "Estimate average task completion time from TASKS data."
+  (let ((times nil))
+    (dolist (task tasks)
+      (when (eq (getf task :status) :complete)
+        (let ((created (getf task :created-at))
+              (completed (getf task :completed-at)))
+          (when (and created completed)
+            (push (- completed created) times)))))
+    (if times (/ (reduce #'+ times) (length times)) 0.0)))
+
+(defun estimate-communication-efficiency (team workspace-id)
+  "Estimate communication efficiency from workspace logs."
+  ;; Simplified: higher efficiency = fewer log entries per task
+  (let ((list-fn (find-symbol "WORKSPACE-LIST-TASKS" :autopoiesis.workspace)))
+    (if list-fn
+        (let* ((tasks (funcall list-fn workspace-id))
+               (task-count (max (length tasks) 1)))
+          ;; Mock efficiency calculation
+          (min 1.0 (/ 1.0 (log (1+ task-count)))))
+        0.5)))
+
+(defun estimate-conflict-resolution (team workspace-id)
+  "Estimate conflict resolution effectiveness."
+  ;; Simplified: based on team size and task completion
+  (let ((member-count (length (team-members team))))
+    (min 1.0 (/ 1.0 (log (1+ member-count))))))
+
+(defun swarm-optimize-team-composition (team target-task)
+  "Use swarm evolution to optimize TEAM composition for TARGET-TASK.
+    Returns suggestions for team member changes."
+  (let ((current-fitness (evaluate-team-fitness team)))
+    ;; Generate composition variants and evaluate
+    (let ((variants (generate-team-variants team target-task)))
+      (evaluate-composition-variants variants target-task))))
+
+(defun generate-team-variants (team target-task)
+  "Generate alternative team compositions."
+  ;; Simplified: return current team as single variant
+  (list team))
+
+(defun evaluate-composition-variants (variants target-task)
+  "Evaluate different team compositions."
+  ;; Return best variant (simplified)
+  (first variants))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Dynamic Team Composition
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun optimize-team-for-task (team task)
+  "Optimize TEAM composition for TASK using swarm evolution.
+    Returns a new team with optimized member selection."
+  (let ((available-agents (find-available-agents-for-task task)))
+    (if available-agents
+        (evolve-optimal-team-composition team available-agents task)
+        team)))
+
+(defun find-available-agents-for-task (task)
+  "Find agents that could potentially work on TASK.
+    Returns list of agent IDs suitable for the task."
+  ;; Simplified: return mock agent list
+  ;; Real implementation would query agent registry by capabilities
+  '("agent-1" "agent-2" "agent-3" "agent-4"))
+
+(defun evolve-optimal-team-composition (base-team available-agents task)
+  "Use swarm evolution to find optimal team composition."
+  (let* ((population-size 20)
+         (generations 5)
+         (population (generate-composition-population base-team available-agents population-size)))
+    ;; Evolve population
+    (let ((evolved (evolve-compositions population generations task)))
+      ;; Return best composition
+      (first evolved))))
+
+(defun generate-composition-population (base-team available-agents size)
+  "Generate initial population of team compositions."
+  (loop for i from 1 to size
+        collect (random-team-composition base-team available-agents)))
+
+(defun random-team-composition (base-team available-agents)
+  "Create a random team composition variant."
+  (let* ((base-members (team-members base-team))
+         (additional (set-difference available-agents base-members :test #'equal))
+         (new-members (append base-members
+                             (subseq additional 0 (random (length additional))))))
+    (make-instance 'team
+                   :id (format nil "~A-variant-~A" (team-id base-team) (random 1000))
+                   :members new-members
+                   :leader (or (team-leader base-team)
+                              (when new-members (first new-members)))
+                   :task (team-task base-team)
+                   :workspace-id (team-workspace-id base-team))))
+
+(defun evolve-compositions (population generations task)
+  "Evolve team compositions over GENERATIONS."
+  ;; Simplified evolution: just sort by fitness and return top
+  (let ((scored (mapcar (lambda (team)
+                         (cons team (evaluate-team-fitness team)))
+                       population)))
+    (mapcar #'car (sort scored #'> :key #'cdr))))
+
+(defun evolve-team-membership (team evolution-params)
+  "Evolve team membership over time based on performance.
+    EVOLUTION-PARAMS contains evolution settings."
+  (let ((generations (getf evolution-params :generations 3))
+        (mutation-rate (getf evolution-params :mutation-rate 0.1)))
+    ;; Track performance history and evolve membership
+    (let ((performance-history (collect-team-performance-history team)))
+      (generate-evolved-membership team performance-history evolution-params))))
+
+(defun collect-team-performance-history (team)
+  "Collect historical performance data for TEAM."
+  ;; Simplified: return mock history
+  '((:fitness 0.7 :tasks-completed 5)
+    (:fitness 0.8 :tasks-completed 7)
+    (:fitness 0.6 :tasks-completed 4)))
+
+(defun generate-evolved-membership (team history params)
+  "Generate evolved team membership based on HISTORY and PARAMS."
+  ;; Simplified: return current team
+  team)

@@ -51,12 +51,20 @@
   "Create a strategy object from KEYWORD and optional CONFIG plist."
   (ecase keyword
     (:leader-worker (apply #'make-instance 'leader-worker-strategy
-                           (or config nil)))
+                          (or config nil)))
     (:parallel      (apply #'make-instance 'parallel-strategy
-                           (or config nil)))
+                          (or config nil)))
     (:pipeline      (apply #'make-instance 'pipeline-strategy
-                           (or config nil)))
+                          (or config nil)))
     (:debate        (apply #'make-instance 'debate-strategy
-                           (or config nil)))
+                          (or config nil)))
     (:consensus     (apply #'make-instance 'consensus-strategy
-                           (or config nil)))))
+                          (or config nil)))
+    (:hierarchical-leader-worker (apply #'make-instance 'hierarchical-leader-worker-strategy
+                                       (or config nil)))
+    (:leader-parallel (apply #'make-instance 'leader-parallel-strategy
+                            (or config nil)))
+    (:rotating-leader (apply #'make-instance 'rotating-leader-strategy
+                            (or config nil)))
+    (:debate-consensus (apply #'make-instance 'debate-consensus-strategy
+                             (or config nil)))))

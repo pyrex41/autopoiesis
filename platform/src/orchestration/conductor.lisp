@@ -15,16 +15,18 @@
 
 (defclass conductor ()
   ((timer-heap :initform nil :accessor conductor-timer-heap
-               :documentation "List of (fire-time . action-plist) sorted by time")
-   (tick-thread :initform nil :accessor conductor-tick-thread)
-   (running :initform nil :accessor conductor-running-p)
-   (metrics :initform (make-hash-table :test 'eq) :accessor conductor-metrics)
-   (failure-counts :initform (make-hash-table :test 'equal)
-                   :accessor conductor-failure-counts)
-   (lock :initform (bt:make-lock "conductor") :accessor conductor-lock)
-   ;; Captured substrate bindings for the tick thread
-   (substrate-bindings :initform nil :accessor conductor-substrate-bindings
-                       :documentation "Plist of substrate special variable bindings"))
+                :documentation "List of (fire-time . action-plist) sorted by time")
+    (tick-thread :initform nil :accessor conductor-tick-thread)
+    (running :initform nil :accessor conductor-running-p)
+    (metrics :initform (make-hash-table :test 'eq) :accessor conductor-metrics)
+    (failure-counts :initform (make-hash-table :test 'equal)
+                    :accessor conductor-failure-counts)
+    (lock :initform (bt:make-lock "conductor") :accessor conductor-lock)
+    (tick-counter :initform 0 :accessor conductor-tick-counter
+                  :documentation "Counter for periodic trigger checks")
+    ;; Captured substrate bindings for the tick thread
+    (substrate-bindings :initform nil :accessor conductor-substrate-bindings
+                        :documentation "Plist of substrate special variable bindings"))
   (:documentation "Central scheduler -- tick loop with timer heap.
    Events and worker status are stored as datoms in the substrate."))
 
@@ -161,6 +163,13 @@
      (increment-metric conductor :team-tasks-completed))
     ((:team-member-joined :team-member-left :team-task-assigned)
      (increment-metric conductor :team-events))
+    ;; Swarm orchestration events
+    ((:swarm-evolution-started :swarm-evolution-completed :swarm-evolution-failed)
+     (increment-metric conductor :swarm-events))
+    (:swarm-generation-completed
+     (increment-metric conductor :swarm-generations))
+    ((:swarm-agent-evolved :swarm-team-optimized)
+     (increment-metric conductor :swarm-events))
     (otherwise nil)))
 
 ;;; ===================================================================
@@ -233,6 +242,40 @@
     (gethash task-id (conductor-failure-counts conductor) 0)))
 
 ;;; ===================================================================
+;;; Crystallization trigger checking
+;;; ===================================================================
+
+(defparameter *trigger-check-interval* 100
+  "Number of ticks between trigger checks (100 ticks = 10 seconds).")
+
+(defun check-crystallization-triggers (conductor)
+  "Check crystallization triggers periodically. Called every tick."
+  (when (and (find-package :autopoiesis.crystallize)
+             (>= (incf (conductor-tick-counter conductor)) *trigger-check-interval*))
+    (setf (conductor-tick-counter conductor) 0)
+    (handler-case
+        (let* ((list-agents-fn (find-symbol "LIST-AGENTS" :autopoiesis.agent))
+               (agent-running-p-fn (find-symbol "AGENT-RUNNING-P" :autopoiesis.agent))
+               (auto-crystallize-fn (find-symbol "AUTO-CRYSTALLIZE-IF-TRIGGERED" :autopoiesis.crystallize))
+               (agents (funcall list-agents-fn))
+               (triggers-checked 0)
+               (crystallizations-performed 0))
+          (dolist (agent agents)
+            (when (funcall agent-running-p-fn agent)
+              (let ((snapshot (funcall auto-crystallize-fn agent)))
+                (incf triggers-checked)
+                (when snapshot
+                  (incf crystallizations-performed)))))
+          ;; Update metrics
+          (when (> triggers-checked 0)
+            (increment-metric conductor :triggers-checked triggers-checked))
+          (when (> crystallizations-performed 0)
+            (increment-metric conductor :crystallizations-performed crystallizations-performed)))
+      (error (e)
+        (format *error-output* "~&Crystallization trigger check error: ~A~%" e)
+        (increment-metric conductor :trigger-check-errors)))))
+
+;;; ===================================================================
 ;;; Tick loop
 ;;; ===================================================================
 
@@ -240,14 +283,15 @@
   "Main tick loop. Runs every 100ms while conductor is running."
   (loop while (conductor-running-p conductor)
         do (handler-case
-               (progn
-                 (process-due-timers conductor)
-                 (process-events conductor)
-                 (increment-metric conductor :tick-count))
-             (error (e)
-               (format *error-output* "~&Conductor tick error: ~A~%" e)
-               (increment-metric conductor :tick-errors)))
-           (sleep 0.1)))
+                (progn
+                  (process-due-timers conductor)
+                  (process-events conductor)
+                  (check-crystallization-triggers conductor)
+                  (increment-metric conductor :tick-count))
+              (error (e)
+                (format *error-output* "~&Conductor tick error: ~A~%" e)
+                (increment-metric conductor :tick-errors)))
+            (sleep 0.1)))
 
 ;;; ===================================================================
 ;;; Conductor lifecycle
@@ -255,9 +299,12 @@
 
 (defun start-conductor (&key (store *store*))
   "Start the conductor. Returns the conductor instance.
-   Captures current *substrate* context so the tick thread sees the same store."
+    Captures current *substrate* context so the tick thread sees the same store."
   (when (and *conductor* (conductor-running-p *conductor*))
     (error "Conductor already running"))
+  ;; Load crystallization triggers from store if crystallize is available
+  (when (find-package :autopoiesis.crystallize)
+    (funcall (find-symbol "LOAD-TRIGGERS-FROM-STORE" :autopoiesis.crystallize)))
   (let ((conductor (make-instance 'conductor))
         ;; Single context capture replaces 7 individual variable captures.
         (captured-substrate autopoiesis.substrate:*substrate*)
@@ -293,13 +340,20 @@
 (defun conductor-status (&key (conductor *conductor*))
   "Return conductor status as a plist."
   (if conductor
-      (list :running (conductor-running-p conductor)
-            :tick-count (get-metric conductor :tick-count)
-            :events-processed (get-metric conductor :events-processed)
-            :events-failed (get-metric conductor :events-failed)
-            :timer-errors (get-metric conductor :timer-errors)
-            :tick-errors (get-metric conductor :tick-errors)
-            :task-retries (get-metric conductor :task-retries)
-            :pending-timers (length (conductor-timer-heap conductor))
-            :active-workers (length (conductor-active-workers)))
+      (let ((base-status (list :running (conductor-running-p conductor)
+                               :tick-count (get-metric conductor :tick-count)
+                               :events-processed (get-metric conductor :events-processed)
+                               :events-failed (get-metric conductor :events-failed)
+                               :timer-errors (get-metric conductor :timer-errors)
+                               :tick-errors (get-metric conductor :tick-errors)
+                               :task-retries (get-metric conductor :task-retries)
+                               :pending-timers (length (conductor-timer-heap conductor))
+                               :active-workers (length (conductor-active-workers)))))
+        ;; Add crystallization metrics if available
+        (when (find-package :autopoiesis.crystallize)
+          (append base-status
+                  (list :triggers-checked (get-metric conductor :triggers-checked)
+                        :crystallizations-performed (get-metric conductor :crystallizations-performed)
+                        :trigger-check-errors (get-metric conductor :trigger-check-errors))))
+        base-status)
       (list :running nil)))

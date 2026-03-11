@@ -45,14 +45,27 @@
    #:strategy-handle-failure
    #:strategy-complete-p
 
-   ;; Strategy classes
-   #:make-strategy
-   #:leader-worker-strategy
-   #:parallel-strategy
-   #:pipeline-strategy
-   #:debate-strategy
-   #:consensus-strategy
+    ;; Strategy classes
+    #:make-strategy
+    #:leader-worker-strategy
+    #:parallel-strategy
+    #:pipeline-strategy
+    #:debate-strategy
+    #:consensus-strategy
+    #:hierarchical-leader-worker-strategy
+    #:leader-parallel-strategy
+    #:rotating-leader-strategy
+    #:debate-consensus-strategy
 
-   ;; Serialization
-   #:team-to-plist
-   #:plist-to-team))
+    ;; Serialization
+    #:team-to-plist
+    #:plist-to-team
+
+    ;; Swarm integration
+    #:team-performance-fitness
+    #:evaluate-team-fitness
+    #:swarm-optimize-team-composition
+
+    ;; Dynamic Composition
+    #:optimize-team-for-task
+    #:evolve-team-membership))
