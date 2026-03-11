@@ -133,6 +133,7 @@
        (:file "provider-opencode")
        (:file "provider-cursor")
        (:file "provider-pi")
+       (:file "provider-rho")
        (:file "provider-nanobot")
        (:file "provider-nanosquash")
        (:file "integrate-primitives")
@@ -201,77 +202,15 @@
        (:file "routes")
        (:file "mcp-server")
        (:file "rest-server")))
-      (:module "workspace"
-      :serial t
-      :depends-on ("core" "substrate" "agent")
-      :components
-      ((:file "packages")
-       (:file "agent-home")
-       (:file "workspace")
-       (:file "capabilities")
-       (:file "team-coordination")))
-     (:module "swarm"
-      :serial t
-      :depends-on ("core" "agent" "snapshot")
-      :components
-      ((:file "packages")
-       (:file "genome")
-       (:file "fitness")
-       (:file "selection")
-       (:file "operators")
-       (:file "population")
-       (:file "production-rules")
-       (:file "gpu-stub")
-       (:file "persistent-genome-bridge")
-       (:file "persistent-evolution")
-       (:file "persistent-fitness")))
-     (:module "supervisor"
-      :serial t
-      :depends-on ("core" "agent" "snapshot")
-      :components
-      ((:file "packages")
-       (:file "checkpoint")
-       (:file "supervisor")
-       (:file "integration")
-       (:file "persistent-supervisor-bridge")))
-     (:module "crystallize"
-      :serial t
-      :depends-on ("core" "agent" "supervisor" "snapshot")
-      :components
-      ((:file "packages")
-       (:file "emitter")
-       (:file "capability-crystallizer")
-       (:file "heuristic-crystallizer")
-       (:file "genome-crystallizer")
-       (:file "snapshot-integration")
-       (:file "asdf-fragment")
-       (:file "git-export")))
-     (:module "team"
-      :serial t
-      :depends-on ("core" "substrate" "agent" "workspace" "orchestration" "integration")
-      :components
-      ((:file "packages")
-       (:file "team")
-       (:file "strategy")
-       (:module "strategies"
-        :serial t
-        :components
-        ((:file "leader-worker")
-         (:file "parallel")
-         (:file "pipeline")
-         (:file "debate")
-         (:file "consensus")))))
-     (:module "jarvis"
-      :serial t
-      :depends-on ("core" "agent" "integration" "supervisor" "interface")
-      :components
-      ((:file "packages")
-       (:file "session")
-       (:file "dispatch")
-       (:file "loop")
-       (:file "human-in-the-loop")))
-     ;; Main package that reexports everything
-     (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api" "workspace" "swarm" "supervisor" "crystallize" "team" "jarvis")))))
+      ;; Optional extensions moved to separate ASDF systems:
+      ;; - autopoiesis/swarm: Genome evolution and fitness
+      ;; - autopoiesis/supervisor: Checkpoint/revert operations
+      ;; - autopoiesis/crystallize: Runtime-to-source emission
+      ;; - autopoiesis/team: Multi-agent coordination strategies
+      ;; - autopoiesis/jarvis: NL→tool conversational loop
+      ;; Main package that reexports core functionality
+      ;; Optional extensions provide additional packages
+      (:file "autopoiesis" :depends-on ("core" "substrate" "orchestration" "conversation" "agent" "snapshot" "interface" "integration" "skel" "viz" "security" "monitoring" "api")))))
   :in-order-to ((test-op (test-op #:autopoiesis/test))))
 
 ;;; WebSocket API server (Clack/Lack/Woo)
@@ -312,7 +251,121 @@
     :components
     ((:file "api-tests"))))
   :perform (test-op (o c)
-             (symbol-call :autopoiesis.api.test :run-api-tests)))
+            (symbol-call :autopoiesis.api.test :run-api-tests)))
+
+;;; Swarm evolution extension (optional)
+(asdf:defsystem #:autopoiesis/swarm
+  :description "Swarm evolution engine for Autopoiesis"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :depends-on (#:autopoiesis #:lparallel)
+  :serial t
+  :components
+  ((:module "src/swarm"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "genome")
+     (:file "fitness")
+     (:file "selection")
+     (:file "operators")
+     (:file "population")
+     (:file "production-rules")
+     (:file "gpu-stub")
+     (:file "persistent-genome-bridge")
+     (:file "persistent-evolution")
+     (:file "persistent-fitness")))))
+
+;;; Supervisor checkpointing extension (optional)
+(asdf:defsystem #:autopoiesis/supervisor
+  :description "Supervisor checkpoint/revert for Autopoiesis"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :depends-on (#:autopoiesis)
+  :serial t
+  :components
+  ((:module "src/supervisor"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "checkpoint")
+     (:file "supervisor")
+     (:file "integration")
+     (:file "persistent-supervisor-bridge")))))
+
+;;; Crystallize runtime-to-source extension (optional)
+(asdf:defsystem #:autopoiesis/crystallize
+  :description "Crystallize runtime changes to source files"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :depends-on (#:autopoiesis)
+  :serial t
+  :components
+  ((:module "src/crystallize"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "emitter")
+     (:file "capability-crystallizer")
+     (:file "heuristic-crystallizer")
+     (:file "genome-crystallizer")
+     (:file "snapshot-integration")
+     (:file "asdf-fragment")
+     (:file "git-export")))))
+
+;;; Team coordination extension (optional)
+(asdf:defsystem #:autopoiesis/team
+  :description "Multi-agent team coordination for Autopoiesis"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :depends-on (#:autopoiesis)
+  :serial t
+  :components
+  ((:module "src/team"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "team")
+     (:file "strategy")
+     (:module "strategies"
+      :serial t
+      :components
+      ((:file "leader-worker")
+       (:file "parallel")
+       (:file "pipeline")
+       (:file "debate")
+       (:file "consensus")))))
+   (:module "src/workspace"
+    :serial t
+    :depends-on ("src/team")
+    :components
+    ((:file "packages")
+     (:file "agent-home")
+     (:file "workspace")
+     (:file "capabilities")
+     (:file "team-coordination")))))
+
+;;; Jarvis conversational extension (optional)
+(asdf:defsystem #:autopoiesis/jarvis
+  :description "Jarvis NL→tool conversational loop for Autopoiesis"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :depends-on (#:autopoiesis)
+  :serial t
+  :components
+  ((:module "src/jarvis"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "session")
+     (:file "dispatch")
+     (:file "loop")
+     (:file "human-in-the-loop")))))
 
 ;;; Holodeck 3D visualization subsystem (Phase 8)
 ;;; Separate system to avoid requiring OpenGL dependencies for core usage
@@ -387,16 +440,14 @@
      (:file "bridge-protocol-tests")
      (:file "meta-agent-tests")
      (:file "skel-tests")
-     (:file "workspace-tests")
-     (:file "swarm-tests")
-     (:file "supervisor-tests")
-     (:file "crystallize-tests")
-     (:file "git-tools-tests")
-     (:file "jarvis-tests")
-     (:file "team-tests")
-     (:file "persistent-agent-tests")
-     (:file "swarm-integration-tests")
-     (:file "run-tests"))))
+      ;; Optional extension tests moved to separate systems:
+      ;; - autopoiesis/team-test (includes workspace-tests)
+      ;; - autopoiesis/swarm-test (includes swarm-tests, swarm-integration-tests)
+      ;; - autopoiesis/supervisor-test
+      ;; - autopoiesis/crystallize-test (includes git-tools-tests)
+      ;; - autopoiesis/jarvis-test
+      (:file "persistent-agent-tests")
+      (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
 
@@ -439,6 +490,73 @@
      (:file "campaign")
      (:file "interface")))))
 
+;;; Swarm extension tests
+(asdf:defsystem #:autopoiesis/swarm-test
+  :description "Tests for swarm evolution extension"
+  :depends-on (#:autopoiesis/swarm #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "swarm-tests")
+     (:file "swarm-integration-tests"))))
+  :perform (test-op (o c)
+            (symbol-call :autopoiesis.swarm.test :run-swarm-tests)))
+
+;;; Supervisor extension tests
+(asdf:defsystem #:autopoiesis/supervisor-test
+  :description "Tests for supervisor checkpoint extension"
+  :depends-on (#:autopoiesis/supervisor #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "supervisor-tests"))))
+  :perform (test-op (o c)
+            (symbol-call :autopoiesis.supervisor.test :run-supervisor-tests)))
+
+;;; Crystallize extension tests
+(asdf:defsystem #:autopoiesis/crystallize-test
+  :description "Tests for crystallize extension"
+  :depends-on (#:autopoiesis/crystallize #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "crystallize-tests"))))
+  :perform (test-op (o c)
+            (symbol-call :autopoiesis.crystallize.test :run-crystallize-tests)))
+
+;;; Team extension tests
+(asdf:defsystem #:autopoiesis/team-test
+  :description "Tests for team coordination extension"
+  :depends-on (#:autopoiesis/team #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "team-tests")
+     (:file "workspace-tests"))))
+  :perform (test-op (o c)
+            (symbol-call :autopoiesis.team.test :run-team-tests)))
+
+;;; Jarvis extension tests
+(asdf:defsystem #:autopoiesis/jarvis-test
+  :description "Tests for jarvis conversational extension"
+  :depends-on (#:autopoiesis/jarvis #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "jarvis-tests"))))
+  :perform (test-op (o c)
+            (symbol-call :autopoiesis.jarvis.test :run-jarvis-tests)))
+
 ;;; Sandbox integration tests
 (asdf:defsystem #:autopoiesis/sandbox-test
   :description "Tests for sandbox and research integration"
@@ -450,4 +568,4 @@
     :components
     ((:file "sandbox-tests"))))
   :perform (test-op (o c)
-             (symbol-call :autopoiesis.sandbox.test :run-sandbox-tests)))
+            (symbol-call :autopoiesis.sandbox.test :run-sandbox-tests)))

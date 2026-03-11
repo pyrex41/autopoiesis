@@ -1,6 +1,7 @@
 ;;;; packages.lisp - Jarvis conversational loop package definitions
 ;;;;
-;;;; Defines the package for unified NL->tool dispatch using Pi RPC streaming.
+;;;; Defines the package for unified NL->tool dispatch via CLI providers
+;;;; (rho, Pi, or any provider implementing provider-send).
 
 (in-package #:cl-user)
 
@@ -12,6 +13,7 @@
    #:make-jarvis-session
    #:jarvis-session-id
    #:jarvis-agent
+   #:jarvis-provider
    #:jarvis-pi-provider
    #:jarvis-tool-context
    #:jarvis-conversation-history

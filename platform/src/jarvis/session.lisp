@@ -1,6 +1,6 @@
 ;;;; session.lisp - Jarvis session state
 ;;;;
-;;;; A Jarvis session wraps a Pi RPC provider, an agent, and conversation
+;;;; A Jarvis session wraps a provider, an agent, and conversation
 ;;;; history into a single conversational unit.
 
 (in-package #:autopoiesis.jarvis)
@@ -14,17 +14,18 @@
                          :accessor jarvis-session-id
                          :initform (autopoiesis.core:make-uuid)
                          :documentation "Unique session identifier")
-   (pi-provider          :initarg :pi-provider
-                         :accessor jarvis-pi-provider
+   (provider             :initarg :provider
+                         :initarg :pi-provider
+                         :accessor jarvis-provider
                          :initform nil
-                         :documentation "Active Pi provider with RPC session")
+                         :documentation "Active provider for the session")
    (agent                :initarg :agent
                          :accessor jarvis-agent
                          :documentation "The backing agent")
    (tool-context         :initarg :tool-context
                          :accessor jarvis-tool-context
                          :initform nil
-                         :documentation "Available capability names for Pi")
+                         :documentation "Available capability names for the provider")
    (conversation-history :initarg :conversation-history
                          :accessor jarvis-conversation-history
                          :initform nil
@@ -33,19 +34,27 @@
                          :accessor jarvis-supervisor-enabled-p
                          :initform t
                          :documentation "Whether to wrap tool calls in checkpoints"))
-  (:documentation "A Jarvis conversational session backed by Pi RPC."))
+  (:documentation "A Jarvis conversational session backed by an LLM provider."))
 
-(defun make-jarvis-session (&key agent pi-provider tool-context
+;; Backward compatibility alias
+(defmethod jarvis-pi-provider ((session jarvis-session))
+  (jarvis-provider session))
+
+(defmethod (setf jarvis-pi-provider) (value (session jarvis-session))
+  (setf (jarvis-provider session) value))
+
+(defun make-jarvis-session (&key agent provider pi-provider tool-context
                                  (supervisor-enabled t))
   "Create a new Jarvis session.
 
    AGENT - the backing agent instance
-   PI-PROVIDER - a started Pi provider for RPC communication
-   TOOL-CONTEXT - list of capability names available to Pi
+   PROVIDER - a started provider for communication (preferred)
+   PI-PROVIDER - alias for PROVIDER (backward compat)
+   TOOL-CONTEXT - list of capability names available to the provider
    SUPERVISOR-ENABLED - whether to wrap tool calls in checkpoints (default T)"
   (make-instance 'jarvis-session
                  :agent agent
-                 :pi-provider pi-provider
+                 :provider (or provider pi-provider)
                  :tool-context tool-context
                  :supervisor-enabled supervisor-enabled))
 
