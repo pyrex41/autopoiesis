@@ -491,6 +491,35 @@ for data stream messages. Control messages are always JSON."
 ;;; System Handlers
 ;;; ═══════════════════════════════════════════════════════════════════
 
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Activity & Cost Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(define-handler handle-get-activities "get_activities" (msg conn)
+  "Return current activity data for all agents."
+  (declare (ignore msg conn))
+  (let ((activities (mapcar (lambda (agent)
+                              (let* ((id (agent-id agent))
+                                     (name (agent-name agent))
+                                     (state (string-downcase
+                                              (symbol-name (agent-state agent)))))
+                                (list (cons "agentId" id)
+                                      (cons "agentName" name)
+                                      (cons "state" state)
+                                      (cons "currentTool" nil)
+                                      (cons "toolStartTime" nil)
+                                      (cons "duration" 0)
+                                      (cons "totalCost" 0)
+                                      (cons "tokens" 0)
+                                      (cons "callCount" 0)
+                                      (cons "lastActive" (get-universal-time)))))
+                            (list-agents))))
+    (ok-response "activities" "activities" activities)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; System Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
 (define-handler handle-ping "ping" (msg conn)
   (declare (ignore msg conn))
   (ok-response "pong"))

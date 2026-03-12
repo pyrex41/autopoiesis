@@ -1,9 +1,16 @@
-import { type Component, For, Show, createMemo } from "solid-js";
+import { type Component, For, Show, createMemo, onMount } from "solid-js";
 import { agentStore } from "../stores/agents";
+import { activityStore } from "../stores/activity";
 import type { Agent, IntegrationEvent } from "../api/types";
 import ConductorDashboard from "./ConductorDashboard";
+import ActivityPanel from "./ActivityPanel";
+import CostDashboard from "./CostDashboard";
 
 const Dashboard: Component = () => {
+  onMount(() => {
+    activityStore.init();
+  });
+
   const recentEvents = createMemo(() =>
     agentStore.events().slice(-20).reverse()
   );
@@ -54,6 +61,16 @@ const Dashboard: Component = () => {
           <h3 class="dashboard-section-title">Platform Health</h3>
           <ConductorDashboard />
         </div>
+      </div>
+
+      {/* Activity Panel — full width */}
+      <div class="dashboard-section dashboard-section-full">
+        <ActivityPanel />
+      </div>
+
+      {/* Cost Dashboard — full width */}
+      <div class="dashboard-section dashboard-section-full">
+        <CostDashboard />
       </div>
     </div>
   );

@@ -25,7 +25,9 @@ export type ClientMessage =
   | { type: "holodeck_subscribe" }
   | { type: "holodeck_unsubscribe" }
   | { type: "holodeck_input"; key: string }
-  | { type: "holodeck_select"; entityId: number };
+  | { type: "holodeck_select"; entityId: number }
+  | { type: "get_activities" }
+  | { type: "get_costs" };
 
 type MessageHandler = (msg: ServerMessage) => void;
 

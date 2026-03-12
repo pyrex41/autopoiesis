@@ -2950,6 +2950,228 @@ textarea {
   flex: 1;
 }
 
+.dashboard-section-full {
+  margin-top: 16px;
+}
+
+/* ── Activity Panel ─────────────────────────────────────────── */
+
+.activity-panel {
+  padding: 0;
+}
+
+.activity-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.activity-panel-count {
+  font-size: 10px;
+  color: var(--emerge);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.activity-table-wrap {
+  overflow-x: auto;
+}
+
+.activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.activity-table thead th {
+  text-align: left;
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.activity-table tbody td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(30, 45, 74, 0.3);
+  vertical-align: middle;
+}
+
+.activity-row {
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.activity-row:hover {
+  background: var(--raised);
+}
+
+.activity-agent-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.activity-state-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.activity-state-active {
+  color: var(--emerge);
+}
+
+.activity-state-badge.activity-state-active {
+  background: rgba(105, 240, 174, 0.12);
+  border: 1px solid rgba(105, 240, 174, 0.25);
+}
+
+.activity-state-idle {
+  color: var(--text-dim);
+}
+
+.activity-state-badge.activity-state-idle {
+  background: rgba(74, 90, 120, 0.15);
+  border: 1px solid rgba(74, 90, 120, 0.25);
+}
+
+.activity-state-long-idle {
+  color: var(--danger);
+}
+
+.activity-state-badge.activity-state-long-idle {
+  background: rgba(255, 82, 82, 0.1);
+  border: 1px solid rgba(255, 82, 82, 0.2);
+}
+
+.activity-tool-name {
+  color: var(--signal);
+  font-weight: 500;
+}
+
+.activity-duration,
+.activity-cost,
+.activity-calls {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ── Cost Dashboard ─────────────────────────────────────────── */
+
+.cost-dashboard {
+  padding: 0;
+}
+
+.cost-summary-cards {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.cost-summary-card {
+  flex: 1;
+  background: var(--mid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.cost-summary-value {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.cost-summary-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+
+.cost-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cost-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.cost-agent-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.cost-agent-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cost-agent-detail {
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.cost-agent-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: var(--mid);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cost-agent-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--warm-dim), var(--warm));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+
+.cost-agent-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--warm);
+  min-width: 70px;
+  text-align: right;
+}
+
+/* ── Agent Detail Activity ──────────────────────────────────── */
+
+.agent-activity-tool {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+.agent-activity-tool-duration {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
 /* ── Timeline View ───────────────────────────────────────────── */
 
 .timeline-view {
