@@ -37,7 +37,11 @@
   (run! 'team-tests)
   (run! 'persistent-agent-tests)
   (run! 'swarm-integration-tests)
-  (run! 'e2e-tests))
+  (run! 'e2e-tests)
+  ;; API tests live in a separate ASDF system (autopoiesis/api)
+  ;; Load and run them if available
+  (when (find-package :autopoiesis.api.test)
+    (run! (find-symbol "API-TESTS" :autopoiesis.api.test))))
 
 ;; Make tests easy to run from REPL
 (defun test-substrate ()
@@ -123,3 +127,9 @@
 (defun test-team ()
   "Run only team coordination tests."
   (run! 'team-tests))
+
+(defun test-api ()
+  "Run only WebSocket API tests."
+  (unless (find-package :autopoiesis.api.test)
+    (asdf:load-system :autopoiesis/api))
+  (run! (find-symbol "API-TESTS" :autopoiesis.api.test)))

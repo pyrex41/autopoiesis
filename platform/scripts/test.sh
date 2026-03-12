@@ -28,9 +28,14 @@ fi
 sbcl --noinform --non-interactive \
     --load "$QUICKLISP_SETUP" \
     --eval "(push #P\"$PROJECT_ROOT/\" asdf:*central-registry*)" \
+    --eval "(push #P\"$PROJECT_ROOT/vendor/woo/\" asdf:*central-registry*)" \
     --eval "(handler-case
               (progn
                 (ql:quickload :autopoiesis/test :silent t)
+                (handler-case (progn
+                               (ql:quickload :autopoiesis/api :silent t)
+                               (asdf:load-system :autopoiesis/api-test))
+                  (error (e) (format t \"~%Note: Skipping API tests (~a)~%\" e)))
                 (asdf:test-system :autopoiesis)
                 (format t \"~%Tests complete!~%\")
                 (quit :unix-status 0))

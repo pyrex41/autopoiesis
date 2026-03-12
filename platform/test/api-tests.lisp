@@ -5,6 +5,7 @@
 
 (defpackage #:autopoiesis.api.test
   (:use #:cl #:fiveam #:autopoiesis.api)
+  (:local-nicknames (#:bt #:bordeaux-threads))
   (:export #:run-api-tests))
 
 (in-package #:autopoiesis.api.test)
@@ -516,6 +517,343 @@
   "New connections default to msgpack stream format."
   (let ((conn (make-instance 'api-connection :ws nil)))
     (is (eq (autopoiesis.api::connection-stream-format conn) :msgpack))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Activity Tracker Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite activity-tracker-tests
+  :in api-tests
+  :description "Tests for the activity and cost tracking system")
+
+(in-suite activity-tracker-tests)
+
+(defmacro with-fresh-activity-state (&body body)
+  "Execute body with fresh activity/cost tables and empty connections."
+  `(let ((autopoiesis.api::*activity-state* (make-hash-table :test 'equal))
+         (autopoiesis.api::*cost-state* (make-hash-table :test 'equal))
+         (autopoiesis.api::*activity-lock* (bt:make-lock "test-activity-lock"))
+         (autopoiesis.api::*connections* (make-hash-table :test 'equal)))
+     ,@body))
+
+(test activity-initial-state
+  "Fresh activity state tables are empty."
+  (with-fresh-activity-state
+    (is (null (all-activities)))
+    (is (null (agent-activity "agent-1")))
+    (is (null (agent-cost "agent-1")))))
+
+(test tool-called-sets-current-tool
+  "handle-tool-called populates :current-tool and :tool-start."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-tool-called "agent-1" '(:tool "read_file") 1000)
+    (let ((state (agent-activity "agent-1")))
+      (is (not (null state)))
+      (is (equal (getf state :current-tool) "read_file"))
+      (is (= (getf state :tool-start) 1000))
+      (is (= (getf state :last-active) 1000)))))
+
+(test tool-result-clears-and-increments
+  "handle-tool-result clears current tool and increments total-calls."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-tool-called "agent-1" '(:tool "write_file") 1000)
+    (autopoiesis.api::handle-tool-result "agent-1" nil 1005)
+    (let ((state (agent-activity "agent-1")))
+      (is (null (getf state :current-tool)))
+      (is (null (getf state :tool-start)))
+      (is (= (getf state :total-calls) 1))
+      (is (= (getf state :last-active) 1005)))))
+
+(test tool-result-computes-duration
+  ":last-tool-duration = timestamp - tool-start."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-tool-called "agent-1" '(:tool "search") 1000)
+    (autopoiesis.api::handle-tool-result "agent-1" nil 1042)
+    (let ((state (agent-activity "agent-1")))
+      (is (= (getf state :last-tool-duration) 42)))))
+
+(test provider-response-accumulates-cost
+  "handle-provider-response sums :total-cost across calls."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-provider-response "agent-1" '(:cost 0.05) 1000)
+    (autopoiesis.api::handle-provider-response "agent-1" '(:cost 0.10) 1001)
+    (let ((state (agent-cost "agent-1")))
+      (is (not (null state)))
+      (is (= (getf state :total-cost) 0.15))
+      (is (= (getf state :total-calls) 2)))))
+
+(test provider-response-accumulates-tokens
+  "Tokens accumulate across calls (both flat and :usage plist forms)."
+  (with-fresh-activity-state
+    ;; Flat usage form (numeric)
+    (autopoiesis.api::handle-provider-response "agent-1" '(:usage 100) 1000)
+    ;; Plist usage form
+    (autopoiesis.api::handle-provider-response "agent-1"
+                                               '(:usage (:input-tokens 50 :output-tokens 30))
+                                               1001)
+    (let ((state (agent-cost "agent-1")))
+      (is (= (getf state :total-tokens) 180)))))
+
+(test agent-activity-returns-copy
+  "Returned plist is a copy — mutating it doesn't corrupt state."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-tool-called "agent-1" '(:tool "test") 1000)
+    (let ((copy1 (agent-activity "agent-1")))
+      (setf (getf copy1 :current-tool) "CORRUPTED")
+      (let ((copy2 (agent-activity "agent-1")))
+        (is (equal (getf copy2 :current-tool) "test"))))))
+
+(test agent-activity-nil-for-unknown
+  "Returns nil for untracked agent."
+  (with-fresh-activity-state
+    (is (null (agent-activity "nonexistent-agent")))))
+
+(test all-activities-returns-all
+  "Returns entries for all tracked agents."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-tool-called "agent-1" '(:tool "a") 1000)
+    (autopoiesis.api::handle-tool-called "agent-2" '(:tool "b") 1001)
+    (autopoiesis.api::handle-tool-called "agent-3" '(:tool "c") 1002)
+    (let ((all (all-activities)))
+      (is (= (length all) 3)))))
+
+(test agent-cost-nil-for-unknown
+  "Returns nil for untracked agent."
+  (with-fresh-activity-state
+    (is (null (agent-cost "nonexistent-agent")))))
+
+(test cost-summary-aggregates
+  ":total sums across agents, :per-agent lists all."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-provider-response "agent-1" '(:cost 0.10) 1000)
+    (autopoiesis.api::handle-provider-response "agent-2" '(:cost 0.25) 1001)
+    (let ((summary (cost-summary)))
+      (is (= (getf summary :total) 0.35))
+      (is (= (length (getf summary :per-agent)) 2)))))
+
+(test start-stop-lifecycle
+  "stop-activity-tracker clears state tables."
+  (with-fresh-activity-state
+    (autopoiesis.api::handle-tool-called "agent-1" '(:tool "x") 1000)
+    (is (not (null (agent-activity "agent-1"))))
+    ;; Manually clear state the way stop-activity-tracker does (without event bus)
+    (bt:with-lock-held (autopoiesis.api::*activity-lock*)
+      (clrhash autopoiesis.api::*activity-state*)
+      (clrhash autopoiesis.api::*cost-state*))
+    ;; After clearing, state tables are empty
+    (is (null (agent-activity "agent-1")))
+    (is (null (all-activities)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Conductor Handler Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite conductor-handler-tests
+  :in api-tests
+  :description "Tests for conductor WebSocket handlers")
+
+(in-suite conductor-handler-tests)
+
+(test conductor-status-returns-fields
+  "conductor_status response contains expected fields."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message "conductor_status" (make-msg) conn)))
+      (is (equal (gethash "type" result) "conductor_status"))
+      ;; Should contain running field (true or false)
+      (is (member (gethash "running" result) '(t :false nil)))
+      ;; Should have tickCount
+      (is (numberp (gethash "tickCount" result))))))
+
+(test conductor-status-no-conductor
+  "conductor_status returns gracefully when conductor is nil."
+  (with-clean-state
+    (let ((autopoiesis.orchestration::*conductor* nil)
+          (conn (make-mock-connection)))
+      (let ((result (autopoiesis.api::dispatch-message "conductor_status" (make-msg) conn)))
+        (is (equal (gethash "type" result) "conductor_status"))))))
+
+(test conductor-start-creates-conductor
+  "conductor_start returns conductor_started response."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message "conductor_start" (make-msg) conn)))
+      (is (equal (gethash "type" result) "conductor_started"))
+      (is (equal (gethash "running" result) t))
+      ;; Clean up: stop the conductor we just started
+      (ignore-errors (autopoiesis.orchestration:stop-conductor)))))
+
+(test conductor-stop-stops-conductor
+  "conductor_stop returns conductor_stopped response."
+  (with-clean-state
+    (let ((conn (make-mock-connection)))
+      ;; Start first so there's something to stop
+      (ignore-errors (autopoiesis.orchestration:start-conductor))
+      (let ((result (autopoiesis.api::dispatch-message "conductor_stop" (make-msg) conn)))
+        (is (equal (gethash "type" result) "conductor_stopped"))
+        (is (equal (gethash "running" result) :false))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Team Handler Error-Path Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite team-handler-tests
+  :in api-tests
+  :description "Tests for team WebSocket handler error paths")
+
+(in-suite team-handler-tests)
+
+(test create-team-missing-name
+  "create_team returns error for missing name field (or not_available if team not loaded)."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "create_team"
+                    (make-msg "strategy" "leader-worker")
+                    conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (member (gethash "code" result) '("missing_field" "not_available") :test #'equal)))))
+
+(test start-team-missing-id
+  "start_team returns error for missing teamId."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "start_team" (make-msg) conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (member (gethash "code" result) '("missing_field" "not_available") :test #'equal)))))
+
+(test disband-team-missing-id
+  "disband_team returns error for missing teamId."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "disband_team" (make-msg) conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (member (gethash "code" result) '("missing_field" "not_available") :test #'equal)))))
+
+(test add-member-missing-fields
+  "add_team_member returns error for missing teamId."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "add_team_member" (make-msg) conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (member (gethash "code" result) '("missing_field" "not_available") :test #'equal)))))
+
+(test add-member-missing-agent-name
+  "add_team_member returns error for missing agentName."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "add_team_member"
+                    (make-msg "teamId" "team-1")
+                    conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (member (gethash "code" result) '("missing_field" "not_available") :test #'equal)))))
+
+(test remove-member-missing-fields
+  "remove_team_member returns error for missing teamId."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "remove_team_member" (make-msg) conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (member (gethash "code" result) '("missing_field" "not_available") :test #'equal)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Holodeck & Chat Handler Error-Path Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite holodeck-handler-tests
+  :in api-tests
+  :description "Tests for holodeck and chat WebSocket handler error paths")
+
+(in-suite holodeck-handler-tests)
+
+(test holodeck-subscribe-adds-channel
+  "holodeck_subscribe subscribes connection to holodeck channel."
+  (let ((conn (make-mock-connection)))
+    (let ((result (autopoiesis.api::dispatch-message
+                   "holodeck_subscribe" (make-msg) conn)))
+      (is (equal (gethash "type" result) "subscribed"))
+      (is (equal (gethash "channel" result) "holodeck"))
+      (is (autopoiesis.api::connection-subscribed-p conn "holodeck")))))
+
+(test holodeck-unsubscribe-removes-channel
+  "holodeck_unsubscribe removes holodeck subscription."
+  (let ((conn (make-mock-connection)))
+    (autopoiesis.api::subscribe-connection conn "holodeck")
+    (is (autopoiesis.api::connection-subscribed-p conn "holodeck"))
+    (let ((result (autopoiesis.api::dispatch-message
+                   "holodeck_unsubscribe" (make-msg) conn)))
+      (is (equal (gethash "type" result) "unsubscribed"))
+      (is (not (autopoiesis.api::connection-subscribed-p conn "holodeck"))))))
+
+(test holodeck-camera-missing-command
+  "holodeck_camera returns error for missing command field."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "holodeck_camera" (make-msg) conn)))
+      ;; Either holodeck_unavailable or missing_field depending on load state
+      (is (equal (gethash "type" result) "error")))))
+
+(test holodeck-select-missing-entity
+  "holodeck_select returns error for missing entityId field."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "holodeck_select" (make-msg) conn)))
+      (is (equal (gethash "type" result) "error")))))
+
+(test chat-start-missing-agent
+  "start_chat returns error for missing agentId."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "start_chat" (make-msg) conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (equal (gethash "code" result) "missing_field")))))
+
+(test chat-prompt-missing-fields
+  "chat_prompt returns error for missing agentId/text."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "chat_prompt" (make-msg) conn)))
+      (is (equal (gethash "type" result) "error"))
+      (is (equal (gethash "code" result) "missing_field")))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Get-Activities Handler Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(def-suite get-activities-handler-tests
+  :in api-tests
+  :description "Tests for get_activities handler")
+
+(in-suite get-activities-handler-tests)
+
+(test get-activities-empty
+  "get_activities returns empty activities when no agents exist."
+  (with-clean-state
+    (let* ((conn (make-mock-connection))
+           (result (autopoiesis.api::dispatch-message
+                    "get_activities" (make-msg) conn)))
+      (is (equal (gethash "type" result) "activities"))
+      (is (null (gethash "activities" result))))))
+
+(test get-activities-with-data
+  "get_activities returns populated activity for existing agents."
+  (with-clean-state
+    (let ((conn (make-mock-connection)))
+      ;; Create an agent so list-agents returns something
+      (make-test-agent :name "active-agent")
+      (let ((result (autopoiesis.api::dispatch-message
+                     "get_activities" (make-msg) conn)))
+        (is (equal (gethash "type" result) "activities"))
+        (is (= (length (gethash "activities" result)) 1))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Run All Tests

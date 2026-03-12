@@ -149,7 +149,7 @@ Looks at the 'type' field to decide JSON vs MessagePack."
 (defun write-frame-to-fd (socket frame)
   "Write complete WebSocket frame bytes directly to socket fd.
 Bypasses Woo's event loop — safe to call from any thread."
-  (let ((fd (woo.ev.socket:socket-fd socket)))
+  (let ((fd (woo.ev.socket::socket-fd socket)))
     (cffi:with-pointer-to-vector-data (ptr frame)
       (let ((remaining (length frame))
             (offset 0))
