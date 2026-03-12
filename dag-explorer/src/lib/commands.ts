@@ -2,6 +2,7 @@ import { dagStore } from "../stores/dag";
 import { agentStore } from "../stores/agents";
 import { teamStore } from "../stores/teams";
 import { fitToView } from "../graph/globals";
+import { navigationStore } from "../stores/navigation";
 
 export interface Command {
   id: string;
@@ -14,11 +15,17 @@ export interface Command {
   handler: () => void;
 }
 
-export type ViewId = "dashboard" | "dag" | "timeline" | "tasks" | "holodeck";
+export type ViewId = "dashboard" | "dag" | "timeline" | "tasks" | "holodeck" | "constellation";
 
 // View state — managed here so commands + ViewSwitcher share it
 import { createSignal } from "solid-js";
 export const [currentView, setCurrentView] = createSignal<ViewId>("dashboard");
+
+/** Navigate to a view, updating both the signal and navigation history */
+export function navigateTo(view: ViewId, label: string, agentId?: string) {
+  setCurrentView(view);
+  navigationStore.push({ view, label, agentId, timestamp: Date.now() });
+}
 
 export const commands: Command[] = [
   // ── Agents ─────────────────────────────────────────────────
@@ -134,7 +141,7 @@ export const commands: Command[] = [
     shortcut: "1",
     category: "views",
     icon: "◫",
-    handler: () => setCurrentView("dashboard"),
+    handler: () => navigateTo("dashboard", "Dashboard"),
   },
   {
     id: "view.dag",
@@ -143,7 +150,7 @@ export const commands: Command[] = [
     shortcut: "2",
     category: "views",
     icon: "◇",
-    handler: () => setCurrentView("dag"),
+    handler: () => navigateTo("dag", "DAG Explorer"),
   },
   {
     id: "view.timeline",
@@ -152,7 +159,7 @@ export const commands: Command[] = [
     shortcut: "3",
     category: "views",
     icon: "≡",
-    handler: () => setCurrentView("timeline"),
+    handler: () => navigateTo("timeline", "Timeline"),
   },
   {
     id: "view.tasks",
@@ -161,7 +168,7 @@ export const commands: Command[] = [
     shortcut: "4",
     category: "views",
     icon: "☰",
-    handler: () => setCurrentView("tasks"),
+    handler: () => navigateTo("tasks", "Tasks"),
   },
   {
     id: "view.holodeck",
@@ -170,7 +177,16 @@ export const commands: Command[] = [
     shortcut: "5",
     category: "views",
     icon: "⬡",
-    handler: () => setCurrentView("holodeck"),
+    handler: () => navigateTo("holodeck", "Holodeck"),
+  },
+  {
+    id: "view.constellation",
+    name: "Constellation",
+    description: "Force-directed agent relationship graph",
+    shortcut: "6",
+    category: "views",
+    icon: "✦",
+    handler: () => navigateTo("constellation", "Constellation"),
   },
 
   // ── Navigation (DAG) ──────────────────────────────────────

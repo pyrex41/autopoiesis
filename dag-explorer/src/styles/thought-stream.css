@@ -1,0 +1,50 @@
+/* ── Thought Stream ──────────────────────────────────────────── */
+
+.thought-stream {
+  max-height: 400px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thought-stream-empty {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-style: italic;
+  padding: 8px 0;
+}
+
+.thought-card {
+  border-left: 2px solid var(--border);
+  padding: 6px 8px;
+  animation: fadeSlideUp 0.2s ease;
+}
+
+.thought-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.thought-type-badge {
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  letter-spacing: 0.5px;
+}
+
+.thought-time {
+  font-size: 8px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.thought-content {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  word-break: break-word;
+}

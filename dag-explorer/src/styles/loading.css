@@ -1,0 +1,45 @@
+/* ── Loading States ──────────────────────────────────────────── */
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+}
+
+.loading-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: var(--font-mono);
+}
+
+/* Radar sweep */
+.radar-loader {
+  animation: radarSweep 2s linear infinite;
+  transform-origin: center;
+}
+
+.radar-sweep {
+  transform-origin: 40px 40px;
+  animation: radarSweep 2s linear infinite;
+}
+
+@keyframes radarSweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Mesh cube */
+.mesh-loader {
+  animation: meshAssemble 3s ease-in-out infinite;
+}
+
+@keyframes meshAssemble {
+  0% { transform: rotate3d(0, 1, 0, 0deg); opacity: 0.6; }
+  50% { transform: rotate3d(0, 1, 0.3, 180deg); opacity: 1; }
+  100% { transform: rotate3d(0, 1, 0, 360deg); opacity: 0.6; }
+}

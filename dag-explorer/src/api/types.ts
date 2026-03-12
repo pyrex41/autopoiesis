@@ -117,3 +117,10 @@ export interface Task {
 export interface TaskUpdate {
   status: TaskStatus;
 }
+
+/** Context window usage for an agent */
+export interface ContextWindow {
+  used: number;
+  total: number;
+  model?: string;
+}

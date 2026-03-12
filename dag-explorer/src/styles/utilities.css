@@ -1,0 +1,261 @@
+/* ── Utility classes ──────────────────────────────────────────── */
+
+.text-dim {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-style: italic;
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* ── Animations ───────────────────────────────────────────────── */
+
+@keyframes beacon {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--warm); }
+  50% { opacity: 0.4; box-shadow: 0 0 12px var(--warm); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes typingBounce {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hi);
+}
+
+/* ── Responsive Design ────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .app-main {
+    flex-direction: column;
+  }
+
+  .detail-panel {
+    position: absolute;
+    top: 44px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100% !important;
+    min-width: 100% !important;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    z-index: 50;
+    background: linear-gradient(180deg, var(--mid) 0%, var(--deep) 100%);
+  }
+
+  .detail-panel.open {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+
+  .detail-panel.open::before {
+    display: none;
+  }
+
+  .branch-list {
+    position: absolute;
+    bottom: 80px;
+    left: 8px;
+    width: 180px;
+    max-height: 200px;
+  }
+
+  .minimap {
+    bottom: 8px;
+    left: 8px;
+    width: 160px !important;
+    height: 110px !important;
+  }
+
+  .minimap canvas {
+    width: 160px !important;
+    height: 110px !important;
+  }
+
+  .kbd-hints {
+    bottom: 8px;
+    right: 8px;
+    left: auto;
+    padding: 8px 12px;
+    font-size: 9px;
+    max-width: calc(100vw - 200px);
+  }
+
+  .kbd-hints br {
+    display: none;
+  }
+
+  .toolbar-brand {
+    font-size: 14px;
+  }
+
+  .toolbar-stats {
+    display: none;
+  }
+
+  .btn-toolbar {
+    padding: 8px 12px;
+    font-size: 12px;
+    min-height: 40px;
+    min-width: 44px;
+  }
+
+  .btn-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .search-input {
+    height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+
+  .toolbar-label select {
+    height: 36px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .palette {
+    width: 90vw;
+    max-width: 400px;
+  }
+
+  .palette-input {
+    padding: 12px 16px;
+    font-size: 13px;
+    height: 44px;
+  }
+
+  .palette-item {
+    padding: 12px 16px;
+    font-size: 14px;
+    min-height: 48px;
+  }
+
+  .chat-pane {
+    top: 44px;
+    right: 8px;
+    width: calc(100vw - 16px);
+    height: calc(100vh - 52px);
+    max-width: none;
+  }
+
+  .chat-toggle-btn {
+    top: 54px;
+    right: 8px;
+    width: 48px;
+    height: 48px;
+    font-size: 16px;
+  }
+
+  .chat-panel {
+    border-radius: var(--radius-md);
+  }
+
+  .chat-messages {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .message-content {
+    font-size: 14px;
+    padding: 12px 16px;
+  }
+
+  .chat-input {
+    font-size: 14px;
+    min-height: 70px;
+    padding: 12px 16px;
+  }
+
+  .btn-send {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+
+  .agent-chat-btn {
+    padding: 14px 16px;
+    min-height: 56px;
+  }
+}
+
+@media (max-width: 480px) {
+  .branch-list {
+    width: 140px;
+    left: 6px;
+    bottom: 70px;
+  }
+
+  .minimap {
+    width: 120px !important;
+    height: 80px !important;
+    left: 6px;
+    bottom: 6px;
+  }
+
+  .minimap canvas {
+    width: 120px !important;
+    height: 80px !important;
+  }
+
+  .kbd-hints {
+    padding: 6px 10px;
+    font-size: 8px;
+    max-width: calc(100vw - 140px);
+  }
+
+  .toolbar {
+    padding: 0 12px;
+  }
+
+  .toolbar-brand {
+    font-size: 12px;
+  }
+
+  .palette {
+    width: 95vw;
+  }
+}

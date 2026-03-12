@@ -1,6 +1,7 @@
 import { createSignal, createMemo } from "solid-js";
 import { wsStore, type ServerMessage } from "./ws";
 import { agentStore } from "./agents";
+import { audioEngine } from "../lib/audio";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -67,6 +68,9 @@ const [selectedEntityId, setSelectedEntityId] = createSignal<number | null>(null
 const [viewMode, setViewMode] = createSignal<ViewMode>("orbit");
 const [hudVisible, setHudVisible] = createSignal(true);
 
+export type CameraPreset = "orbital" | "ground" | "follow" | "cinematic";
+const [cameraPreset, setCameraPreset] = createSignal<CameraPreset>("orbital");
+
 // FPS tracking
 const [fps, setFps] = createSignal(0);
 let frameTimestamps: number[] = [];
@@ -87,6 +91,7 @@ const connectionCount = createMemo(() => connections().size);
 function selectEntity(id: number | null) {
   setSelectedEntityId(id);
   if (id !== null) {
+    audioEngine.select();
     wsStore.send({ type: "holodeck_select", entityId: id } as any);
     // Sync: if entity has agentId, select in agent store too
     const entity = entities().get(id);
@@ -194,6 +199,7 @@ export const holodeckStore = {
   viewMode,
   hudVisible,
   fps,
+  cameraPreset,
 
   // Actions
   init,
@@ -204,4 +210,5 @@ export const holodeckStore = {
   sendAction,
   setViewMode,
   setHudVisible,
+  setCameraPreset,
 };

@@ -1,0 +1,151 @@
+/* ── Toolbar ──────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px;
+  height: 44px;
+  background: linear-gradient(180deg, rgba(14, 21, 37, 0.95), rgba(8, 12, 24, 0.98));
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+  backdrop-filter: blur(12px);
+}
+
+.toolbar::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--signal) 20%,
+    var(--purple) 50%,
+    var(--signal) 80%,
+    transparent 100%
+  );
+  opacity: 0.3;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  background: linear-gradient(135deg, var(--signal), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.toolbar-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 500;
+}
+
+.toolbar-label select {
+  background: var(--mid);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.toolbar-label select:focus {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 1px rgba(79, 195, 247, 0.2);
+}
+
+.toolbar-stats {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+}
+
+.toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--warm);
+}
+
+.toolbar-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warm);
+  box-shadow: 0 0 8px var(--warm);
+  animation: beacon 1.5s ease-in-out infinite;
+}
+
+.toolbar-error {
+  font-size: 11px;
+  color: var(--danger);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Search ───────────────────────────────────────────────────── */
+
+.search-input {
+  background: var(--mid);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  width: 180px;
+  outline: none;
+  transition: all var(--transition);
+}
+
+.search-input:focus {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 2px rgba(79, 195, 247, 0.15), 0 0 16px rgba(79, 195, 247, 0.08);
+  background: var(--surface);
+}
+
+.search-input::placeholder {
+  color: var(--text-dim);
+}
+
+.search-count {
+  font-size: 10px;
+  color: var(--emerge);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

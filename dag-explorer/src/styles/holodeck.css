@@ -1,0 +1,14 @@
+/* ── Holodeck View ───────────────────────────────────────────── */
+/* Three.js canvas is managed programmatically; styles here are for overlays */
+
+.holodeck-view {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: var(--void);
+}
+
+.holodeck-canvas-container {
+  position: absolute;
+  inset: 0;
+}

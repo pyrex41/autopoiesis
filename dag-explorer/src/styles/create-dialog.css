@@ -1,0 +1,88 @@
+/* ── Create Agent Dialog ─────────────────────────────────────── */
+
+.create-agent-dialog {
+  width: 420px;
+  background: var(--mid);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow:
+    0 0 0 1px rgba(79, 195, 247, 0.08),
+    0 24px 64px rgba(0, 0, 0, 0.6);
+  animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.create-dialog-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--signal);
+  margin-bottom: 20px;
+}
+
+.create-field {
+  margin-bottom: 16px;
+}
+
+.create-field label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.create-name-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.create-name-input:focus {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 2px rgba(79, 195, 247, 0.15);
+}
+
+.create-caps-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.create-cap-btn {
+  padding: 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.create-cap-btn:hover {
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+
+.create-cap-active {
+  background: rgba(179, 136, 255, 0.12);
+  border-color: rgba(179, 136, 255, 0.4);
+  color: var(--purple);
+}
+
+.create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}

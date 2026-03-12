@@ -5,27 +5,42 @@ import { holodeckStore } from "../stores/holodeck";
 import { setCurrentView } from "../lib/commands";
 import AgentActions from "./AgentActions";
 import ThoughtStream from "./ThoughtStream";
+import ContextGauge from "./ContextGauge";
 
 const AgentDetail: Component = () => {
   const agent = () => agentStore.selectedAgent();
+  const [collapsed, setCollapsed] = createSignal(false);
 
   return (
-    <div class="agent-detail-panel">
-      <Show
-        when={agent()}
-        fallback={
-          <div class="agent-detail-empty">
-            <div class="empty-icon">◇</div>
-            <p>Select an agent to inspect</p>
-            <p class="empty-hint">
-              Click an agent in the list, or press <kbd>n</kbd> to create one
-            </p>
-          </div>
-        }
+    <div class="agent-detail-panel" classList={{ "agent-detail-collapsed": collapsed() }}>
+      <button
+        class="agent-detail-toggle"
+        onClick={() => setCollapsed(!collapsed())}
+        title={collapsed() ? "Expand panel" : "Collapse panel"}
       >
-        {(a) => (
-          <>
-            <div class="agent-detail-header">
+        {collapsed() ? "\u25C0" : "\u25B6"}
+      </button>
+      <Show when={collapsed()}>
+        <div class="agent-detail-collapsed-strip">
+          {agent()?.name ?? "Agent Detail"}
+        </div>
+      </Show>
+      <Show when={!collapsed()}>
+        <Show
+          when={agent()}
+          fallback={
+            <div class="agent-detail-empty">
+              <div class="empty-icon">◇</div>
+              <p>Select an agent to inspect</p>
+              <p class="empty-hint">
+                Click an agent in the list, or press <kbd>n</kbd> to create one
+              </p>
+            </div>
+          }
+        >
+          {(a) => (
+            <>
+              <div class="agent-detail-header">
               <div class="agent-detail-name-row">
                 <div
                   class="agent-state-dot agent-state-dot-lg"
@@ -39,6 +54,11 @@ const AgentDetail: Component = () => {
                 />
                 <h2 class="agent-detail-name">{a().name}</h2>
                 <span class="agent-detail-state">{a().state}</span>
+                <Show when={agentStore.contextWindow()}>
+                  {(ctx) => (
+                    <ContextGauge used={ctx().used} total={ctx().total} />
+                  )}
+                </Show>
               </div>
               <div class="agent-detail-id">{a().id}</div>
             </div>
@@ -104,6 +124,7 @@ const AgentDetail: Component = () => {
             </div>
           </>
         )}
+        </Show>
       </Show>
     </div>
   );

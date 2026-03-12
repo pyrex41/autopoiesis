@@ -5,6 +5,8 @@ import NodeDetail from "./NodeDetail";
 import Minimap from "./Minimap";
 import BranchList from "./BranchList";
 import Toolbar from "./Toolbar";
+import TimeTravelScrubber from "./TimeTravelScrubber";
+import { detachPanel } from "../lib/detach";
 
 /** DAG Explorer view — wraps existing DAG components */
 const DAGView: Component = () => {
@@ -21,6 +23,14 @@ const DAGView: Component = () => {
       <div class="dag-view-body">
         <div class="dag-canvas-wrap">
           <DAGCanvas />
+          <button
+            class="detach-btn"
+            onClick={() => detachPanel("dag")}
+            title="Pop out DAG view"
+            style={{ position: "absolute", top: "8px", right: "8px", background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-dim)", "border-radius": "4px", padding: "2px 6px", cursor: "pointer", "font-size": "12px", "z-index": "10" }}
+          >
+            ⧉
+          </button>
           <BranchList />
           <Minimap />
           <div class="kbd-hints">
@@ -33,6 +43,9 @@ const DAGView: Component = () => {
           <NodeDetail />
         </Show>
       </div>
+      <Show when={dagStore.snapshots().length > 1}>
+        <TimeTravelScrubber />
+      </Show>
     </div>
   );
 };

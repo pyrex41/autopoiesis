@@ -1,0 +1,53 @@
+/* ══════════════════════════════════════════════════════════════════
+   AUTOPOIESIS DAG EXPLORER — "Mission Control Observatory"
+
+   Deep observatory blues. Luminous signal accents. JetBrains Mono.
+   HUD-style angular corners on panels. Vignette depth. Scan-lines.
+   Every surface breathes—gradients, not flats.
+   ══════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+  --void: #04060e;
+  --deep: #080c18;
+  --mid: #0e1525;
+  --surface: #141d30;
+  --raised: #1a2640;
+  --border: #1e2d4a;
+  --border-hi: #2a3f66;
+  --text: #d0daf0;
+  --text-muted: #7a8ba8;
+  --text-dim: #4a5a78;
+  --signal: #4fc3f7;
+  --signal-dim: #2196f3;
+  --signal-glow: #29b6f6;
+  --warm: #ffab40;
+  --warm-dim: #ff9100;
+  --emerge: #69f0ae;
+  --danger: #ff5252;
+  --purple: #b388ff;
+  --magenta: #f06292;
+  --ghost: #1a2744;
+
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --radius: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--void);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

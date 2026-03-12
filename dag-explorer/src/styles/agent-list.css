@@ -1,0 +1,157 @@
+/* ── Agent List Panel ────────────────────────────────────────── */
+
+.agent-list-panel {
+  width: 220px;
+  min-width: 220px;
+  background: linear-gradient(180deg, var(--mid) 0%, var(--deep) 100%);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.agent-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.agent-list-title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+.agent-filter-input {
+  margin: 8px 10px;
+  padding: 5px 8px;
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.agent-filter-input:focus {
+  border-color: var(--signal);
+}
+
+.agent-filter-input::placeholder {
+  color: var(--text-dim);
+}
+
+.agent-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+}
+
+.agent-list-empty {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 24px 12px;
+  line-height: 1.8;
+}
+
+/* ── Agent Card ──────────────────────────────────────────────── */
+
+.agent-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  transition: all var(--transition);
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.agent-card:hover {
+  background: rgba(26, 38, 64, 0.5);
+  border-color: var(--border);
+}
+
+.agent-card-selected {
+  background: rgba(79, 195, 247, 0.08);
+  border-color: rgba(79, 195, 247, 0.3);
+  box-shadow: 0 0 8px rgba(79, 195, 247, 0.08);
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.agent-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.agent-state-dot-lg {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.agent-card-name {
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-card-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-left: 12px;
+}
+
+.agent-card-state {
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.agent-card-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 4px;
+  margin-left: 12px;
+}
+
+.agent-cap-tag {
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(179, 136, 255, 0.1);
+  color: var(--purple);
+  border: 1px solid rgba(179, 136, 255, 0.15);
+}
+
+.agent-cap-more {
+  background: rgba(122, 139, 168, 0.1);
+  color: var(--text-dim);
+  border-color: rgba(122, 139, 168, 0.15);
+}

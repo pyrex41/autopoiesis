@@ -22,5 +22,11 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        detached: "detached.html",
+      },
+    },
   },
 });

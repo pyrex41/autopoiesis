@@ -1,0 +1,106 @@
+.timetravel-scrubber {
+  position: relative;
+  height: 48px;
+  background: var(--deep);
+  border-top: 1px solid var(--border);
+  padding: 8px 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.timetravel-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.timetravel-play-btn,
+.timetravel-speed {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.timetravel-play-btn:hover,
+.timetravel-speed:hover {
+  background: var(--raised);
+  border-color: var(--border-hi);
+}
+
+.timetravel-track-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 20px;
+}
+
+.timetravel-track {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  position: relative;
+}
+
+.timetravel-marker {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  position: absolute;
+  top: -1px;
+  transform: translateX(-50%);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.timetravel-marker:hover {
+  background: var(--signal);
+}
+
+.timetravel-marker.active {
+  background: var(--signal);
+  box-shadow: 0 0 6px var(--signal);
+}
+
+.timetravel-range {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+}
+
+.timetravel-playhead {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 8px var(--signal);
+  position: absolute;
+  top: -4px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.timetravel-info {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  min-width: 100px;
+  text-align: right;
+}

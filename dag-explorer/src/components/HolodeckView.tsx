@@ -5,12 +5,22 @@ import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRe
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { holodeckStore, type EntityData, type ConnectionData, type EntityActivity } from "../stores/holodeck";
+import { holodeckStore, type EntityData, type ConnectionData, type EntityActivity, type CameraPreset } from "../stores/holodeck";
 import HolodeckHUD from "./HolodeckHUD";
+import { detachPanel } from "../lib/detach";
+
+// Module-level preset functions exposed for HUD
+export const cameraPresetFns: Record<CameraPreset, () => void> = {
+  orbital: () => {},
+  ground: () => {},
+  follow: () => {},
+  cinematic: () => {},
+};
 
 const HolodeckView: Component = () => {
   let containerRef: HTMLDivElement | undefined;
   let animFrameId: number = 0;
+  let autoOrbit = false;
 
   // Three.js objects
   let renderer: THREE.WebGLRenderer;
@@ -241,6 +251,37 @@ const HolodeckView: Component = () => {
 
     // Click handler for selection
     renderer.domElement.addEventListener("click", onCanvasClick);
+
+    // Wire up camera preset functions
+    cameraPresetFns.orbital = () => {
+      autoOrbit = false;
+      camera.position.set(0, 8, 15);
+      controls.target.set(0, 0, 0);
+      controls.update();
+      holodeckStore.setCameraPreset("orbital");
+    };
+    cameraPresetFns.ground = () => {
+      autoOrbit = false;
+      camera.position.set(0, 1, 10);
+      controls.target.set(0, 1, 0);
+      controls.update();
+      holodeckStore.setCameraPreset("ground");
+    };
+    cameraPresetFns.follow = () => {
+      autoOrbit = false;
+      const sel = holodeckStore.selectedEntity();
+      if (sel) {
+        const [x, y, z] = sel.position;
+        camera.position.set(x + 3, y + 2, z + 5);
+        controls.target.set(x, y, z);
+      }
+      controls.update();
+      holodeckStore.setCameraPreset("follow");
+    };
+    cameraPresetFns.cinematic = () => {
+      autoOrbit = true;
+      holodeckStore.setCameraPreset("cinematic");
+    };
   }
 
   function onCanvasClick(event: MouseEvent) {
@@ -434,6 +475,17 @@ const HolodeckView: Component = () => {
     updateEntities(holodeckStore.entities());
     updateConnections(holodeckStore.connections());
 
+    // Auto-orbit for cinematic preset
+    if (autoOrbit) {
+      const t = controls.target;
+      const offset = camera.position.clone().sub(t);
+      const angle = 0.003;
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      const x = offset.x * cos - offset.z * sin;
+      const z = offset.x * sin + offset.z * cos;
+      camera.position.set(t.x + x, camera.position.y, t.z + z);
+    }
+
     controls.update();
     composer.render();
     css2dRenderer.render(scene, camera);
@@ -581,6 +633,13 @@ const HolodeckView: Component = () => {
         style={{ position: "absolute", inset: "0", overflow: "hidden" }}
       />
       <HolodeckHUD />
+      <button
+        onClick={() => detachPanel("holodeck")}
+        title="Pop out Holodeck"
+        style={{ position: "absolute", top: "8px", right: "8px", background: "rgba(20,29,48,0.8)", border: "1px solid #1e2d4a", color: "#7a8ba8", "border-radius": "4px", padding: "2px 6px", cursor: "pointer", "font-size": "12px", "z-index": "10" }}
+      >
+        ⧉
+      </button>
     </div>
   );
 };

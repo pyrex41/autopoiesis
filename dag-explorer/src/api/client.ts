@@ -1,4 +1,4 @@
-import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent, Task, TaskUpdate } from "./types";
+import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent, Task, TaskUpdate, ContextWindow } from "./types";
 
 const BASE = "/api";
 
@@ -138,4 +138,14 @@ export async function getTask(id: string): Promise<Task> {
 
 export async function updateTaskStatus(id: string, update: TaskUpdate): Promise<{ message: string; taskId: string }> {
   return post<{ message: string; taskId: string }>(`/tasks/${id}/status`, update);
+}
+
+// ── Context window ───────────────────────────────────────────────
+
+export async function getAgentContext(id: string): Promise<ContextWindow | null> {
+  try {
+    return await get<ContextWindow>(`/agents/${id}/context`);
+  } catch {
+    return null;
+  }
 }

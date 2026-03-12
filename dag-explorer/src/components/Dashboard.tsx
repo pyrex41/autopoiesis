@@ -5,6 +5,7 @@ import type { Agent, IntegrationEvent } from "../api/types";
 import ConductorDashboard from "./ConductorDashboard";
 import ActivityPanel from "./ActivityPanel";
 import CostDashboard from "./CostDashboard";
+import EmptyState from "./EmptyState";
 
 const Dashboard: Component = () => {
   onMount(() => {
@@ -31,9 +32,12 @@ const Dashboard: Component = () => {
           <h3 class="dashboard-section-title">Agent Overview</h3>
           <div class="dashboard-agent-grid">
             <Show when={agentStore.agents().length > 0} fallback={
-              <div class="dashboard-empty">
-                No agents. <button class="link-btn" onClick={() => window.dispatchEvent(new CustomEvent("ap:create-agent"))}>Create one</button>
-              </div>
+              <EmptyState
+                icon="orbit"
+                title="No Agents Yet"
+                description="Create your first agent to start exploring the platform."
+                action={<button class="link-btn" onClick={() => window.dispatchEvent(new CustomEvent("ap:create-agent"))}>Create one</button>}
+              />
             }>
               <For each={agentStore.agents()}>
                 {(agent) => <DashboardAgentCard agent={agent} />}
@@ -63,15 +67,15 @@ const Dashboard: Component = () => {
         </div>
       </div>
 
-      {/* Activity Panel — full width */}
-      <div class="dashboard-section dashboard-section-full">
-        <ActivityPanel />
-      </div>
+        {/* Activity Panel */}
+        <div class="dashboard-section">
+          <ActivityPanel />
+        </div>
 
-      {/* Cost Dashboard — full width */}
-      <div class="dashboard-section dashboard-section-full">
-        <CostDashboard />
-      </div>
+        {/* Cost Dashboard */}
+        <div class="dashboard-section">
+          <CostDashboard />
+        </div>
     </div>
   );
 };

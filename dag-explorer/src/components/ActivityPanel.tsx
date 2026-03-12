@@ -1,6 +1,7 @@
 import { type Component, For, Show, createMemo, createSignal, onMount, onCleanup } from "solid-js";
 import { activityStore, type ActivityData } from "../stores/activity";
 import { agentStore } from "../stores/agents";
+import EmptyState from "./EmptyState";
 
 const ActivityPanel: Component = () => {
   const [now, setNow] = createSignal(Date.now());
@@ -30,7 +31,7 @@ const ActivityPanel: Component = () => {
 
       <Show
         when={sortedActivities().length > 0}
-        fallback={<div class="dashboard-empty">No agent activity recorded</div>}
+        fallback={<EmptyState icon="signal" title="No Activity" description="Agent activity will appear here when agents are running." />}
       >
         <div class="activity-table-wrap">
           <table class="activity-table">

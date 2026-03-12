@@ -2,6 +2,7 @@ import { createSignal, createMemo, batch } from "solid-js";
 import type { Agent, IntegrationEvent } from "../api/types";
 import * as api from "../api/client";
 import { wsStore, type ServerMessage } from "./ws";
+import { audioEngine } from "../lib/audio";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -28,6 +29,9 @@ const [thoughts, setThoughts] = createSignal<Thought[]>([]);
 const [events, setEvents] = createSignal<IntegrationEvent[]>([]);
 const [loading, setLoading] = createSignal(false);
 const [error, setError] = createSignal<string | null>(null);
+
+// Context window
+const [contextWindow, setContextWindow] = createSignal<{ used: number; total: number } | null>(null);
 
 // Jarvis chat
 const [chatMessages, setChatMessages] = createSignal<ChatMessage[]>([]);
@@ -209,6 +213,8 @@ function handleWSMessage(msg: ServerMessage) {
         setAgents((prev) =>
           prev.map((a) => (a.id === agentId ? { ...a, state } : a))
         );
+        if (state === "running") audioEngine.agentStart();
+        else if (state === "stopped") audioEngine.agentStop();
       }
       break;
     }
@@ -216,6 +222,12 @@ function handleWSMessage(msg: ServerMessage) {
     case "event": {
       const event = msg as unknown as IntegrationEvent;
       setEvents((prev) => [...prev.slice(-199), event]);
+      break;
+    }
+
+    case "context_update": {
+      const data = msg.data as { used: number; total: number } | undefined;
+      if (data) setContextWindow(data);
       break;
     }
 
@@ -259,6 +271,9 @@ export const agentStore = {
   error,
   stats,
   agentsByState,
+
+  // Context
+  contextWindow,
 
   // Chat
   chatMessages,

@@ -1,0 +1,247 @@
+/* ── Buttons ──────────────────────────────────────────────────── */
+
+.btn-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  min-height: 32px;
+}
+
+.btn-toolbar:hover {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-toolbar.active {
+  background: rgba(79, 195, 247, 0.12);
+  color: var(--signal);
+  border-color: rgba(79, 195, 247, 0.3);
+  box-shadow: 0 0 12px rgba(79, 195, 247, 0.1);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--signal-dim), var(--signal));
+  color: var(--void);
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 16px rgba(79, 195, 247, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--transition);
+}
+
+.btn-icon:hover {
+  background: var(--surface);
+  color: var(--signal);
+  border-color: var(--border);
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  transition: var(--transition);
+}
+
+.btn-close:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-nav {
+  padding: 8px 12px;
+  background: var(--mid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
+  transition: var(--transition);
+}
+
+.btn-nav:hover {
+  background: var(--raised);
+  border-color: var(--border-hi);
+}
+
+.btn-send {
+  background: var(--signal);
+  color: var(--void);
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  float: right;
+}
+
+.btn-send:hover:not(:disabled) {
+  background: var(--signal-glow);
+}
+
+.btn-send:disabled {
+  background: var(--border);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+.btn-primary, .btn-secondary, .btn-edit {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-primary {
+  background: var(--signal);
+  color: var(--deep);
+}
+
+.btn-primary:hover {
+  background: var(--signal-glow);
+}
+
+.btn-secondary {
+  background: var(--mid);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: var(--raised);
+  border-color: var(--border-hi);
+}
+
+.btn-edit {
+  background: var(--warm);
+  color: var(--deep);
+  margin-top: 8px;
+}
+
+.btn-edit:hover {
+  background: var(--warm-dim);
+}
+
+.btn-claim, .btn-complete, .btn-block {
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 10px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-claim {
+  background: var(--signal-dim);
+  color: white;
+}
+
+.btn-claim:hover {
+  background: var(--signal);
+}
+
+.btn-complete {
+  background: var(--emerge);
+  color: var(--deep);
+}
+
+.btn-complete:hover {
+  background: #4caf50;
+}
+
+.btn-block {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-block:hover {
+  background: #f44336;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--signal);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0;
+  transition: all var(--transition);
+}
+
+.link-btn:hover {
+  color: var(--signal-glow);
+  text-shadow: 0 0 8px rgba(79, 195, 247, 0.4);
+}
+
+.btn-create-agent {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(79, 195, 247, 0.1);
+  border: 1px solid rgba(79, 195, 247, 0.3);
+  border-radius: var(--radius);
+  color: var(--signal);
+  font-size: 16px;
+  font-weight: 300;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-create-agent:hover {
+  background: rgba(79, 195, 247, 0.2);
+  box-shadow: 0 0 12px rgba(79, 195, 247, 0.2);
+}

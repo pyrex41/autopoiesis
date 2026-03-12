@@ -1,0 +1,341 @@
+/* ── Agent Detail Panel ──────────────────────────────────────── */
+
+.agent-detail-panel {
+  width: 300px;
+  min-width: 300px;
+  background: linear-gradient(180deg, var(--mid) 0%, var(--deep) 100%);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  position: relative;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.agent-detail-panel.agent-detail-collapsed {
+  width: 40px;
+  min-width: 40px;
+  overflow: hidden;
+}
+
+.agent-detail-collapsed .agent-detail-header,
+.agent-detail-collapsed .agent-detail-sections,
+.agent-detail-collapsed .agent-detail-empty,
+.agent-detail-collapsed .agent-actions {
+  display: none;
+}
+
+.agent-detail-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.agent-detail-toggle:hover {
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+
+.agent-detail-collapsed .agent-detail-toggle {
+  right: auto;
+  left: 8px;
+}
+
+.agent-detail-collapsed-strip {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 40px 0 12px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-align: center;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  letter-spacing: 0.5px;
+}
+
+.agent-detail-panel::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg,
+    var(--signal) 0%,
+    transparent 30%,
+    rgba(79, 195, 247, 0.3) 50%,
+    transparent 70%,
+    var(--purple) 100%
+  );
+  opacity: 0.4;
+}
+
+.agent-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 24px;
+}
+
+.empty-icon {
+  font-size: 32px;
+  color: var(--border-hi);
+  margin-bottom: 12px;
+}
+
+.agent-detail-empty p {
+  font-size: 11px;
+  line-height: 1.8;
+  margin: 0;
+}
+
+.empty-hint {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.empty-hint kbd {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--signal);
+  font-size: 10px;
+}
+
+.agent-detail-header {
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.agent-detail-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-detail-name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+
+.agent-detail-state {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.agent-detail-id {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Agent Actions ───────────────────────────────────────────── */
+
+.agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.action-btn:hover {
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+
+.action-start:hover { border-color: var(--emerge); color: var(--emerge); }
+.action-stop:hover { border-color: var(--danger); color: var(--danger); }
+.action-pause:hover { border-color: var(--warm); color: var(--warm); }
+.action-step:hover { border-color: var(--signal); color: var(--signal); }
+.action-fork:hover { border-color: var(--purple); color: var(--purple); }
+.action-upgrade:hover { border-color: var(--signal); color: var(--signal); }
+
+.action-icon {
+  font-size: 11px;
+}
+
+.action-label {
+  font-weight: 500;
+}
+
+.action-kbd {
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0 3px;
+  font-size: 8px;
+  color: var(--text-dim);
+  margin-left: 2px;
+}
+
+/* ── Agent Detail Sections ───────────────────────────────────── */
+
+.agent-detail-sections {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.agent-detail-section {
+  margin-bottom: 16px;
+}
+
+.agent-detail-section h3 {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(30, 45, 74, 0.5);
+}
+
+.agent-caps-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.agent-cap-badge {
+  display: inline-block;
+  background: rgba(179, 136, 255, 0.12);
+  color: var(--purple);
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid rgba(179, 136, 255, 0.2);
+}
+
+.agent-detail-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 11px;
+}
+
+.agent-detail-dl dt {
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.agent-detail-dl dd {
+  color: var(--text);
+  word-break: break-all;
+}
+
+/* ── Agent Detail Activity ──────────────────────────────────── */
+
+.agent-activity-tool {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+.agent-activity-tool-duration {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+/* ── Collapsible Panel ─────────────────────────────────────── */
+
+.agent-detail-toggle {
+  position: absolute;
+  top: 8px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 8px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  z-index: 2;
+  transition: all var(--transition);
+}
+
+.agent-detail-toggle:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.agent-detail-panel.agent-detail-collapsed {
+  width: 40px;
+  min-width: 40px;
+}
+
+.agent-detail-panel.agent-detail-collapsed .agent-detail-header,
+.agent-detail-panel.agent-detail-collapsed .agent-detail-sections {
+  display: none;
+}
+
+.agent-detail-collapsed-strip {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  padding: 36px 8px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -1,0 +1,272 @@
+/* ── App layout ───────────────────────────────────────────────── */
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.app-layout.app-ready {
+  opacity: 1;
+}
+
+.app-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   APP SHELL — Three-panel console layout
+   ══════════════════════════════════════════════════════════════════ */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Status Bar ──────────────────────────────────────────────── */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 32px;
+  background: linear-gradient(180deg, rgba(14, 21, 37, 0.98), rgba(8, 12, 24, 0.98));
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.status-bar::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--signal) 20%,
+    var(--purple) 50%,
+    var(--signal) 80%,
+    transparent 100%
+  );
+  opacity: calc(0.2 + var(--pulse-intensity, 0) * 0.6);
+  animation: statusPulse 3s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { filter: hue-rotate(0deg); }
+  50% { filter: hue-rotate(15deg); }
+}
+
+.status-bar-left,
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-bar-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  background: linear-gradient(135deg, var(--signal), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 2px;
+}
+
+.status-bar-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+
+.status-bar-stat {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.stat-running { color: var(--emerge); }
+.stat-paused { color: var(--warm); }
+
+.status-bar-error {
+  font-size: 10px;
+  color: var(--danger);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Connection Indicator ────────────────────────────────────── */
+
+.connection-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.indicator-connected .indicator-dot {
+  background: var(--emerge);
+  box-shadow: 0 0 8px var(--emerge);
+}
+
+.indicator-reconnecting .indicator-dot {
+  background: var(--warm);
+  box-shadow: 0 0 8px var(--warm);
+  animation: beacon 1.2s ease-in-out infinite;
+}
+
+.indicator-disconnected .indicator-dot {
+  background: var(--danger);
+  box-shadow: 0 0 4px var(--danger);
+}
+
+.indicator-text {
+  color: var(--text-dim);
+}
+
+.indicator-connected .indicator-text { color: var(--emerge); }
+.indicator-reconnecting .indicator-text { color: var(--warm); }
+
+/* ── View Switcher ───────────────────────────────────────────── */
+
+.view-switcher {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 16px;
+  height: 36px;
+  background: var(--deep);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.view-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-bottom: -1px;
+}
+
+.view-tab:hover {
+  color: var(--text-muted);
+  background: rgba(79, 195, 247, 0.04);
+}
+
+.view-tab-active {
+  color: var(--signal);
+  border-bottom-color: var(--signal);
+  background: rgba(79, 195, 247, 0.06);
+}
+
+.view-tab-icon {
+  font-size: 13px;
+}
+
+.view-tab-kbd {
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 9px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.view-tab-active .view-tab-kbd {
+  color: var(--signal);
+  border-color: rgba(79, 195, 247, 0.3);
+}
+
+/* ── App Body (three-panel) ──────────────────────────────────── */
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.app-content.transitioning {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.view-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* ── Scanline overlay ────────────────────────────────────────── */
+
+.app-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
