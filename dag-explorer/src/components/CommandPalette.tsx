@@ -1,167 +1,143 @@
 import { type Component, createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js";
 import { dagStore } from "../stores/dag";
-import { fitToView } from "../graph/globals";
+import { agentStore } from "../stores/agents";
+import { commands, type Command } from "../lib/commands";
 
-interface Command {
-  id: string;
-  label: string;
-  shortcut?: string;
-  action: () => void;
-}
+const categoryLabels: Record<string, string> = {
+  agents: "Agents",
+  views: "Views",
+  navigation: "Navigation",
+  system: "System",
+};
 
 const CommandPalette: Component = () => {
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
-
-  const commands = createMemo<Command[]>(() => [
-    {
-      id: "fit",
-      label: "Fit graph to view",
-      shortcut: "f",
-      action: () => fitToView(),
-    },
-    {
-      id: "toggle-inspector",
-      label: "Toggle inspector panel",
-      shortcut: "i",
-      action: () => dagStore.setDetailPanelOpen(!dagStore.detailPanelOpen()),
-    },
-    {
-      id: "toggle-diff",
-      label: "Toggle diff mode",
-      shortcut: "d",
-      action: () => dagStore.setDiffMode(!dagStore.diffMode()),
-    },
-    {
-      id: "clear-selection",
-      label: "Clear selection",
-      shortcut: "Escape",
-      action: () => dagStore.clearSelection(),
-    },
-    {
-      id: "layout-tb",
-      label: "Layout: Top-Down",
-      action: () => dagStore.setDirection("TB"),
-    },
-    {
-      id: "layout-lr",
-      label: "Layout: Left-Right",
-      action: () => dagStore.setDirection("LR"),
-    },
-    {
-      id: "color-branch",
-      label: "Color by branch",
-      action: () => dagStore.setColorScheme("branch"),
-    },
-    {
-      id: "color-agent",
-      label: "Color by agent",
-      action: () => dagStore.setColorScheme("agent"),
-    },
-    {
-      id: "color-depth",
-      label: "Color by depth",
-      action: () => dagStore.setColorScheme("depth"),
-    },
-    {
-      id: "color-time",
-      label: "Color by time",
-      action: () => dagStore.setColorScheme("time"),
-    },
-    {
-      id: "load-mock",
-      label: "Load mock data",
-      action: () => dagStore.loadMockData(),
-    },
-    {
-      id: "load-live",
-      label: "Connect to live API",
-      action: () => dagStore.loadFromAPI(),
-    },
-    {
-      id: "nav-parent",
-      label: "Navigate to parent",
-      shortcut: "h",
-      action: () => dagStore.navigateToParent(),
-    },
-    {
-      id: "nav-child",
-      label: "Navigate to first child",
-      shortcut: "l",
-      action: () => dagStore.navigateToChild(),
-    },
-    {
-      id: "nav-prev-sibling",
-      label: "Navigate to previous sibling",
-      shortcut: "k",
-      action: () => dagStore.navigateToSibling(-1),
-    },
-    {
-      id: "nav-next-sibling",
-      label: "Navigate to next sibling",
-      shortcut: "j",
-      action: () => dagStore.navigateToSibling(1),
-    },
-    {
-      id: "compute-diff",
-      label: "Compute diff between selected nodes",
-      action: () => dagStore.computeDiff(),
-    },
-  ]);
+  const [selectedIdx, setSelectedIdx] = createSignal(0);
 
   const filtered = createMemo(() => {
     const q = query().toLowerCase();
-    if (!q) return commands();
-    return commands().filter((c) => c.label.toLowerCase().includes(q));
+    let results = commands;
+
+    // Filter out agent-requiring commands if no agent selected
+    if (!agentStore.selectedId()) {
+      results = results.filter((c) => !c.requiresAgent);
+    }
+
+    if (q) {
+      results = results.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.description?.toLowerCase().includes(q) ?? false) ||
+          c.category.includes(q)
+      );
+    }
+
+    return results;
+  });
+
+  // Group by category
+  const grouped = createMemo(() => {
+    const groups: { category: string; label: string; commands: Command[] }[] = [];
+    const seen = new Set<string>();
+    for (const cmd of filtered()) {
+      if (!seen.has(cmd.category)) {
+        seen.add(cmd.category);
+        groups.push({
+          category: cmd.category,
+          label: categoryLabels[cmd.category] ?? cmd.category,
+          commands: [],
+        });
+      }
+      groups.find((g) => g.category === cmd.category)!.commands.push(cmd);
+    }
+    return groups;
   });
 
   function execute(cmd: Command) {
-    cmd.action();
+    cmd.handler();
+    close();
+  }
+
+  function close() {
     dagStore.setShowCommandPalette(false);
     setQuery("");
+    setSelectedIdx(0);
   }
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
-      dagStore.setShowCommandPalette(false);
-      setQuery("");
+      close();
     } else if (e.key === "Enter") {
-      const first = filtered()[0];
-      if (first) execute(first);
+      const all = filtered();
+      const cmd = all[selectedIdx()];
+      if (cmd) execute(cmd);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIdx((i) => Math.min(i + 1, filtered().length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIdx((i) => Math.max(i - 1, 0));
     }
   }
 
-  onMount(() => {
-    inputRef?.focus();
+  // Reset selection on filter change
+  const _ = createMemo(() => {
+    query();
+    setSelectedIdx(0);
   });
 
   return (
     <Show when={dagStore.showCommandPalette()}>
-      <div
-        class="palette-overlay"
-        onClick={() => dagStore.setShowCommandPalette(false)}
-      >
+      <div class="palette-overlay" onClick={close}>
         <div class="palette" onClick={(e) => e.stopPropagation()}>
           <input
             ref={inputRef!}
             type="text"
             class="palette-input"
-            placeholder="Type a command..."
+            placeholder="Search commands..."
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
             onKeyDown={onKeyDown}
+            autofocus
           />
           <div class="palette-list">
-            <For each={filtered()}>
-              {(cmd) => (
-                <button class="palette-item" onClick={() => execute(cmd)}>
-                  <span class="palette-label">{cmd.label}</span>
-                  <Show when={cmd.shortcut}>
-                    <kbd class="palette-kbd">{cmd.shortcut}</kbd>
-                  </Show>
-                </button>
-              )}
-            </For>
+            {(() => {
+              let flatIdx = 0;
+              return (
+                <For each={grouped()}>
+                  {(group) => (
+                    <>
+                      <div class="palette-category">{group.label}</div>
+                      <For each={group.commands}>
+                        {(cmd) => {
+                          const idx = flatIdx++;
+                          return (
+                            <button
+                              class="palette-item"
+                              classList={{ "palette-item-selected": selectedIdx() === idx }}
+                              onClick={() => execute(cmd)}
+                              onMouseEnter={() => setSelectedIdx(idx)}
+                            >
+                              <span class="palette-icon">{cmd.icon}</span>
+                              <div class="palette-item-text">
+                                <span class="palette-label">{cmd.name}</span>
+                                <Show when={cmd.description}>
+                                  <span class="palette-desc">{cmd.description}</span>
+                                </Show>
+                              </div>
+                              <Show when={cmd.shortcut}>
+                                <kbd class="palette-kbd">{cmd.shortcut}</kbd>
+                              </Show>
+                            </button>
+                          );
+                        }}
+                      </For>
+                    </>
+                  )}
+                </For>
+              );
+            })()}
           </div>
         </div>
       </div>
