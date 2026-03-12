@@ -73,7 +73,7 @@ async function loadAgents() {
   setError(null);
   try {
     const list = await api.listAgents();
-    setAgents(list);
+    setAgents(list ?? []);
   } catch (e) {
     setError(e instanceof Error ? e.message : String(e));
   } finally {
@@ -84,7 +84,7 @@ async function loadAgents() {
 async function loadEvents() {
   try {
     const list = await api.getEvents({ limit: 100 });
-    setEvents(list);
+    setEvents(list ?? []);
   } catch {
     // Non-critical
   }
@@ -128,15 +128,18 @@ async function agentAction(action: string, agentId?: string) {
 async function createAgent(name: string, capabilities: string[]) {
   try {
     if (wsStore.connected()) {
+      // WS broadcast handler (agent_created) will update the agent list
       wsStore.send({ type: "create_agent", name, capabilities });
+      // Small delay then refresh to ensure consistency
+      setTimeout(() => loadAgents(), 500);
     } else {
       await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, capabilities }),
       });
+      await loadAgents();
     }
-    await loadAgents();
   } catch (e) {
     setError(e instanceof Error ? e.message : String(e));
   }

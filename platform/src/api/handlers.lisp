@@ -132,10 +132,7 @@
                       (list raw-caps)
                       (vector (coerce raw-caps 'list))))
          (capabilities (mapcar (lambda (c)
-                                 (or (find-symbol (string-upcase c) :keyword)
-                                     (return-from handle-create-agent
-                                       (error-response "invalid_capability"
-                                                        (format nil "Unknown capability: ~a" c)))))
+                                 (intern (string-upcase c) :keyword))
                                caps-list))
          (agent (make-agent :name name :capabilities capabilities)))
     (register-agent agent)

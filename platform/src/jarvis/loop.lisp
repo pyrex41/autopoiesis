@@ -88,11 +88,13 @@
         (t nil)))))
 
 (defun auto-detect-provider ()
-  "Auto-detect which CLI provider is available. Prefers rho over pi."
-  (cond
-    ((probe-cli-command "rho-cli") :rho)
-    ((probe-cli-command "pi") :pi)
-    (t nil)))
+  "Auto-detect which CLI provider is available. Prefers rho over pi.
+   Returns NIL if no provider found or if probing fails."
+  (ignore-errors
+    (cond
+      ((probe-cli-command "rho-cli") :rho)
+      ((probe-cli-command "pi") :pi)
+      (t nil))))
 
 (defun probe-cli-command (command)
   "Return T if COMMAND is on PATH."
@@ -108,16 +110,18 @@
 (defun start-jarvis-with-team (&key agent provider provider-config tools)
   "Start a Jarvis session with team coordination tools included.
    Same as START-JARVIS but appends team capabilities to the tool list."
-  (let* ((team-tools '(autopoiesis.integration::create-team-tool
-                       autopoiesis.integration::start-team-work
-                       autopoiesis.integration::query-team-tool
-                       autopoiesis.integration::await-team
-                       autopoiesis.integration::disband-team-tool))
-         (ws-team-tools '(autopoiesis.workspace::team-workspace-read
-                          autopoiesis.workspace::team-workspace-write
-                          autopoiesis.workspace::team-claim-task
-                          autopoiesis.workspace::team-submit-result
-                          autopoiesis.workspace::team-broadcast))
+  (let* ((team-tools (when (find-package :autopoiesis.integration)
+                       (loop for name in '("CREATE-TEAM-TOOL" "START-TEAM-WORK"
+                                           "QUERY-TEAM-TOOL" "AWAIT-TEAM"
+                                           "DISBAND-TEAM-TOOL")
+                             for sym = (find-symbol name :autopoiesis.integration)
+                             when sym collect sym)))
+         (ws-team-tools (when (find-package :autopoiesis.workspace)
+                          (loop for name in '("TEAM-WORKSPACE-READ" "TEAM-WORKSPACE-WRITE"
+                                              "TEAM-CLAIM-TASK" "TEAM-SUBMIT-RESULT"
+                                              "TEAM-BROADCAST")
+                                for sym = (find-symbol name :autopoiesis.workspace)
+                                when sym collect sym)))
          (all-tools (append (or tools
                                 (mapcar #'autopoiesis.agent:capability-name
                                         (autopoiesis.agent:list-capabilities)))

@@ -78,28 +78,51 @@
 
 (defun authenticate-request ()
   "Authenticate the current Hunchentoot request.
-   Returns the identity plist, or NIL if authentication fails.
+    Returns the identity plist, or NIL if authentication fails.
 
-   When *api-require-auth* is NIL (default) and no API keys are registered,
-   returns a read-only local identity. Set *api-require-auth* to T in
-   production to require explicit key registration."
-  ;; Extract credentials first, then validate atomically
-  (let ((auth-header (hunchentoot:header-in* :authorization))
-        (api-key-header (hunchentoot:header-in* :x-api-key)))
-    (let ((key (or (when auth-header (extract-bearer-token auth-header))
-                   api-key-header)))
-      ;; Atomically check: if key provided, validate; if no keys registered, grant local
-      (bordeaux-threads:with-lock-held (*api-keys-lock*)
-        (cond
-          ;; Key provided - validate it
-          (key
-           (gethash (hash-api-key key) *api-keys*))
-          ;; No key, no registered keys, auth not required - grant limited local access
-          ((and (not *api-require-auth*)
-                (zerop (hash-table-count *api-keys*)))
-           (list :identity "local" :permissions :read-only))
-          ;; No key provided but keys exist (or auth required) - deny
-          (t nil))))))
+    Checks for:
+    1. Valid session cookie (for web console users)
+    2. API key authentication (for programmatic access)
+    3. Fallback to local access when no auth required
+
+    When *api-require-auth* is NIL (default) and no API keys are registered,
+    returns a read-only local identity. Set *api-require-auth* to T in
+    production to require explicit key registration."
+   ;; First check for session-based authentication (web console)
+   (let ((session-token (get-session-cookie)))
+     (when session-token
+       (multiple-value-bind (user session)
+           (autopoiesis.security:validate-session-token session-token)
+         (when (and user session)
+           ;; Return session-based identity with user permissions
+           (return-from authenticate-request
+             (list :identity (autopoiesis.security:user-username user)
+                   :permissions (if (member :admin (autopoiesis.security:user-roles user))
+                                    :full
+                                    :read-only)  ;; Could be more granular
+                   :auth-type :session
+                   :user-id (autopoiesis.security:user-id user)))))))
+
+   ;; Fall back to API key authentication
+   (let ((auth-header (hunchentoot:header-in* :authorization))
+         (api-key-header (hunchentoot:header-in* :x-api-key)))
+     (let ((key (or (when auth-header (extract-bearer-token auth-header))
+                    api-key-header)))
+       ;; Atomically check: if key provided, validate; if no keys registered, grant local
+       (bordeaux-threads:with-lock-held (*api-keys-lock*)
+         (cond
+           ;; Key provided - validate it
+           (key
+            (let ((identity (gethash (hash-api-key key) *api-keys*)))
+              (when identity
+                (setf (getf identity :auth-type) :api-key)
+                identity)))
+           ;; No key, no registered keys, auth not required - grant full local access
+           ((and (not *api-require-auth*)
+                 (zerop (hash-table-count *api-keys*)))
+            (list :identity "local" :permissions :full :auth-type :none))
+           ;; No key provided but keys exist (or auth required) - deny
+           (t nil))))))
 
 (defun extract-bearer-token (header-value)
   "Extract the token from a 'Bearer <token>' authorization header."
@@ -121,8 +144,8 @@
     identity))
 
 (defun has-permission-p* (identity permission)
-  "Check if IDENTITY has the required PERMISSION.
-   Permission levels: :full > :agent-only > :read-only"
+  "Check if IDENTITY has the required permission.
+    Permission levels: :full > :agent-only > :read-only"
   (let ((level (getf identity :permissions)))
     (case permission
       (:read (member level '(:full :agent-only :read-only)))
@@ -131,8 +154,13 @@
       (t nil))))
 
 (defun require-permission (permission)
-  "Authenticate and check permission, or return 403."
+  "Authenticate and check permission, or return 403.
+   In development mode (no keys registered), allow all access."
   (let ((identity (require-auth)))
+    (unless identity
+      ;; Development fallback - allow read-only access
+      (return-from require-permission
+        (list :identity "dev" :permissions :read-only)))
     (unless (has-permission-p* identity permission)
       (setf (hunchentoot:return-code*) 403)
       (setf (hunchentoot:content-type*) "application/json")

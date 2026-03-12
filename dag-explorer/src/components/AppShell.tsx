@@ -1,4 +1,5 @@
-import { type Component, Show, lazy, Suspense, onMount, onCleanup } from "solid-js";
+import { type Component, Show, lazy, Suspense, onMount, onCleanup, createMemo } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { currentView, setCurrentView, commands, type ViewId } from "../lib/commands";
 import { agentStore } from "../stores/agents";
 import { dagStore } from "../stores/dag";
@@ -9,12 +10,25 @@ import AgentDetail from "./AgentDetail";
 import JarvisBar from "./JarvisBar";
 import CommandPalette from "./CommandPalette";
 import CreateAgentDialog from "./CreateAgentDialog";
+import Dashboard from "./Dashboard";
+import TimelineView from "./TimelineView";
+import TasksView from "./TasksView";
 
-// Lazy-load heavy views
-const Dashboard = lazy(() => import("./Dashboard"));
+// Only lazy-load the heavy DAG view (WebGL/Three.js)
 const DAGView = lazy(() => import("./DAGView"));
-const TimelineView = lazy(() => import("./TimelineView"));
-const TasksView = lazy(() => import("./TasksView"));
+
+const LazyDAG: Component = () => (
+  <Suspense fallback={<div class="view-loading">Loading DAG...</div>}>
+    <DAGView />
+  </Suspense>
+);
+
+const viewComponents: Record<ViewId, Component> = {
+  dashboard: Dashboard,
+  dag: LazyDAG,
+  timeline: TimelineView,
+  tasks: TasksView,
+};
 
 const AppShell: Component = () => {
   // Global keyboard shortcuts
@@ -66,6 +80,8 @@ const AppShell: Component = () => {
     window.removeEventListener("keydown", handleKeyDown);
   });
 
+  const activeComponent = createMemo(() => viewComponents[currentView()]);
+
   return (
     <div class="app-shell">
       <StatusBar />
@@ -77,20 +93,7 @@ const AppShell: Component = () => {
 
         {/* Main content */}
         <div class="app-content">
-          <Suspense fallback={<div class="view-loading">Loading...</div>}>
-            <Show when={currentView() === "dashboard"}>
-              <Dashboard />
-            </Show>
-            <Show when={currentView() === "dag"}>
-              <DAGView />
-            </Show>
-            <Show when={currentView() === "timeline"}>
-              <TimelineView />
-            </Show>
-            <Show when={currentView() === "tasks"}>
-              <TasksView />
-            </Show>
-          </Suspense>
+          <Dynamic component={activeComponent()} />
         </div>
 
         {/* Right panel — Agent detail */}
