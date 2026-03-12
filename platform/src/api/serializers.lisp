@@ -12,16 +12,28 @@
 
 (defun agent-to-json-plist (agent)
   "Convert an agent to a JSON-serializable plist."
-  (let ((stream (agent-thought-stream agent)))
-    (list "id" (agent-id agent)
-          "name" (agent-name agent)
-          "state" (string-downcase (symbol-name (agent-state agent)))
-          "capabilities" (mapcar (lambda (c)
-                                   (string-downcase (symbol-name c)))
-                                 (agent-capabilities agent))
-          "parent" (agent-parent agent)
-          "children" (agent-children agent)
-          "thoughtCount" (stream-length stream))))
+  (let* ((tstream (agent-thought-stream agent))
+         (base (list "id" (agent-id agent)
+                     "name" (agent-name agent)
+                     "state" (string-downcase (symbol-name (agent-state agent)))
+                     "capabilities" (or (mapcar (lambda (c)
+                                                 (string-downcase (symbol-name c)))
+                                               (agent-capabilities agent))
+                                       #())
+                     "parent" (or (agent-parent agent) 'null)
+                     "children" (or (agent-children agent) #())
+                     "thoughtCount" (stream-length tstream))))
+    ;; Add persistent agent fields if applicable
+    (when (typep agent 'autopoiesis.agent:dual-agent)
+      (let ((root (autopoiesis.agent:dual-agent-root agent)))
+        (when root
+          (nconc base
+                 (list "persistent" t
+                       "version" (autopoiesis.agent:persistent-agent-version root)
+                       "lineageHash" (autopoiesis.agent:persistent-agent-hash root)
+                       "parentRoot" (or (autopoiesis.agent:persistent-agent-parent-root root) 'null)
+                       "children" (or (autopoiesis.agent:persistent-agent-children root) #()))))))
+    base))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Thought Serialization
