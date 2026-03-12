@@ -6,7 +6,7 @@
 # Build: docker build -t autopoiesis .
 # Run:   docker run -v autopoiesis-data:/data -p 8080:8080 autopoiesis
 
-FROM clfoundation/sbcl:2.4.0
+FROM clfoundation/sbcl:latest
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y \
     libncurses-dev \
     # For cryptographic hashing (ironclad)
     libffi-dev \
+    # For Woo async HTTP server (libev backend)
+    libev-dev \
+    # For LMDB persistent substrate backend
+    liblmdb-dev \
     # Build tools and utilities
     build-essential \
     curl \
@@ -27,7 +31,7 @@ RUN apt-get update && apt-get install -y \
 
 # Setup Quicklisp
 RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
-    && sbcl --noinform --non-interactive \
+    && echo | sbcl --noinform --non-interactive \
             --load quicklisp.lisp \
             --eval "(quicklisp-quickstart:install)" \
             --eval "(ql:add-to-init-file)" \
@@ -37,26 +41,38 @@ RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
 # Create application directory
 WORKDIR /app
 
-# Copy system definition first (for better layer caching)
-COPY autopoiesis.asd .
+# Copy system definitions first (for better layer caching)
+COPY autopoiesis.asd substrate.asd ./
 
-# Pre-load dependencies (cached layer)
+# Pre-load dependencies in batches to stay within SBCL default heap
 RUN sbcl --noinform --non-interactive \
     --eval "(push #P\"/app/\" asdf:*central-registry*)" \
-    --eval "(ql:quickload '(:alexandria :bordeaux-threads :cl-json :local-time :cl-ppcre :log4cl :ironclad :flexi-streams :babel :dexador :cl-charms :hunchentoot :fiveam) :silent t)" \
+    --eval "(ql:quickload '(:alexandria :bordeaux-threads :cl-json :local-time :cl-ppcre :log4cl :ironclad :flexi-streams :babel :fset) :silent t)" \
     --eval "(quit)"
 
-# Copy source code
+RUN sbcl --noinform --non-interactive \
+    --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+    --eval "(ql:quickload '(:dexador :cl-charms :hunchentoot :fiveam :lparallel) :silent t)" \
+    --eval "(quit)"
+
+RUN sbcl --noinform --non-interactive \
+    --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+    --eval "(ql:quickload '(:clack :lack :websocket-driver :com.inuoe.jzon :cl-messagepack :lmdb) :silent t)" \
+    --eval "(quit)"
+
+# Copy source code and vendored dependencies
 COPY src/ src/
 COPY scripts/ scripts/
 COPY test/ test/
+COPY vendor/ vendor/
 
-# Load and compile the system
+# Load and compile the full system (core + API)
 RUN sbcl --noinform --non-interactive \
     --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+    --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
     --eval "(handler-case \
               (progn \
-                (ql:quickload :autopoiesis :silent t) \
+                (ql:quickload :autopoiesis/api :silent t) \
                 (format t \"~%System loaded successfully.~%\") \
                 (quit :unix-status 0)) \
               (error (e) \
@@ -70,8 +86,8 @@ ENV AUTOPOIESIS_LOG_LEVEL=info
 ENV AUTOPOIESIS_HOST=0.0.0.0
 ENV AUTOPOIESIS_PORT=8080
 
-# Create data directories
-RUN mkdir -p /data/logs /data/snapshots
+# Create data and static directories
+RUN mkdir -p /data/logs /data/snapshots /app/static
 
 # Volume for persistent data (snapshots, logs, config)
 VOLUME /data

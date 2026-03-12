@@ -193,6 +193,59 @@
                      "agentId" agent-id
                      "thoughtCount" (stream-length (agent-thought-stream agent)))))))
 
+(define-handler handle-fork-agent "fork_agent" (msg conn)
+  (declare (ignore conn))
+  (let* ((agent-id (gethash "agentId" msg))
+         (name (gethash "name" msg)))
+    (unless agent-id
+      (return-from handle-fork-agent
+        (error-response "missing_field" "fork_agent requires 'agentId'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-fork-agent
+          (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
+      ;; Check if it's a dual agent with persistent root
+      (unless (and (typep agent 'autopoiesis.agent:dual-agent)
+                   (autopoiesis.agent:dual-agent-root agent))
+        (return-from handle-fork-agent
+          (error-response "not_supported" "Agent must be upgraded to dual-agent first")))
+      (multiple-value-bind (child updated-parent)
+          (autopoiesis.agent:persistent-fork (autopoiesis.agent:dual-agent-root agent)
+                                           :name name)
+        ;; Update the agent's persistent root
+        (setf (autopoiesis.agent:dual-agent-root agent) updated-parent)
+        ;; Register the child as a new dual-agent
+        (let ((child-agent (autopoiesis.agent:make-agent
+                            :name (autopoiesis.agent:persistent-agent-name child))))
+          (autopoiesis.agent:upgrade-to-dual child-agent)
+          (setf (autopoiesis.agent:dual-agent-root child-agent) child)
+          (autopoiesis.agent:register-agent child-agent))
+        (ok-response "agent_forked"
+                     "parentId" agent-id
+                     "childId" (autopoiesis.agent:persistent-agent-id child))))))
+
+(define-handler handle-upgrade-to-dual "upgrade_to_dual" (msg conn)
+  (declare (ignore conn))
+  (let* ((agent-id (gethash "agentId" msg)))
+    (unless agent-id
+      (return-from handle-upgrade-to-dual
+        (error-response "missing_field" "upgrade_to_dual requires 'agentId'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-upgrade-to-dual
+          (error-response "not_found" (format nil "Agent not found: ~a" agent-id))))
+      (if (typep agent 'autopoiesis.agent:dual-agent)
+          (ok-response "already_dual"
+                       "agentId" agent-id
+                       "message" "Agent is already a dual-agent")
+          (let ((dual-agent (autopoiesis.agent:upgrade-to-dual agent)))
+            ;; Replace the agent in the registry
+            (autopoiesis.agent:unregister-agent agent)
+            (autopoiesis.agent:register-agent dual-agent)
+            (ok-response "agent_upgraded"
+                         "agentId" agent-id
+                         "type" "dual-agent"))))))
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Thought Handlers
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -241,7 +294,13 @@
                         (return-from handle-inject-thought
                           (error-response "invalid_type"
                                           (format nil "Unknown thought type: ~a. Valid: observation, reflection, decision, action" thought-type)))))))
-        (stream-append (agent-thought-stream agent) thought)
+        (let ((recorded-thought (stream-append (agent-thought-stream agent) thought)))
+          ;; Emit integration event for SSE broadcasting
+          (autopoiesis.integration:emit-integration-event
+           :thought-recorded :api
+           `((:agent-id . ,agent-id)
+             (:thought . ,(autopoiesis.core:thought-to-sexpr recorded-thought)))
+           :agent-id agent-id))
         (let ((thought-json (thought-to-json-plist thought)))
           ;; Push to thought subscribers (binary stream)
           (broadcast-to-agent-subscribers
