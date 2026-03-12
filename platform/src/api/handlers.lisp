@@ -126,12 +126,17 @@
 (define-handler handle-create-agent "create_agent" (msg conn)
   (declare (ignore conn))
   (let* ((name (or (gethash "name" msg) "unnamed"))
+         (raw-caps (gethash "capabilities" msg))
+         (caps-list (etypecase raw-caps
+                      (null nil)
+                      (list raw-caps)
+                      (vector (coerce raw-caps 'list))))
          (capabilities (mapcar (lambda (c)
                                  (or (find-symbol (string-upcase c) :keyword)
                                      (return-from handle-create-agent
                                        (error-response "invalid_capability"
                                                         (format nil "Unknown capability: ~a" c)))))
-                               (or (gethash "capabilities" msg) nil)))
+                               caps-list))
          (agent (make-agent :name name :capabilities capabilities)))
     (register-agent agent)
     ;; Broadcast to agent subscribers (binary stream)

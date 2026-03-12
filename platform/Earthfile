@@ -92,6 +92,6 @@ server:
         "--eval", "(push #P\"/app/\" asdf:*central-registry*)", \
         "--eval", "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)", \
         "--eval", "(ql:quickload '(:autopoiesis/api :slynk) :silent t)", \
-        "--eval", "(autopoiesis.substrate:with-store () (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (slynk:create-server :port 4005 :dont-close t) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api | Slynk port 4005~%\") (loop (sleep 60)))"]
+        "--eval", "(progn (autopoiesis.substrate:open-store) (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (slynk:create-server :port 4005 :dont-close t) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api | Slynk port 4005~%\") (loop (sleep 60)))"]
 
     SAVE IMAGE autopoiesis-server:latest

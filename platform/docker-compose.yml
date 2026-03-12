@@ -55,8 +55,8 @@ services:
       retries: 3
       start_period: 30s
 
-  # Autopoiesis HTTP server with monitoring endpoints
-  # Exposes /health, /healthz, /readyz, /metrics
+  # Autopoiesis API server with WebSocket + REST + monitoring
+  # Exposes /ws (WebSocket), /health, /api/*, /metrics
   autopoiesis-server:
     build:
       context: .
@@ -73,33 +73,35 @@ services:
       - AUTOPOIESIS_LOG_LEVEL=${LOG_LEVEL:-info}
       - AUTOPOIESIS_HOST=0.0.0.0
       - AUTOPOIESIS_PORT=8080
-      - AUTOPOIESIS_MONITORING_PORT=8081
       # Claude API configuration (optional)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     ports:
-      # Main application port
+      # API + WebSocket port
       - "${APP_PORT:-8080}:8080"
-      # Monitoring endpoints port
-      - "${MONITORING_PORT:-8081}:8081"
+      # Slynk port for SLY/Emacs connection
+      - "${SLYNK_PORT:-4005}:4005"
     networks:
       - autopoiesis-net
     restart: unless-stopped
-    # Start the monitoring server
+    # Start the full API server (WebSocket + REST)
     command: >
       sbcl --noinform
            --eval "(push #P\"/app/\" asdf:*central-registry*)"
-           --eval "(ql:quickload :autopoiesis :silent t)"
-           --eval "(in-package :autopoiesis)"
-           --eval "(autopoiesis.monitoring:start-monitoring-server :port 8081)"
-           --eval "(format t \"~%Autopoiesis server running.~%\")"
-           --eval "(format t \"Monitoring: http://0.0.0.0:8081/health~%\")"
-           --eval "(loop (sleep 60))"
+           --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)"
+           --eval "(ql:quickload :autopoiesis/api :silent t)"
+           --eval "(ql:quickload :slynk :silent t)"
+           --eval "(progn (autopoiesis.substrate:open-store)
+                     (autopoiesis.orchestration:start-system)
+                     (autopoiesis.api:start-api-server)
+                     (slynk:create-server :port 4005 :dont-close t)
+                     (format t \"~%%Ready. WebSocket on ws://0.0.0.0:8080/ws  Slynk on port 4005~%%\")
+                     (loop (sleep 60)))"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     depends_on:
       - autopoiesis
 
