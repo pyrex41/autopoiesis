@@ -35,25 +35,33 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 
 ## Architecture
 
-Layered architecture (bottom to top):
+Autopoiesis adopts a three-layer mental model to reduce cognitive load while preserving all functionality. The platform is organized into **6-7 focused core layers** that represent the unique homoiconic agent substrate, with additional powerful capabilities available as optional extensions.
+
+See `platform/docs/layers.md` for the complete layered architecture with Mermaid diagrams and detailed descriptions.
+
+### Core Platform (6–7 focused layers)
 
 1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types, value indexing, interning, LMDB persistence, blob store
 2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, persistent data structures (fset wrappers: pmap/pvec/pset), extension compiler, recovery, profiling, config
 3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes, persistent agents (O(1) fork, immutable cognition, lineage, membrane), dual-agent bridge
-4. **Workspace Layer** (`platform/src/workspace/`) - Ephemeral execution contexts, isolation backends, agent home directories, team coordination
-5. **Swarm Layer** (`platform/src/swarm/`) - Genome evolution, crossover/mutation, selection, persistent agent evolution, fitness functions
-6. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
-7. **Supervisor Layer** (`platform/src/supervisor/`) - Checkpoint/revert for high-risk ops, stable state tracking, dual-agent bridge
-8. **Crystallize Layer** (`platform/src/crystallize/`) - Emit runtime changes to source files, ASDF fragments, Git export
-9. **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
-10. **Interface Layer** (`platform/src/interface/`, `platform/src/viz/`) - Navigator, viewport, CLI session, blocking input, 2D ANSI terminal timeline
-11. **API Layer** (`platform/src/api/`) - REST, WebSocket (Clack/Woo), MCP server, SSE, JSON/MessagePack
-12. **Integration Layer** (`platform/src/integration/`, `platform/src/skel/`) - Claude bridge, MCP client, multi-provider agentic loops, skel typed LLM functions, tool mapping, event bus
-13. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue
-14. **Team Layer** (`platform/src/team/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
-15. **Jarvis Layer** (`platform/src/jarvis/`) - NL→tool conversational loop, Pi RPC provider, human-in-the-loop
-16. **Cross-cutting** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
-17. **Separate systems**: Holodeck (3D ECS viz), Sandbox (squashd containers), Research (parallel campaigns)
+4. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
+5. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue
+6. **Integration + API Layer** (`platform/src/integration/`, `platform/src/api/`) - Claude bridge, MCP client, multi-provider agentic loops, REST/WebSocket (Clack/Woo), MCP server, SSE, JSON/MessagePack
+7. **Interface Layer** (`platform/src/interface/`, `platform/src/viz/`) - Navigator, viewport, CLI session, blocking input, 2D ANSI terminal timeline
+
+### Optional Extensions
+
+Powerful capabilities that extend the core platform for specific use cases:
+
+- **Swarm Layer** (`platform/src/swarm/`) - Genome evolution, crossover/mutation, selection, persistent agent evolution, fitness functions
+- **Supervisor Layer** (`platform/src/supervisor/`) - Checkpoint/revert for high-risk ops, stable state tracking, dual-agent bridge
+- **Crystallize Layer** (`platform/src/crystallize/`) - Emit runtime changes to source files, ASDF fragments, Git export
+- **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
+- **Workspace Layer** (`platform/src/workspace/`) - Ephemeral execution contexts, isolation backends, agent home directories, team coordination
+- **Team Layer** (`platform/src/team/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
+- **Jarvis Layer** (`platform/src/jarvis/`) - NL→tool conversational loop, Pi RPC provider, human-in-the-loop
+- **Security/Monitoring** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
+- **Separate systems**: Holodeck (3D ECS viz), Sandbox (squashd containers), Research (parallel campaigns)
 
 ## Implementation Status
 
@@ -111,7 +119,7 @@ Layered architecture (bottom to top):
 - `rest-api-tests` - REST API serialization and dispatch (73 checks)
 - `swarm-tests` - Genome evolution, crossover, mutation, selection (110 checks)
 - `supervisor-tests` - Checkpoint/revert, stable state, promotion (63 checks)
-- `crystallize-tests` - Emit capabilities/heuristics/genomes to source (60 checks)
+- `crystallize-tests` - Emit capabilities/heuristics/genomes to source (66 checks)
 - `git-tools-tests` - Git read/write tool integration (38 checks)
 - `jarvis-tests` - NL dispatch, tool invocation, session management (69 checks)
 - `team-tests` - Mailbox concurrency, CV-based await, strategies, workspace coordination (30 checks)

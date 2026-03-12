@@ -424,3 +424,101 @@
 (test crystallize-genomes-empty
   "crystallize-genomes returns nil for empty list."
   (is (null (autopoiesis.crystallize:crystallize-genomes nil))))
+
+;;; ===================================================================
+;;; Trigger Condition Tests
+;;; ===================================================================
+
+(test create-performance-trigger-basic
+  "create-performance-trigger creates and registers a performance trigger."
+  (let* ((trigger (autopoiesis.crystallize:create-performance-trigger
+                   "test-trigger" "Test performance trigger"
+                   :heuristic-confidence 0.8))
+         (retrieved (autopoiesis.crystallize:get-trigger
+                     (autopoiesis.crystallize:trigger-condition-id trigger))))
+    (is (not (null trigger)))
+    (is (string= "test-trigger" (autopoiesis.crystallize:trigger-condition-name trigger)))
+    (is (eq :heuristic-confidence
+            (autopoiesis.crystallize:performance-threshold-trigger-metric-type trigger)))
+    (is (= 0.8 (autopoiesis.crystallize:performance-threshold-trigger-threshold trigger)))
+    (is (eq trigger retrieved))))
+
+(test create-scheduled-trigger-basic
+  "create-scheduled-trigger creates and registers a scheduled trigger."
+  (let* ((trigger (autopoiesis.crystallize:create-scheduled-trigger
+                   "daily-trigger" "Daily crystallization" 86400))
+         (retrieved (autopoiesis.crystallize:get-trigger
+                     (autopoiesis.crystallize:trigger-condition-id trigger))))
+    (is (not (null trigger)))
+    (is (string= "daily-trigger" (autopoiesis.crystallize:trigger-condition-name trigger)))
+    (is (= 86400 (autopoiesis.crystallize:scheduled-interval-trigger-interval-seconds trigger)))
+    (is (eq trigger retrieved))))
+
+(test trigger-registry-operations
+  "Trigger registry operations work correctly."
+  (let ((trigger1 (autopoiesis.crystallize:create-performance-trigger
+                   "trig1" "Trigger 1" :success-rate 0.9))
+        (trigger2 (autopoiesis.crystallize:create-scheduled-trigger
+                   "trig2" "Trigger 2" 3600)))
+    ;; Should have 2 triggers now (plus any existing ones from other tests)
+    (let ((all-triggers (autopoiesis.crystallize:list-triggers)))
+      (is (>= (length all-triggers) 2)))
+    ;; Unregister one
+    (autopoiesis.crystallize:unregister-trigger
+     (autopoiesis.crystallize:trigger-condition-id trigger1))
+    (is (null (autopoiesis.crystallize:get-trigger
+               (autopoiesis.crystallize:trigger-condition-id trigger1))))
+    ;; Other should still exist
+    (is (not (null (autopoiesis.crystallize:get-trigger
+                    (autopoiesis.crystallize:trigger-condition-id trigger2)))))))
+
+(test performance-trigger-evaluation
+  "Performance trigger evaluates correctly."
+  (let ((trigger (autopoiesis.crystallize:create-performance-trigger
+                  "perf-test" "Performance test trigger"
+                  :heuristic-confidence 0.5 :comparison :above)))
+    ;; Initially should not trigger (no agent data)
+    (is (null (autopoiesis.crystallize:evaluate-trigger trigger)))
+    ;; Test cooldown mechanism
+    (setf (autopoiesis.crystallize:trigger-condition-last-triggered trigger)
+          (get-universal-time))
+    ;; Should not trigger due to cooldown
+    (is (null (autopoiesis.crystallize:evaluate-trigger trigger)))))
+
+(test scheduled-trigger-evaluation
+  "Scheduled trigger evaluates correctly."
+  (let ((trigger (autopoiesis.crystallize:create-scheduled-trigger
+                  "sched-test" "Scheduled test trigger" 3600)))
+    ;; Set next trigger time to past
+    (setf (autopoiesis.crystallize:scheduled-interval-trigger-next-trigger-time trigger)
+          (- (get-universal-time) 100))
+    ;; Should trigger
+    (is (not (null (autopoiesis.crystallize:evaluate-trigger trigger))))
+    ;; Next trigger time should be updated
+    (is (> (autopoiesis.crystallize:scheduled-interval-trigger-next-trigger-time trigger)
+           (get-universal-time)))))
+
+(test trigger-serialization
+  "Triggers can be serialized to/from plists."
+  (let* ((perf-trigger (autopoiesis.crystallize:create-performance-trigger
+                        "serialize-test" "Serialization test"
+                        :success-rate 0.75 :agent-id "test-agent"))
+         (sched-trigger (autopoiesis.crystallize:create-scheduled-trigger
+                         "serialize-sched" "Scheduled serialization" 7200))
+         (perf-plist (autopoiesis.crystallize:trigger-to-plist perf-trigger))
+         (sched-plist (autopoiesis.crystallize:trigger-to-plist sched-trigger)))
+    ;; Check plist structure
+    (is (eq :performance-threshold-trigger (getf perf-plist :type)))
+    (is (= 0.75 (getf perf-plist :threshold)))
+    (is (string= "test-agent" (getf perf-plist :agent-id)))
+    (is (eq :scheduled-interval-trigger (getf sched-plist :type)))
+    (is (= 7200 (getf sched-plist :interval-seconds)))
+    ;; Reconstruct from plist
+    (let ((reconstructed-perf (autopoiesis.crystallize:plist-to-trigger perf-plist))
+          (reconstructed-sched (autopoiesis.crystallize:plist-to-trigger sched-plist)))
+      (is (not (null reconstructed-perf)))
+      (is (not (null reconstructed-sched)))
+      (is (string= "serialize-test"
+                   (autopoiesis.crystallize:trigger-condition-name reconstructed-perf)))
+      (is (string= "serialize-sched"
+                   (autopoiesis.crystallize:trigger-condition-name reconstructed-sched))))))

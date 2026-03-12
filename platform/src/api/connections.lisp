@@ -38,7 +38,11 @@ Hash table mapping subscription-type -> parameters.")
    (metadata :initarg :metadata
              :accessor connection-metadata
              :initform (make-hash-table :test 'equal)
-             :documentation "Arbitrary metadata about this connection"))
+             :documentation "Arbitrary metadata about this connection")
+   (send-lock :initarg :send-lock
+              :accessor connection-send-lock
+              :initform (bordeaux-threads:make-lock "ws-send-lock")
+              :documentation "Lock serializing WebSocket frame writes"))
   (:documentation "A connected frontend client with its WebSocket and subscriptions"))
 
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -110,23 +114,25 @@ Hash table mapping subscription-type -> parameters.")
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun send-to-connection (connection message-string)
-  "Send a JSON text frame to a specific connection (control messages)."
+  "Send a JSON text frame to a specific connection (thread-safe)."
   (handler-case
-      (ws-send-text (connection-ws connection) message-string)
+      (bordeaux-threads:with-lock-held ((connection-send-lock connection))
+        (ws-send-text (connection-ws connection) message-string))
     (error (e)
       (log:warn "Failed to send to connection ~a: ~a"
                 (connection-id connection) e)
       (unregister-connection connection))))
 
 (defun send-stream-to-connection (connection data)
-  "Send a data stream message to a connection using its preferred format.
+  "Send a data stream message to a connection using its preferred format (thread-safe).
 DATA is a hash-table or plist to be encoded."
   (handler-case
-      (ecase (connection-stream-format connection)
-        (:msgpack (ws-send-binary (connection-ws connection)
-                                  (encode-stream data)))
-        (:json (ws-send-text (connection-ws connection)
-                             (encode-control data))))
+      (bordeaux-threads:with-lock-held ((connection-send-lock connection))
+        (ecase (connection-stream-format connection)
+          (:msgpack (ws-send-binary (connection-ws connection)
+                                    (encode-stream data)))
+          (:json (ws-send-text (connection-ws connection)
+                               (encode-control data)))))
     (error (e)
       (log:warn "Failed to send stream to connection ~a: ~a"
                 (connection-id connection) e)
@@ -143,7 +149,8 @@ DATA is a hash-table or plist to be encoded."
         (dead nil))
     (dolist (conn targets)
       (handler-case
-          (ws-send-text (connection-ws conn) message-string)
+          (bordeaux-threads:with-lock-held ((connection-send-lock conn))
+            (ws-send-text (connection-ws conn) message-string))
         (error (e)
           (log:warn "Broadcast send failed for ~a: ~a"
                     (connection-id conn) e)
@@ -168,15 +175,16 @@ DATA is a hash-table or plist to be encoded per-connection."
             (json-string nil))
         (dolist (conn targets)
           (handler-case
-              (ecase (connection-stream-format conn)
-                (:msgpack
-                 (unless msgpack-bytes
-                   (setf msgpack-bytes (encode-stream data)))
-                 (ws-send-binary (connection-ws conn) msgpack-bytes))
-                (:json
-                 (unless json-string
-                   (setf json-string (encode-control data)))
-                 (ws-send-text (connection-ws conn) json-string)))
+              (bordeaux-threads:with-lock-held ((connection-send-lock conn))
+                (ecase (connection-stream-format conn)
+                  (:msgpack
+                   (unless msgpack-bytes
+                     (setf msgpack-bytes (encode-stream data)))
+                   (ws-send-binary (connection-ws conn) msgpack-bytes))
+                  (:json
+                   (unless json-string
+                     (setf json-string (encode-control data)))
+                   (ws-send-text (connection-ws conn) json-string))))
             (error (e)
               (log:warn "Stream broadcast failed for ~a: ~a"
                         (connection-id conn) e)

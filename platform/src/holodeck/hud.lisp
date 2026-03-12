@@ -151,7 +151,15 @@
                                         "[[ ]] Step"
                                         "[F] Fork"
                                         "[Enter] Interact"
+                                        "[T] Chat"
                                         "[?] Help")))
+    ;; Chat panel (bottom-left, hidden until 't' activates)
+    (setf (hud-panel hud :chat)
+          (make-instance 'hud-panel
+                         :x 20 :y (- window-height 280)
+                         :width 400 :height 190
+                         :title "CHAT"
+                         :visible-p nil))
     hud))
 
 ;;; ===================================================================
@@ -847,3 +855,21 @@
                           (genome-state-capability-count entity-id))
                   (format nil "Phase: ~A"
                           (cognitive-state-phase entity-id)))))))
+
+;;; ===================================================================
+;;; Chat Panel
+;;; ===================================================================
+
+(defun update-chat-panel (hud messages input chat-mode-p)
+  "Update the :chat HUD panel with chat messages and input state.
+   MESSAGES is a list of (sender . text) cons pairs.
+   INPUT is the current input string.
+   CHAT-MODE-P controls whether the input cursor is shown."
+  (let ((panel (hud-panel hud :chat)))
+    (when panel
+      (setf (panel-content panel)
+            (append
+             (mapcar (lambda (m) (format nil "~a: ~a" (car m) (cdr m)))
+                     (last messages 7))
+             (when chat-mode-p
+               (list (format nil "> ~a_" input))))))))

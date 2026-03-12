@@ -30,6 +30,7 @@
     :provider-session-started  ; Provider streaming session started
     :provider-session-ended    ; Provider streaming session ended
     :provider-error       ; Error from CLI provider
+    :thought-recorded     ; A thought was recorded in an agent's stream
     ;; Team coordination events
     :team-created         ; A new team was created
     :team-started         ; Team began active work

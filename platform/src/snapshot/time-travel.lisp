@@ -186,9 +186,31 @@
 
 (defun find-snapshots-between (start-id end-id &optional (store *snapshot-store*))
   "Find all snapshots on the path between START-ID and END-ID (exclusive).
-   Returns a list of snapshot objects."
+    Returns a list of snapshot objects."
   (let ((path (find-path start-id end-id store)))
     (when (and path (> (length path) 2))
       ;; Remove first and last, load the rest
       (mapcar (lambda (id) (load-snapshot id store))
               (butlast (rest path))))))
+
+(defun find-snapshots-since (since-timestamp &optional (store *snapshot-store*))
+  "Find all snapshots with timestamp >= SINCE-TIMESTAMP.
+    Returns a list of snapshot objects."
+  (unless store
+    (return-from find-snapshots-since nil))
+  (let ((result nil)
+        (snapshot-eids (autopoiesis.substrate:find-entities :type :snapshot)))
+    (dolist (eid snapshot-eids)
+      (let ((state (autopoiesis.substrate:entity-state eid store)))
+        (when state
+          (let ((timestamp (getf state :timestamp)))
+            (when (and timestamp (>= timestamp since-timestamp))
+              ;; Construct snapshot from state
+              (let ((snapshot (make-instance 'snapshot
+                                             :id (getf state :id)
+                                             :timestamp timestamp
+                                             :parent (getf state :parent)
+                                             :agent-state (getf state :agent-state)
+                                             :metadata (getf state :metadata))))
+                (push snapshot result)))))))
+    (nreverse result)))

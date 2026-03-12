@@ -92,3 +92,28 @@ export interface SelectionState {
   secondary: string | null;
   highlighted: Set<string>;
 }
+
+// ── Task types ──────────────────────────────────────────────────────
+
+export type TaskStatus = "pending" | "in-progress" | "done" | "blocked" | "cancelled";
+export type TaskPriority = "low" | "medium" | "high";
+export type TaskAgentType = "builder" | "fast-builder";
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  complexity: number;
+  priority: TaskPriority;
+  agent_type: TaskAgentType;
+  dependencies: string[];
+  subtasks?: string[];
+  parent_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskUpdate {
+  status: TaskStatus;
+}

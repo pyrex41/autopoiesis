@@ -1,4 +1,4 @@
-import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent } from "./types";
+import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent, Task, TaskUpdate } from "./types";
 
 const BASE = "/api";
 
@@ -124,4 +124,18 @@ export interface SystemInfo {
 
 export async function getSystemInfo(): Promise<SystemInfo> {
   return get<SystemInfo>("/system");
+}
+
+// ── Task endpoints ──────────────────────────────────────────────────
+
+export async function listTasks(): Promise<Task[]> {
+  return get<Task[]>("/tasks");
+}
+
+export async function getTask(id: string): Promise<Task> {
+  return get<Task>(`/tasks/${id}`);
+}
+
+export async function updateTaskStatus(id: string, update: TaskUpdate): Promise<{ message: string; taskId: string }> {
+  return post<{ message: string; taskId: string }>(`/tasks/${id}/status`, update);
 }

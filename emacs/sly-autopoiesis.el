@@ -47,6 +47,7 @@
     (define-key map (kbd "C-c a s") #'sly-autopoiesis-system-status)
     (define-key map (kbd "C-c a c") #'sly-autopoiesis-chat)
     (define-key map (kbd "C-c x E") #'sly-autopoiesis-toggle-event-bridge)
+    (define-key map (kbd "C-c x n") #'sly-autopoiesis-snapshot-browser)
     map)
   "Keymap for `sly-autopoiesis-mode'.")
 
@@ -475,6 +476,123 @@ AGENT-ID is a string, THOUGHT-ALIST has :type, :content, :timestamp."
             (lambda (_) (message "Event bridge stopped")))
         (sly-eval-async '(slynk-autopoiesis:start-emacs-event-bridge)
           (lambda (_) (message "Event bridge started")))))))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Snapshot Browser
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defvar sly-autopoiesis-snapshot-browser-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'sly-autopoiesis-snapshot-detail-at-point)
+    (define-key map (kbd "d") #'sly-autopoiesis-snapshot-diff-at-point)
+    (define-key map (kbd "g") #'sly-autopoiesis--refresh-snapshots)
+    (define-key map (kbd "q") #'quit-window)
+    map))
+
+(define-derived-mode sly-autopoiesis-snapshot-browser-mode tabulated-list-mode
+  "AP-Snapshots"
+  "Major mode for browsing Autopoiesis snapshots."
+  (setq tabulated-list-format
+        [("ID" 40 t)
+         ("Timestamp" 24 t)
+         ("Parent" 40 t)
+         ("Hash" 16 t)])
+  (tabulated-list-init-header)
+  (use-local-map (make-composed-keymap sly-autopoiesis-snapshot-browser-mode-map
+                                        tabulated-list-mode-map)))
+
+(defun sly-autopoiesis--snapshot-list-entries (snapshots)
+  "Convert SNAPSHOTS alists to tabulated-list entries."
+  (mapcar (lambda (snap)
+            (let ((id (cdr (assq :id snap)))
+                  (ts (cdr (assq :timestamp snap)))
+                  (parent (cdr (assq :parent snap)))
+                  (hash (cdr (assq :hash snap))))
+              (list id (vector (or id "?")
+                               (or ts "")
+                               (or parent "")
+                               (or (when hash (substring hash 0 (min 16 (length hash)))) "")))))
+          snapshots))
+
+(defun sly-autopoiesis--refresh-snapshots ()
+  "Refresh the snapshot browser buffer."
+  (interactive)
+  (sly-eval-async '(slynk-autopoiesis:list-snapshots 100)
+    (lambda (snapshots)
+      (when-let ((buf (get-buffer "*autopoiesis-snapshots*")))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (let ((inhibit-read-only t))
+              (setq tabulated-list-entries
+                    (sly-autopoiesis--snapshot-list-entries snapshots))
+              (tabulated-list-print t))))))))
+
+;;;###autoload
+(defun sly-autopoiesis-snapshot-browser ()
+  "Open the Autopoiesis snapshot browser."
+  (interactive)
+  (sly-eval-async '(slynk-autopoiesis:list-snapshots 100)
+    (lambda (snapshots)
+      (let ((buf (get-buffer-create "*autopoiesis-snapshots*")))
+        (with-current-buffer buf
+          (sly-autopoiesis-snapshot-browser-mode)
+          (setq tabulated-list-entries
+                (sly-autopoiesis--snapshot-list-entries snapshots))
+          (tabulated-list-print t))
+        (pop-to-buffer buf)))))
+
+(defun sly-autopoiesis-snapshot-detail-at-point ()
+  "Show detail for the snapshot at point."
+  (interactive)
+  (let ((snapshot-id (tabulated-list-get-id)))
+    (unless snapshot-id (user-error "No snapshot at point"))
+    (sly-eval-async `(slynk-autopoiesis:get-snapshot-detail ,snapshot-id)
+      (lambda (info)
+        (let ((buf (get-buffer-create
+                    (format "*autopoiesis-snapshot: %s*"
+                            (truncate-string-to-width (or (plist-get info :id) "?") 20)))))
+          (with-current-buffer buf
+            (let ((inhibit-read-only t))
+              (erase-buffer)
+              (special-mode)
+              (insert (propertize "Snapshot Detail\n\n" 'face 'bold))
+              (insert (format "ID:        %s\n" (or (plist-get info :id) "?")))
+              (insert (format "Timestamp: %s\n" (or (plist-get info :timestamp) "?")))
+              (insert (format "Parent:    %s\n" (or (plist-get info :parent) "none")))
+              (insert (format "Hash:      %s\n" (or (plist-get info :hash) "")))
+              (insert (format "Metadata:  %s\n\n" (or (plist-get info :metadata) "")))
+              (insert (propertize "Agent State:\n" 'face 'bold))
+              (insert (or (plist-get info :agent-state) "(empty)"))
+              (insert "\n\n[d] diff with parent  [q] quit\n")
+              (goto-char (point-min))))
+          (pop-to-buffer buf))))))
+
+(defun sly-autopoiesis-snapshot-diff-at-point ()
+  "Show diff between snapshot at point and its parent."
+  (interactive)
+  (let ((snapshot-id (tabulated-list-get-id)))
+    (unless snapshot-id (user-error "No snapshot at point"))
+    ;; First get the snapshot detail to find its parent
+    (sly-eval-async `(slynk-autopoiesis:get-snapshot-detail ,snapshot-id)
+      (lambda (info)
+        (let ((parent (plist-get info :parent)))
+          (if (or (null parent) (equal parent "none") (equal parent ""))
+              (message "Snapshot has no parent to diff against")
+            (sly-eval-async `(slynk-autopoiesis:snapshot-diff-report ,parent ,snapshot-id)
+              (lambda (diff-text)
+                (let ((buf (get-buffer-create "*autopoiesis-diff*")))
+                  (with-current-buffer buf
+                    (let ((inhibit-read-only t))
+                      (erase-buffer)
+                      (special-mode)
+                      (insert (propertize (format "Diff: %s → %s\n\n"
+                                                  (truncate-string-to-width parent 20)
+                                                  (truncate-string-to-width snapshot-id 20))
+                                          'face 'bold))
+                      (insert (or diff-text "(no differences)"))
+                      (insert "\n\n[q] quit\n")
+                      (goto-char (point-min))))
+                  (pop-to-buffer buf))))))))))
 
 ;;;; ────────────────────────────────────────────────────────────────────
 ;;;; Slynk load path

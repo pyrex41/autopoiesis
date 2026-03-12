@@ -1,5 +1,6 @@
 import { type Component, Show } from "solid-js";
 import { dagStore } from "../stores/dag";
+import { taskStore } from "../stores/tasks";
 import { fitToView } from "../graph/globals";
 import type { ColorScheme, LayoutDirection } from "../api/types";
 
@@ -95,6 +96,15 @@ const Toolbar: Component = () => {
           Fit
         </button>
 
+        <button
+          class="btn-toolbar"
+          classList={{ active: dagStore.viewMode() === "3d" }}
+          onClick={() => dagStore.setViewMode(dagStore.viewMode() === "2d" ? "3d" : "2d")}
+          title="Toggle 2D/3D view"
+        >
+          {dagStore.viewMode() === "2d" ? "2D" : "3D"}
+        </button>
+
         <div class="toolbar-sep" />
 
         <div class="toolbar-stats">
@@ -116,6 +126,15 @@ const Toolbar: Component = () => {
             {dagStore.searchResults()!.length} hits
           </span>
         </Show>
+
+        <button
+          class="btn-toolbar"
+          classList={{ active: taskStore.showTaskScheduler() }}
+          onClick={() => taskStore.setShowTaskScheduler(!taskStore.showTaskScheduler())}
+          title="Task scheduler"
+        >
+          📋 Tasks
+        </button>
 
         <button
           class="btn-toolbar"

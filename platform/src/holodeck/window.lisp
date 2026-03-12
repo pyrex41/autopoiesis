@@ -73,7 +73,16 @@
    (camera-input-handler :initarg :camera-input-handler
                          :accessor holodeck-camera-input-handler
                          :initform nil
-                         :documentation "Camera input handler for mouse/scroll."))
+                         :documentation "Camera input handler for mouse/scroll.")
+   (chat-mode-p :initform nil
+                :accessor holodeck-chat-mode-p
+                :documentation "Whether the holodeck is in chat input mode.")
+   (chat-input :initform ""
+               :accessor holodeck-chat-input
+               :documentation "Current chat input string.")
+   (chat-messages :initform nil
+                  :accessor holodeck-chat-messages
+                  :documentation "List of (sender . text) cons pairs for chat history."))
   (:documentation
    "Main window class for the 3D holodeck visualization.
     Manages the rendering context, scene graph, camera, HUD, and input handlers.
@@ -179,6 +188,10 @@
   (register-camera-action-handlers
    (handler-registry (holodeck-keyboard-handler window))
    (holodeck-camera window))
+  ;; Register additional action handlers
+  (register-holodeck-action-handlers
+   (handler-registry (holodeck-keyboard-handler window))
+   window)
   ;; Initialize camera input handler attached to the camera
   (unless (holodeck-camera-input-handler window)
     (setf (holodeck-camera-input-handler window)
@@ -209,6 +222,60 @@
   "Default render: no-op without a rendering backend."
   (declare (ignore dt))
   nil)
+
+;;; ===================================================================
+;;; Additional Action Handlers
+;;; ===================================================================
+
+(defgeneric register-holodeck-action-handlers (registry window)
+  (:documentation "Register action handlers for holodeck-specific actions."))
+
+(defmethod register-holodeck-action-handlers ((registry key-binding-registry) (window holodeck-window))
+  "Register handlers for holodeck-specific actions."
+  ;; Camera mode switching
+  (register-action-handler registry :switch-camera-mode
+    (lambda ()
+      (switch-camera-mode window)))
+  ;; 2D/3D view mode toggle
+  (register-action-handler registry :toggle-2d-3d
+    (lambda ()
+      (toggle-2d-3d-mode window))))
+
+(defgeneric switch-camera-mode (window)
+  (:documentation "Switch between orbit and fly camera modes."))
+
+(defmethod switch-camera-mode ((window holodeck-window))
+  "Switch the camera mode between orbit and fly."
+  (let ((current-camera (holodeck-camera window))
+        (registry (handler-registry (holodeck-keyboard-handler window))))
+    (cond
+      ((typep current-camera 'orbit-camera)
+       ;; Switch to fly camera
+       (let ((fly-cam (make-fly-camera)))
+         (setf (holodeck-camera window) fly-cam)
+         ;; Update camera input handler
+         (when (holodeck-camera-input-handler window)
+           (setf (camera-input-handler-camera (holodeck-camera-input-handler window)) fly-cam))
+         ;; Re-register camera action handlers
+         (register-camera-action-handlers registry fly-cam)))
+      ((typep current-camera 'fly-camera)
+       ;; Switch to orbit camera
+       (let ((orbit-cam (make-orbit-camera)))
+         (setf (holodeck-camera window) orbit-cam)
+         ;; Update camera input handler
+         (when (holodeck-camera-input-handler window)
+           (setf (camera-input-handler-camera (holodeck-camera-input-handler window)) orbit-cam))
+         ;; Re-register camera action handlers
+         (register-camera-action-handlers registry orbit-cam))))))
+
+(defgeneric toggle-2d-3d-mode (window)
+  (:documentation "Toggle between 2D and 3D view modes."))
+
+(defmethod toggle-2d-3d-mode ((window holodeck-window))
+  "Toggle the view mode between 2D and 3D."
+  (if (eq *view-mode* :2d)
+      (set-view-mode :3d)
+      (set-view-mode :2d)))
 
 (defmethod handle-holodeck-event ((window holodeck-window) event)
   "Dispatch EVENT to the appropriate input handler based on event type.
@@ -518,6 +585,15 @@ void main() {
 (defvar *last-frame-time* 0.0
   "Timestamp of the last frame for delta time calculation.")
 
+(defvar *snapshot-sync-interval* 0.5
+  "Minimum interval between snapshot sync operations in seconds.")
+
+(defvar *last-snapshot-sync-time* 0.0
+  "Timestamp of the last snapshot sync operation.")
+
+(defvar *last-snapshot-timestamp* 0.0
+  "Timestamp of the most recent snapshot synced.")
+
 (defgeneric holodeck-frame (window dt)
   (:documentation "Execute one frame of the holodeck render loop.
     DT is the delta time in seconds since the last frame.
@@ -551,13 +627,16 @@ void main() {
     ;; 3. Run ECS systems
     (holodeck-update window dt-f)
 
-    ;; 3b. Run persistent agent systems
-    (persistent-sync-system dt-f)
-    (cognitive-animation-system dt-f)
-    (metabolic-glow-system dt-f)
-    (lineage-rendering-system dt-f)
+     ;; 3b. Run persistent agent systems
+     (persistent-sync-system dt-f)
+     (cognitive-animation-system dt-f)
+     (metabolic-glow-system dt-f)
+     (lineage-rendering-system dt-f)
 
-    ;; 4. Collect snapshot entity render descriptions
+     ;; 3c. Sync snapshots for real-time updates
+     (sync-snapshots window)
+
+     ;; 4. Collect snapshot entity render descriptions
     (let ((snapshot-descs (collect-snapshot-render-descriptions)))
       
       ;; 5. Collect connection render descriptions
@@ -999,6 +1078,18 @@ void main() {
 (defun sync-live-agents-count ()
   "Return the number of agent entities currently being tracked."
   (hash-table-count *agent-entity-map*))
+
+(defun sync-snapshots (window)
+  "Synchronize snapshot entities with the substrate store."
+  (when (> (- *elapsed-time* *last-snapshot-sync-time*) *snapshot-sync-interval*)
+    (setf *last-snapshot-sync-time* *elapsed-time*)
+    (let ((store (holodeck-store window)))
+      (when store
+        (let ((new-snapshots (autopoiesis.snapshot:find-snapshots-since *last-snapshot-timestamp* store)))
+          (dolist (snapshot new-snapshots)
+            (let ((entity (make-snapshot-entity snapshot)))
+              (setf *last-snapshot-timestamp*
+                    (max *last-snapshot-timestamp* (snapshot-timestamp snapshot))))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Aspect Ratio and Projection Helpers

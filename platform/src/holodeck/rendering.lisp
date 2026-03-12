@@ -62,12 +62,12 @@
 
 (defun render-snapshot-entity (entity)
   "Produce a render description plist for a snapshot ENTITY.
-   Uses the entity's detail-level, visual-style, snapshot-binding,
-   position3d, scale3d, rotation3d, and node-label components to
-   determine what and how to render.
+    Uses the entity's detail-level, visual-style, snapshot-binding,
+    position3d, scale3d, rotation3d, and node-label components to
+    determine what and how to render.
 
-   Returns a property list suitable for passing to a rendering backend,
-   or NIL if the entity is culled (not visible)."
+    Returns a property list suitable for passing to a rendering backend,
+    or NIL if the entity is culled (not visible)."
   (let ((detail (detail-level-current entity)))
     ;; Culled entities produce no render description
     (when (eq detail :culled)
@@ -113,6 +113,11 @@
         ;; Also reduce glow intensity in the material
         (setf (material-glow-intensity material)
               (* (material-glow-intensity material) 0.3)))
+      ;; Apply view mode transformations
+      (when (view-mode-2d-p)
+        (setf py (flatten-y-coordinate py))
+        ;; In 2D mode, make nodes flatter
+        (setf sy (* sy 0.3)))
       (list :entity entity
             :visible-p t
             :position (list px py pz)
@@ -257,34 +262,38 @@
     ;; If either endpoint is invalid, don't render
     (when (or (< from-id 0) (< to-id 0))
       (return-from render-connection-entity nil))
-    (let* (;; Read positions from the endpoint entities
-           (from-x (position3d-x from-id))
-           (from-y (position3d-y from-id))
-           (from-z (position3d-z from-id))
-           (to-x (position3d-x to-id))
-           (to-y (position3d-y to-id))
-           (to-z (position3d-z to-id))
-           ;; Midpoint for the connection's own position
-           (mid-x (* 0.5 (+ from-x to-x)))
-           (mid-y (* 0.5 (+ from-y to-y)))
-           (mid-z (* 0.5 (+ from-z to-z)))
-           ;; Select energy beam material based on connection kind
-           (material (make-energy-beam-material-for-connection-type kind))
-           ;; Base color from material
-           (beam-color (beam-material-color material))
-           (color-r (coerce (first beam-color) 'single-float))
-           (color-g (coerce (second beam-color) 'single-float))
-           (color-b (coerce (third beam-color) 'single-float))
-           (color-a (coerce (fourth beam-color) 'single-float))
-           ;; Compute energy flow at midpoint for preview/CPU rendering
-           (energy-flow (compute-energy-flow
-                         0.5 time
-                         (beam-material-flow-speed material)
-                         (beam-material-flow-scale material))))
-      ;; Update the connection entity's own position to the midpoint
-      (setf (position3d-x entity) (coerce mid-x 'single-float))
-      (setf (position3d-y entity) (coerce mid-y 'single-float))
-      (setf (position3d-z entity) (coerce mid-z 'single-float))
+     (let* (;; Read positions from the endpoint entities
+            (from-x (position3d-x from-id))
+            (from-y (position3d-y from-id))
+            (from-z (position3d-z from-id))
+            (to-x (position3d-x to-id))
+            (to-y (position3d-y to-id))
+            (to-z (position3d-z to-id)))
+       ;; Apply view mode transformations
+       (when (view-mode-2d-p)
+         (setf from-y (flatten-y-coordinate from-y))
+         (setf to-y (flatten-y-coordinate to-y)))
+       (let* (;; Midpoint for the connection's own position
+              (mid-x (* 0.5 (+ from-x to-x)))
+              (mid-y (* 0.5 (+ from-y to-y)))
+              (mid-z (* 0.5 (+ from-z to-z)))
+              ;; Select energy beam material based on connection kind
+              (material (make-energy-beam-material-for-connection-type kind))
+              ;; Base color from material
+              (beam-color (beam-material-color material))
+              (color-r (coerce (first beam-color) 'single-float))
+              (color-g (coerce (second beam-color) 'single-float))
+              (color-b (coerce (third beam-color) 'single-float))
+              (color-a (coerce (fourth beam-color) 'single-float))
+              ;; Compute energy flow at midpoint for preview/CPU rendering
+              (energy-flow (compute-energy-flow
+                            0.5 time
+                            (beam-material-flow-speed material)
+                            (beam-material-flow-scale material))))
+         ;; Update the connection entity's own position to the midpoint
+         (setf (position3d-x entity) (coerce mid-x 'single-float))
+         (setf (position3d-y entity) (coerce mid-y 'single-float))
+         (setf (position3d-z entity) (coerce mid-z 'single-float))
       (list :entity entity
             :visible-p t
             :from-position (list from-x from-y from-z)

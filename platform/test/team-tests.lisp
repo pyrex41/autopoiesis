@@ -326,7 +326,8 @@
 
 (test strategy-make-all-types
   "Test that all strategy types can be instantiated"
-  (dolist (type '(:leader-worker :parallel :pipeline :debate :consensus))
+  (dolist (type '(:leader-worker :parallel :pipeline :debate :consensus
+                  :hierarchical-leader-worker :leader-parallel :rotating-leader :debate-consensus))
     (let ((s (autopoiesis.team:make-strategy type)))
       (is (not (null s))
           (format nil "Strategy ~A should be creatable" type)))))
@@ -392,6 +393,76 @@
     (let ((votes (autopoiesis.team::consensus-votes strategy)))
       (is (= 1 (length votes)))
       (is (= 2 (length (cdr (first votes))))))))
+
+(test hierarchical-leader-worker-initialization
+  "Test hierarchical leader-worker strategy initialization"
+  (let ((strategy (autopoiesis.team:make-strategy :hierarchical-leader-worker)))
+    (is (= 2 (autopoiesis.team::hlw-hierarchy-levels strategy)))
+    (is (= 0 (autopoiesis.team::hlw-current-level strategy)))))
+
+(test hierarchical-leader-worker-decomposition
+  "Test hierarchical decomposition recording"
+  (let ((strategy (autopoiesis.team:make-strategy :hierarchical-leader-worker)))
+    (autopoiesis.team::record-hierarchical-decomposition strategy "task-1" '("sub-1" "sub-2"))
+    (let ((mappings (autopoiesis.team::hlw-subtask-mappings strategy)))
+      (is (= 1 (length mappings)))
+      (is (equal '("sub-1" "sub-2") (cdr (first mappings)))))))
+
+(test leader-parallel-decomposition
+  "Test leader-parallel task decomposition"
+  (let ((strategy (autopoiesis.team:make-strategy :leader-parallel)))
+    (autopoiesis.team::record-task-decomposition strategy '("subtask-a" "subtask-b"))
+    (is (equal '("subtask-a" "subtask-b") (autopoiesis.team::lp-subtasks strategy)))))
+
+(test leader-parallel-result-collection
+  "Test leader-parallel result synthesis"
+  (let ((strategy (autopoiesis.team:make-strategy :leader-parallel)))
+    (autopoiesis.team::record-task-decomposition strategy '("task-1" "task-2"))
+    (autopoiesis.team::record-subtask-result strategy "task-1" "result-1")
+    (autopoiesis.team::record-subtask-result strategy "task-2" "result-2")
+    (let ((results (autopoiesis.team::lp-results-collected strategy)))
+      (is (= 2 (length results))))))
+
+(test rotating-leader-rotation
+  "Test rotating leader selection"
+  (let ((strategy (autopoiesis.team:make-strategy :rotating-leader)))
+    (is (= 0 (autopoiesis.team::rl-current-leader-index strategy)))
+    (autopoiesis.team::rotate-leadership strategy (make-instance 'autopoiesis.team:team))
+    (is (= 1 (autopoiesis.team::rl-current-leader-index strategy)))))
+
+(test rotating-leader-performance-tracking
+  "Test rotating leader performance scoring"
+  (let ((strategy (autopoiesis.team:make-strategy :rotating-leader)))
+    (autopoiesis.team::record-leader-performance strategy "agent-1" t)  ;; success
+    (autopoiesis.team::record-leader-performance strategy "agent-1" nil) ;; failure
+    (let ((scores (autopoiesis.team::rl-performance-scores strategy)))
+      (let ((agent-score (cdr (assoc "agent-1" scores :test #'equal))))
+        (is (> agent-score 0.0))))))
+
+(test debate-consensus-phase-transition
+  "Test debate-consensus phase transitions"
+  (let ((strategy (autopoiesis.team:make-strategy :debate-consensus)))
+    (is (eq :debate (autopoiesis.team::dc-current-phase strategy)))
+    (autopoiesis.team::transition-to-consensus strategy)
+    (is (eq :consensus (autopoiesis.team::dc-current-phase strategy)))))
+
+(test debate-consensus-argument-recording
+  "Test debate argument recording"
+  (let ((strategy (autopoiesis.team:make-strategy :debate-consensus)))
+    (autopoiesis.team::record-debate-argument strategy "agent-1" "arg-1")
+    (autopoiesis.team::record-debate-argument strategy "agent-2" "arg-2")
+    (let ((args (autopoiesis.team::dc-debate-arguments strategy)))
+      (is (= 2 (length args))))))
+
+(test debate-consensus-consensus-reached
+  "Test consensus threshold detection"
+  (let ((strategy (autopoiesis.team:make-strategy :debate-consensus)))
+    (autopoiesis.team::transition-to-consensus strategy)
+    (autopoiesis.team::record-consensus-vote strategy "agent-1" :approve)
+    (autopoiesis.team::record-consensus-vote strategy "agent-2" :approve)
+    (let ((team (make-instance 'autopoiesis.team:team)))
+      (setf (autopoiesis.team:team-members team) '("agent-1" "agent-2"))
+      (is (autopoiesis.team::consensus-reached-p strategy team)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Team Capability Tests

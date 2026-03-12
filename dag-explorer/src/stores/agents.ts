@@ -178,49 +178,53 @@ function sendChatMessage(content: string) {
 // Handle incoming WS messages
 function handleWSMessage(msg: ServerMessage) {
   switch (msg.type) {
-    // Fix 6: Handle agent_created broadcast
+    // Backend sends flat top-level fields (no `data` wrapper)
     case "agent_created": {
-      const agent = msg.data as Agent;
-      setAgents((prev) => [...prev, agent]);
+      const agent = msg.agent as Agent;
+      if (agent) setAgents((prev) => [...prev, agent]);
       break;
     }
 
-    case "agent_list":
-    case "agents_updated":
-      if (Array.isArray(msg.data)) {
-        setAgents(msg.data as Agent[]);
+    case "agents":
+    case "agents_updated": {
+      const agents = msg.agents;
+      if (Array.isArray(agents)) {
+        setAgents(agents as Agent[]);
       } else {
         loadAgents();
       }
       break;
+    }
 
     case "thought_added": {
-      const thought = msg.data as Thought;
-      setThoughts((prev) => [...prev.slice(-499), thought]);
+      const thought = msg.thought as Thought;
+      if (thought) setThoughts((prev) => [...prev.slice(-499), thought]);
       break;
     }
 
     case "agent_state_changed": {
-      const update = msg.data as { agentId: string; state: string };
-      setAgents((prev) =>
-        prev.map((a) => (a.id === update.agentId ? { ...a, state: update.state } : a))
-      );
+      const agentId = msg.agentId as string;
+      const state = msg.state as string;
+      if (agentId && state) {
+        setAgents((prev) =>
+          prev.map((a) => (a.id === agentId ? { ...a, state } : a))
+        );
+      }
       break;
     }
 
     case "event": {
-      const event = msg.data as IntegrationEvent;
+      const event = msg as unknown as IntegrationEvent;
       setEvents((prev) => [...prev.slice(-199), event]);
       break;
     }
 
-    // Fix 5: Backend sends "text", not "content"
     case "chat_response": {
-      const data = msg.data as { text: string; agentId: string };
+      const text = msg.text as string;
       const reply: ChatMessage = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         sender: "jarvis",
-        content: data.text,
+        content: text ?? "",
         timestamp: Date.now(),
       };
       setChatMessages((prev) => [...prev, reply]);

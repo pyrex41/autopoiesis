@@ -295,6 +295,72 @@
     (cl-fast-ecs:run-systems)
     (is (eq :low (detail-level-current e)))))
 
+(test force-directed-layout-basic
+  "Test that force-directed layout applies repulsive forces between nodes."
+  (init-holodeck-storage)
+  (let ((*repulsion-constant* 100.0)
+        (*repulsion-min-distance* 1.0)
+        (*delta-time* 0.016)
+        (e1 (cl-fast-ecs:make-entity))
+        (e2 (cl-fast-ecs:make-entity)))
+    ;; Create two entities close together
+    (make-position3d e1 :x 0.0 :y 0.0 :z 0.0)
+    (make-velocity3d e1)
+    (make-force-directed-body e1)
+    (make-scale3d e1)
+    (make-visual-style e1)
+    (make-detail-level e1)
+
+    (make-position3d e2 :x 2.0 :y 0.0 :z 0.0)
+    (make-velocity3d e2)
+    (make-force-directed-body e2)
+    (make-scale3d e2)
+    (make-visual-style e2)
+    (make-detail-level e2)
+
+    ;; Run force-directed layout system
+    (cl-fast-ecs:run-systems)
+
+    ;; Both entities should have moved away from each other
+    ;; e1 at (0,0,0) and e2 at (2,0,0) should both move away from center
+    (is (< (position3d-x e1) -0.1))  ;; e1 should move left
+    (is (> (position3d-x e2) 2.1)))) ;; e2 should move right
+
+(test force-directed-layout-2d-mode
+  "Test that force-directed layout respects 2D mode (no Y forces)."
+  (init-holodeck-storage)
+  (set-view-mode :2d)
+  (let ((*repulsion-constant* 100.0)
+        (*repulsion-min-distance* 1.0)
+        (*delta-time* 0.016)
+        (e1 (cl-fast-ecs:make-entity))
+        (e2 (cl-fast-ecs:make-entity)))
+    ;; Create two entities close together
+    (make-position3d e1 :x 0.0 :y 5.0 :z 0.0)
+    (make-velocity3d e1)
+    (make-force-directed-body e1)
+    (make-scale3d e1)
+    (make-visual-style e1)
+    (make-detail-level e1)
+
+    (make-position3d e2 :x 2.0 :y 5.0 :z 0.0)
+    (make-velocity3d e2)
+    (make-force-directed-body e2)
+    (make-scale3d e2)
+    (make-visual-style e2)
+    (make-detail-level e2)
+
+    ;; Run force-directed layout system
+    (cl-fast-ecs:run-systems)
+
+    ;; In 2D mode, Y positions should be flattened and not change
+    (is (< (abs (position3d-y e1)) 0.1))  ;; Y should be flattened to near 0
+    (is (< (abs (position3d-y e2)) 0.1))  ;; Y should be flattened to near 0
+    ;; But X and Z should still have forces applied
+    (is (< (position3d-x e1) -0.1))  ;; e1 should move left
+    (is (> (position3d-x e2) 2.1)))   ;; e2 should move right
+  (set-view-mode :3d))  ;; Reset to 3D for other tests
+
 (test lod-system-sets-culled-when-far
   "Test that LOD system sets :culled for far entities."
   (init-holodeck-storage)

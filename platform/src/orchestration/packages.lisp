@@ -7,7 +7,7 @@
 (in-package #:cl-user)
 
 (defpackage #:autopoiesis.orchestration
-  (:use #:cl #:alexandria #:autopoiesis.substrate #:autopoiesis.agent))
+  (:use #:cl #:alexandria #:autopoiesis.substrate #:autopoiesis.agent)
   (:export
    ;; Conductor lifecycle
    #:*conductor*

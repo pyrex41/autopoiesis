@@ -503,3 +503,46 @@ for data stream messages. Control messages are always JSON."
                  "health" (getf health :status)
                  "agentCount" (length (list-agents))
                  "connectionCount" (connection-count))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Conductor Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(define-handler handle-conductor-status "conductor_status" (msg conn)
+  (declare (ignore msg conn))
+  (let ((status (autopoiesis.orchestration:conductor-status)))
+    (ok-response "conductor_status"
+                 "running" (if (getf status :running) t :false)
+                 "tickCount" (or (getf status :tick-count) 0)
+                 "eventsProcessed" (or (getf status :events-processed) 0)
+                 "eventsFailed" (or (getf status :events-failed) 0)
+                 "timerErrors" (or (getf status :timer-errors) 0)
+                 "tickErrors" (or (getf status :tick-errors) 0)
+                 "taskRetries" (or (getf status :task-retries) 0)
+                 "pendingTimers" (or (getf status :pending-timers) 0)
+                 "activeWorkers" (or (getf status :active-workers) 0)
+                 "triggersChecked" (getf status :triggers-checked)
+                 "crystallizations" (getf status :crystallizations-performed))))
+
+(define-handler handle-conductor-start "conductor_start" (msg conn)
+  (declare (ignore msg conn))
+  (handler-case
+      (progn
+        (autopoiesis.orchestration:start-conductor)
+        (ok-response "conductor_started" "running" t))
+    (error (e)
+      (error-response "conductor_error" (format nil "~a" e)))))
+
+(define-handler handle-conductor-stop "conductor_stop" (msg conn)
+  (declare (ignore msg conn))
+  (handler-case
+      (progn
+        (autopoiesis.orchestration:stop-conductor)
+        (ok-response "conductor_stopped" "running" :false))
+    (error (e)
+      (error-response "conductor_error" (format nil "~a" e)))))
+
+(define-handler handle-subscribe-conductor "subscribe_conductor" (msg conn)
+  (declare (ignore msg))
+  (subscribe-connection conn "conductor")
+  (ok-response "subscribed" "channel" "conductor"))

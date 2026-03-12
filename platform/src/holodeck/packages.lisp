@@ -40,16 +40,20 @@
    #:rotation3d-ry
    #:rotation3d-rz
 
-   ;; Visual components
-   #:visual-style
-   #:make-visual-style
-   #:visual-style-node-type
-   #:visual-style-color-r
-   #:visual-style-color-g
-   #:visual-style-color-b
-   #:visual-style-color-a
-   #:visual-style-glow-intensity
-   #:visual-style-pulse-rate
+    ;; Visual components
+    #:visual-style
+    #:make-visual-style
+    #:visual-style-node-type
+    #:visual-style-color-r
+    #:visual-style-color-g
+    #:visual-style-color-b
+    #:visual-style-color-a
+    #:visual-style-glow-intensity
+    #:visual-style-pulse-rate
+    #:visual-style-scanline-speed
+    #:visual-style-noise-intensity
+    #:visual-style-chromatic-aberration
+    #:visual-style-fresnel-power
    #:node-label
    #:make-node-label
    #:node-label-text
@@ -71,16 +75,31 @@
    #:connection-to-entity
    #:connection-kind
 
-   ;; Interaction components
-   #:interactive
-   #:make-interactive
-   #:interactive-hover-p
-   #:interactive-selected-p
-   #:detail-level
-   #:make-detail-level
-   #:detail-level-current
-   #:detail-level-low-distance
-   #:detail-level-cull-distance
+    ;; Interaction components
+    #:interactive
+    #:make-interactive
+    #:interactive-hover-p
+    #:interactive-selected-p
+    #:detail-level
+    #:make-detail-level
+    #:detail-level-current
+    #:detail-level-low-distance
+    #:detail-level-cull-distance
+
+    ;; Force-directed layout components
+    #:force-directed-body
+    #:make-force-directed-body
+    #:force-directed-body-mass
+    #:force-directed-body-repulsion-strength
+    #:force-directed-body-damping
+    #:force-directed-body-max-velocity
+    #:spring-connection
+    #:make-spring-connection
+    #:spring-connection-from-entity
+    #:spring-connection-to-entity
+    #:spring-connection-rest-length
+    #:spring-connection-spring-constant
+    #:spring-connection-damping
 
    ;; Persistent agent ECS components
    #:*persistent-root-table*
@@ -136,17 +155,37 @@
    #:*elapsed-time*
    #:*camera-position*
 
-   ;; Systems
-   #:movement-system
-   #:pulse-system
-   #:lod-system
+    ;; Systems
+    #:movement-system
+    #:pulse-system
+    #:lod-system
+    #:force-directed-layout-system
 
-   ;; Parallel system execution
-   #:*parallel-ecs-enabled*
-   #:parallel-ecs-update
-   #:run-work-units-parallel
-   #:analyze-system-dependencies
-   #:run-systems-optimized
+    ;; Force-directed layout parameters
+    #:*repulsion-constant*
+    #:*repulsion-min-distance*
+    #:*attraction-constant*
+    #:*default-spring-length*
+    #:*layout-time-step*
+    #:*max-force*
+
+    ;; View mode
+    #:*view-mode*
+    #:*2d-flatten-threshold*
+    #:set-view-mode
+    #:view-mode-2d-p
+    #:flatten-y-coordinate
+
+    ;; Rendering
+    #:render-snapshot-entity
+    #:render-connection-entity
+
+    ;; Parallel system execution
+    #:*parallel-ecs-enabled*
+    #:parallel-ecs-update
+    #:run-work-units-parallel
+    #:analyze-system-dependencies
+    #:run-systems-optimized
 
    ;; Entity creation helpers
    #:make-snapshot-entity
@@ -623,18 +662,28 @@
    #:holodeck-keyboard-handler
    #:holodeck-camera-input-handler
 
-   ;; Live agent synchronization
-   #:*agent-entity-map*
-   #:*sync-interval*
-   #:*last-sync-time*
-   #:*transition-duration*
-   #:should-sync-p
-   #:find-agent-entity
-   #:register-agent-entity
-   #:unregister-agent-entity
-   #:clear-agent-entity-map
-   #:create-agent-marker-entity
-   #:compute-agent-position
-   #:update-agent-entity-position
-   #:sync-live-agents
-   #:sync-live-agents-count))
+   ;; Chat panel
+   #:holodeck-chat-mode-p
+   #:holodeck-chat-input
+   #:holodeck-chat-messages
+   #:update-chat-panel
+
+    ;; Live agent synchronization
+    #:*agent-entity-map*
+    #:*sync-interval*
+    #:*last-sync-time*
+    #:*transition-duration*
+    #:should-sync-p
+    #:find-agent-entity
+    #:register-agent-entity
+    #:unregister-agent-entity
+    #:clear-agent-entity-map
+    #:create-agent-marker-entity
+    #:compute-agent-position
+    #:update-agent-entity-position
+    #:sync-live-agents
+    #:sync-live-agents-count
+
+    ;; Camera and view mode switching
+    #:switch-camera-mode
+    #:toggle-2d-3d-mode))

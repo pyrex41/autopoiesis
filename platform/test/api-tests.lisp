@@ -146,25 +146,20 @@
     (let* ((agent (make-test-agent :name "serializer-test"
                                    :capabilities '(:read-file :write-file)))
            (json (agent-to-json-plist agent)))
-      (let ((id (second (member "id" json :test #'equal)))
-            (name (second (member "name" json :test #'equal)))
-            (state (second (member "state" json :test #'equal)))
-            (caps (second (member "capabilities" json :test #'equal)))
-            (tc (second (member "thoughtCount" json :test #'equal))))
-        (is (stringp id))
-        (is (equal name "serializer-test"))
-        (is (equal state "initialized"))
-        (is (= (length caps) 2))
-        (is (= tc 0))))))
+      (is (hash-table-p json))
+      (is (stringp (gethash "id" json)))
+      (is (equal (gethash "name" json) "serializer-test"))
+      (is (equal (gethash "state" json) "initialized"))
+      (is (= (length (gethash "capabilities" json)) 2))
+      (is (= (gethash "thoughtCount" json) 0)))))
 
 (test thought-serialization
   "Thought types serialize with correct subclass fields."
   (let* ((obs (autopoiesis.core:make-observation "test data" :source :api))
          (json (thought-to-json-plist obs)))
-    (let ((type-val (second (member "type" json :test #'equal)))
-          (source-val (second (member "source" json :test #'equal))))
-      (is (equal type-val "observation"))
-      (is (equal source-val "api")))))
+    (is (hash-table-p json))
+    (is (equal (gethash "type" json) "observation"))
+    (is (equal (gethash "source" json) "api"))))
 
 (test decision-serialization
   "Decision thoughts include alternatives and chosen."
@@ -173,29 +168,26 @@
                "opt-a"
                :rationale "better option"))
          (json (thought-to-json-plist dec)))
-    (let ((type-val (second (member "type" json :test #'equal)))
-          (rationale (second (member "rationale" json :test #'equal))))
-      (is (equal type-val "decision"))
-      (is (equal rationale "better option")))))
+    (is (hash-table-p json))
+    (is (equal (gethash "type" json) "decision"))
+    (is (equal (gethash "rationale" json) "better option"))))
 
 (test snapshot-serialization
   "Snapshot serialization produces expected fields."
   (let* ((snap (autopoiesis.snapshot:make-snapshot '(:test-state t)
                                                     :metadata '(:label "test")))
          (json (snapshot-to-json-plist snap)))
-    (let ((id (second (member "id" json :test #'equal)))
-          (hash (second (member "hash" json :test #'equal))))
-      (is (stringp id))
-      (is (stringp hash)))))
+    (is (hash-table-p json))
+    (is (stringp (gethash "id" json)))
+    (is (stringp (gethash "hash" json)))))
 
 (test branch-serialization
   "Branch serialization produces expected fields."
   (let* ((branch (autopoiesis.snapshot::make-branch "test-branch" :head "snap-123"))
          (json (branch-to-json-plist branch)))
-    (let ((name (second (member "name" json :test #'equal)))
-          (head (second (member "head" json :test #'equal))))
-      (is (equal name "test-branch"))
-      (is (equal head "snap-123")))))
+    (is (hash-table-p json))
+    (is (equal (gethash "name" json) "test-branch"))
+    (is (equal (gethash "head" json) "snap-123"))))
 
 (test blocking-request-serialization
   "Blocking request serialization produces expected fields."
@@ -204,12 +196,10 @@
                :options '("yes" "no")
                :default "no"))
          (json (blocking-request-to-json-plist req)))
-    (let ((prompt (second (member "prompt" json :test #'equal)))
-          (status (second (member "status" json :test #'equal)))
-          (options (second (member "options" json :test #'equal))))
-      (is (equal prompt "Approve action?"))
-      (is (equal status "pending"))
-      (is (= (length options) 2)))
+    (is (hash-table-p json))
+    (is (equal (gethash "prompt" json) "Approve action?"))
+    (is (equal (gethash "status" json) "pending"))
+    (is (= (length (gethash "options" json)) 2))
     ;; Clean up the registered request
     (autopoiesis.interface::unregister-blocking-request req)))
 

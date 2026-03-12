@@ -82,8 +82,9 @@
    #:find-root
    #:find-branch-point
    #:walk-ancestors
-   #:walk-descendants
-   #:find-snapshots-between
+    #:walk-descendants
+    #:find-snapshots-between
+    #:find-snapshots-since
 
    ;; Event log
    #:event

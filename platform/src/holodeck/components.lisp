@@ -55,14 +55,19 @@
 
 (defcomponent visual-style
   "Visual appearance properties for rendering.
-   Colors stored as separate RGBA floats for ECS storage efficiency."
+    Colors stored as separate RGBA floats for ECS storage efficiency."
   (node-type :snapshot :type keyword)
   (color-r 0.3 :type single-float)
   (color-g 0.6 :type single-float)
   (color-b 1.0 :type single-float)
   (color-a 0.8 :type single-float)
   (glow-intensity 1.0 :type single-float)
-  (pulse-rate 0.0 :type single-float))
+  (pulse-rate 0.0 :type single-float)
+  ;; Enhanced visual effects
+  (scanline-speed 2.0 :type single-float)
+  (noise-intensity 0.01 :type single-float)
+  (chromatic-aberration 0.002 :type single-float)
+  (fresnel-power 2.0 :type single-float))
 
 (defcomponent node-label
   "Text label displayed near entity."
@@ -106,6 +111,25 @@
   (cull-distance 200.0 :type single-float))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Force-Directed Layout Components
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defcomponent force-directed-body
+  "Physical properties for force-directed layout simulation."
+  (mass 1.0 :type single-float)
+  (repulsion-strength 100.0 :type single-float)
+  (damping 0.9 :type single-float)
+  (max-velocity 50.0 :type single-float))
+
+(defcomponent spring-connection
+  "Spring properties for edges in force-directed layout."
+  (from-entity -1 :type fixnum)
+  (to-entity -1 :type fixnum)
+  (rest-length 5.0 :type single-float)
+  (spring-constant 0.5 :type single-float)
+  (damping 0.8 :type single-float))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Color Mapping
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -127,11 +151,13 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun make-snapshot-entity (snapshot-id snapshot-type
-                             &key (x 0.0) (y 0.0) (z 0.0))
+                              &key (x 0.0) (y 0.0) (z 0.0)
+                                   (enable-force-directed t))
   "Create a complete snapshot entity with all standard components.
-   Returns the entity ID."
+    Returns the entity ID."
   (let ((entity (make-entity)))
     (make-position3d entity :x x :y y :z z)
+    (make-velocity3d entity)
     (make-scale3d entity)
     (make-rotation3d entity)
     (make-snapshot-binding entity
@@ -143,23 +169,38 @@
                          :node-type snapshot-type
                          :color-r r :color-g g :color-b b :color-a a
                          :glow-intensity 1.0
-                         :pulse-rate 0.0))
+                         :pulse-rate 0.0
+                         :scanline-speed 2.0
+                         :noise-intensity 0.01
+                         :chromatic-aberration 0.002
+                         :fresnel-power 2.0))
     (make-node-label entity
                      :text (format nil "~a" snapshot-id)
                      :visible-p t)
     (make-interactive entity)
     (make-detail-level entity)
+    ;; Add force-directed layout components if enabled
+    (when enable-force-directed
+      (make-force-directed-body entity))
     entity))
 
 (defun make-connection-entity (from-entity to-entity
-                               &key (kind :parent-child))
+                               &key (kind :parent-child)
+                                    (spring-constant 0.5)
+                                    (rest-length *default-spring-length*))
   "Create a connection entity linking two snapshot entities.
-   Returns the entity ID."
+    Returns the entity ID."
   (let ((entity (make-entity)))
     (make-connection entity
                      :from-entity from-entity
                      :to-entity to-entity
                      :kind kind)
+    ;; Add spring connection for force-directed layout
+    (make-spring-connection entity
+                           :from-entity from-entity
+                           :to-entity to-entity
+                           :rest-length rest-length
+                           :spring-constant spring-constant)
     ;; Connection entities get position midpoint (computed by layout system)
     (make-position3d entity)
     (make-visual-style entity

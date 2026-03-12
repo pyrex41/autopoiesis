@@ -17,6 +17,8 @@
            #:system-status
            #:list-snapshots
            #:list-branches
+           #:get-snapshot-detail
+           #:snapshot-diff-report
            ;; Event bridge
            #:start-emacs-event-bridge
            #:stop-emacs-event-bridge))
@@ -171,20 +173,61 @@ Returns the response text string."
           :agent-count (if agents (length agents) 0)
           :checks (getf health :checks))))
 
-(defun list-snapshots (&optional (limit 20))
-  "Return up to LIMIT snapshot ID strings."
-  (let ((ids (call-if-available :autopoiesis.snapshot "LIST-SNAPSHOTS")))
-    (if (> (length ids) limit)
-        (subseq ids 0 limit)
-        ids)))
+(defun list-snapshots (&optional (limit 50))
+  "Return list of snapshot alists with ID, timestamp, parent, hash."
+  (let ((snapshots (call-if-available :autopoiesis.snapshot "LIST-SNAPSHOTS")))
+    (let ((result (mapcar (lambda (snap)
+                           (list (cons :id (safe-slot snap "SNAPSHOT-ID" :autopoiesis.snapshot))
+                                 (cons :timestamp (let ((ts (safe-slot snap "SNAPSHOT-TIMESTAMP" :autopoiesis.snapshot)))
+                                                    (if ts (princ-to-string ts) "")))
+                                 (cons :parent (or (safe-slot snap "SNAPSHOT-PARENT" :autopoiesis.snapshot) ""))
+                                 (cons :hash (or (safe-slot snap "SNAPSHOT-HASH" :autopoiesis.snapshot) ""))))
+                         snapshots)))
+      (if (> (length result) limit)
+          (subseq result 0 limit)
+          result))))
 
 (defun list-branches ()
-  "Return list of (name head-id) for all branches."
+  "Return list of branch alists with name, head, created."
   (let ((branches (call-if-available :autopoiesis.snapshot "LIST-BRANCHES")))
     (mapcar (lambda (b)
-              (list (safe-slot b "BRANCH-NAME" :autopoiesis.snapshot)
-                    (safe-slot b "BRANCH-HEAD" :autopoiesis.snapshot)))
+              (list (cons :name (safe-slot b "BRANCH-NAME" :autopoiesis.snapshot))
+                    (cons :head (or (safe-slot b "BRANCH-HEAD" :autopoiesis.snapshot) ""))
+                    (cons :created (let ((ts (safe-slot b "BRANCH-CREATED" :autopoiesis.snapshot)))
+                                    (if ts (princ-to-string ts) "")))))
             branches)))
+
+(defun get-snapshot-detail (snapshot-id)
+  "Return detailed snapshot info as a plist."
+  (let* ((store-sym (resolve :autopoiesis.snapshot "*SNAPSHOT-STORE*"))
+         (store (when (and store-sym (boundp store-sym)) (symbol-value store-sym)))
+         (snap (when store
+                (call-if-available :autopoiesis.snapshot "LOAD-SNAPSHOT" snapshot-id store))))
+    (unless snap
+      (error "Snapshot not found: ~a" snapshot-id))
+    (list :id (safe-slot snap "SNAPSHOT-ID" :autopoiesis.snapshot)
+          :timestamp (let ((ts (safe-slot snap "SNAPSHOT-TIMESTAMP" :autopoiesis.snapshot)))
+                       (if ts (princ-to-string ts) ""))
+          :parent (or (safe-slot snap "SNAPSHOT-PARENT" :autopoiesis.snapshot) "none")
+          :hash (or (safe-slot snap "SNAPSHOT-HASH" :autopoiesis.snapshot) "")
+          :metadata (let ((md (safe-slot snap "SNAPSHOT-METADATA" :autopoiesis.snapshot)))
+                      (if md (princ-to-string md) ""))
+          :agent-state (let ((st (safe-slot snap "SNAPSHOT-AGENT-STATE" :autopoiesis.snapshot)))
+                         (if st (format nil "~S" st) "")))))
+
+(defun snapshot-diff-report (snapshot-id-a snapshot-id-b)
+  "Return a human-readable diff between two snapshots as a string."
+  (let* ((store-sym (resolve :autopoiesis.snapshot "*SNAPSHOT-STORE*"))
+         (store (when (and store-sym (boundp store-sym)) (symbol-value store-sym))))
+    (unless store (error "No snapshot store available"))
+    (let ((snap-a (call-if-available :autopoiesis.snapshot "LOAD-SNAPSHOT" snapshot-id-a store))
+          (snap-b (call-if-available :autopoiesis.snapshot "LOAD-SNAPSHOT" snapshot-id-b store)))
+      (unless snap-a (error "Snapshot not found: ~a" snapshot-id-a))
+      (unless snap-b (error "Snapshot not found: ~a" snapshot-id-b))
+      (let* ((state-a (safe-slot snap-a "SNAPSHOT-AGENT-STATE" :autopoiesis.snapshot))
+             (state-b (safe-slot snap-b "SNAPSHOT-AGENT-STATE" :autopoiesis.snapshot))
+             (diff (call-if-available :autopoiesis.core "SEXPR-DIFF" state-a state-b)))
+        (format nil "~S" diff)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Event Bridge — Push events to Emacs in real time

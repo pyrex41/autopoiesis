@@ -1,6 +1,7 @@
 import { type Component, For, Show, createMemo } from "solid-js";
 import { agentStore } from "../stores/agents";
 import type { Agent, IntegrationEvent } from "../api/types";
+import ConductorDashboard from "./ConductorDashboard";
 
 const Dashboard: Component = () => {
   const recentEvents = createMemo(() =>
@@ -46,6 +47,12 @@ const Dashboard: Component = () => {
               </For>
             </Show>
           </div>
+        </div>
+
+        {/* Platform Health */}
+        <div class="dashboard-section">
+          <h3 class="dashboard-section-title">Platform Health</h3>
+          <ConductorDashboard />
         </div>
       </div>
     </div>

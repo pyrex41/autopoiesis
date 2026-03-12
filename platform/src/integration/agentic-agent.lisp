@@ -152,31 +152,31 @@ claude-client directly."))
          (api-source (if provider
                          (format nil "~a-api" (provider-name provider))
                          "claude-api"))
-         (thought-stream (autopoiesis.agent:agent-thought-stream agent))
-         (on-thought (lambda (type data)
-                       (autopoiesis.core:stream-append
-                        thought-stream
-                        (case type
-                          (:llm-response
-                           (autopoiesis.core:make-observation
-                            (or data "")
-                            :source api-source))
-                          (:tool-execution
-                           (autopoiesis.core:make-action
-                            "tool-execution" :tools data))
-                          (:tool-result
-                           (autopoiesis.core:make-observation
-                            (format nil "~a" data)
-                            :source "tool-result"))
-                          (:error
-                           (autopoiesis.core:make-observation
-                            (format nil "Error: ~a" data)
-                            :source "error"))
-                          (otherwise
-                           (autopoiesis.core:make-observation
-                            (format nil "~a: ~a" type data)
-                            :source "agentic-loop")))))))
-    ;; When using an inference-provider, bind the complete function
+          (thought-stream (autopoiesis.agent:agent-thought-stream agent))
+            (on-thought (lambda (type data)
+                          (autopoiesis.core:stream-append
+                           thought-stream
+                           (case type
+                             (:llm-response
+                              (autopoiesis.core:make-observation
+                               (or data "")
+                               :source api-source))
+                             (:tool-execution
+                              (autopoiesis.core:make-action
+                               "tool-execution" :tools data))
+                             (:tool-result
+                              (autopoiesis.core:make-observation
+                               (format nil "~a" data)
+                               :source "tool-result"))
+                             (:error
+                              (autopoiesis.core:make-observation
+                               (format nil "Error: ~a" data)
+                               :source "error"))
+                             (otherwise
+                              (autopoiesis.core:make-observation
+                               (format nil "~a: ~a" type data)
+                               :source "agentic-loop")))))))
+     ;; When using an inference-provider, bind the complete function
     ;; so the agentic loop uses the right API backend
     (let* ((ctx (agent-conversation-context agent))
            (model-kw (when provider (intern (string-upcase (provider-name provider)) :keyword)))
@@ -207,7 +207,7 @@ claude-client directly."))
           ;; Return the final response text
           (if (consp final-response)
               (response-text final-response)
-              final-response))))))
+               final-response))))))
 
 (defmethod autopoiesis.agent:reflect ((agent agentic-agent) action-result)
   "Record a reflection on the agentic loop outcome."

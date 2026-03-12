@@ -77,13 +77,13 @@
   '(member
     ;; Camera movement
     :fly-forward :fly-backward :fly-left :fly-right :fly-up :fly-down
-    :orbit-left :orbit-right :orbit-up :orbit-down :zoom-in :zoom-out :reset-view
+    :orbit-left :orbit-right :orbit-up :orbit-down :zoom-in :zoom-out :reset-view :switch-camera-mode
     ;; Navigation
     :step-backward :step-forward :goto-genesis :goto-head
     ;; Branching
     :fork-here :merge-prompt :show-branches
     ;; View modes
-    :set-view-timeline :set-view-tree :set-view-constellation :set-view-diff
+    :set-view-timeline :set-view-tree :set-view-constellation :set-view-diff :toggle-2d-3d
     ;; Focus
     :cycle-focus-next :cycle-focus-prev :toggle-follow :overview
     ;; Detail
@@ -157,6 +157,9 @@
     (make-key-binding :r :reset-view
                       :hold-action-p nil
                       :description "Reset camera to default view")
+    (make-key-binding :c :switch-camera-mode
+                      :hold-action-p nil
+                      :description "Switch between orbit and fly camera")
 
     ;; Navigation (press actions)
    (make-key-binding :left-bracket :step-backward
@@ -183,19 +186,22 @@
                      :hold-action-p nil
                      :description "Show branch list")
 
-   ;; View modes (press actions)
-   (make-key-binding :1 :set-view-timeline
-                     :hold-action-p nil
-                     :description "Timeline view")
-   (make-key-binding :2 :set-view-tree
-                     :hold-action-p nil
-                     :description "Tree view")
-   (make-key-binding :3 :set-view-constellation
-                     :hold-action-p nil
-                     :description "Constellation view")
-   (make-key-binding :4 :set-view-diff
-                     :hold-action-p nil
-                     :description "Diff view")
+    ;; View modes (press actions)
+    (make-key-binding :1 :set-view-timeline
+                      :hold-action-p nil
+                      :description "Timeline view")
+    (make-key-binding :2 :set-view-tree
+                      :hold-action-p nil
+                      :description "Tree view")
+    (make-key-binding :3 :set-view-constellation
+                      :hold-action-p nil
+                      :description "Constellation view")
+    (make-key-binding :4 :set-view-diff
+                      :hold-action-p nil
+                      :description "Diff view")
+    (make-key-binding :5 :toggle-2d-3d
+                      :hold-action-p nil
+                      :description "Toggle 2D/3D view mode")
 
    ;; Focus (press actions)
    (make-key-binding :tab :cycle-focus-next

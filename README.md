@@ -543,6 +543,10 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 
 ## Architecture
 
+**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
+
+**Legacy view (17 layers):**
+
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Cross-Cutting         Security (permissions, audit, validation)     │

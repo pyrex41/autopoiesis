@@ -26,6 +26,12 @@
 (defvar *camera-position* (vec3 0.0 0.0 50.0)
   "Current camera position in 3D space.")
 
+(defvar *view-mode* :3d
+  "Current view mode: :2d or :3d. In 2D mode, Y coordinates are flattened.")
+
+(defvar *2d-flatten-threshold* 0.1
+  "Threshold below which Y coordinates are considered 'flat' in 2D mode.")
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Utility Functions
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -188,16 +194,214 @@
   '((movement-system)
     (pulse-system lod-system)))
 
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Force-Directed Layout System
+;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; Implements force-directed graph layout using spring-electrical model.
+;;; Nodes repel each other (like charged particles), edges attract (like springs).
+;;; Uses Verlet integration for stable simulation.
+
+(defsystem force-directed-layout-system
+  (:components-rw (position3d velocity3d force-directed-body)
+   :components-ro (spring-connection)
+   :when :every-frame)
+  "Apply force-directed layout forces to entities with force-directed-body components.
+
+   This system:
+   1. Computes repulsive forces between all node pairs
+   2. Computes attractive forces along spring connections
+   3. Applies forces to update velocities
+   4. Integrates velocities to update positions"
+  ;; Clear accumulated forces (we'll accumulate them in this system)
+  ;; Note: ECS doesn't have a built-in force accumulator, so we use velocity as proxy
+
+  ;; Apply repulsive forces between all nodes
+  (apply-repulsive-forces entity)
+
+  ;; Apply attractive forces along connections
+  (apply-attractive-forces entity)
+
+  ;; Apply damping and velocity limits
+  (apply-damping-and-limits entity)
+
+  ;; Integrate velocity to position (simple Euler integration)
+  (integrate-velocity entity))
+
+(defvar *repulsion-constant* 1000.0
+  "Global repulsion constant for force-directed layout.")
+
+(defvar *repulsion-min-distance* 1.0
+  "Minimum distance for repulsion calculation to avoid singularities.")
+
+(defvar *attraction-constant* 0.01
+  "Global attraction constant for spring connections.")
+
+(defvar *default-spring-length* 10.0
+  "Default rest length for springs between connected nodes.")
+
+(defvar *layout-time-step* 0.016
+  "Time step for force-directed layout integration (matches *delta-time*).")
+
+(defvar *max-force* 100.0
+  "Maximum force magnitude to prevent instability.")
+
+(defun apply-repulsive-forces (entity)
+  "Apply repulsive forces from ENTITY to all other force-directed entities."
+  (let ((pos-x (position3d-x entity))
+        (pos-y (position3d-y entity))
+        (pos-z (position3d-z entity))
+        (strength (force-directed-body-repulsion-strength entity)))
+    ;; Iterate over all other entities with force-directed-body
+    (ecs:do-entities (other-entity (position3d force-directed-body))
+      (unless (= entity other-entity)
+        (let* ((other-x (position3d-x other-entity))
+               (other-y (position3d-y other-entity))
+               (other-z (position3d-z other-entity))
+               (dx (- other-x pos-x))
+               (dy (- other-y pos-y))
+               (dz (- other-z pos-z)))
+          ;; In 2D mode, ignore Y component for distance and force calculation
+          (if (view-mode-2d-p)
+              (let* ((distance-squared (+ (* dx dx) (* dz dz))))
+                (when (> distance-squared (* *repulsion-min-distance* *repulsion-min-distance*))
+                  (let* ((distance (sqrt distance-squared))
+                         (force-magnitude (/ (* *repulsion-constant* strength)
+                                             distance-squared))
+                         (force-magnitude (min force-magnitude *max-force*))
+                         (force-x (* force-magnitude (/ dx distance)))
+                         (force-z (* force-magnitude (/ dz distance))))
+                    ;; Apply force to velocity (only X and Z in 2D mode)
+                    (incf (velocity3d-dx entity) (- force-x))
+                    (incf (velocity3d-dz entity) (- force-z)))))
+              ;; 3D mode: include all dimensions
+              (let* ((distance-squared (+ (* dx dx) (* dy dy) (* dz dz))))
+                (when (> distance-squared (* *repulsion-min-distance* *repulsion-min-distance*))
+                  (let* ((distance (sqrt distance-squared))
+                         (force-magnitude (/ (* *repulsion-constant* strength)
+                                             distance-squared))
+                         (force-magnitude (min force-magnitude *max-force*))
+                         (force-x (* force-magnitude (/ dx distance)))
+                         (force-y (* force-magnitude (/ dy distance)))
+                         (force-z (* force-magnitude (/ dz distance))))
+                    ;; Apply force to velocity
+                    (incf (velocity3d-dx entity) (- force-x))
+                    (incf (velocity3d-dy entity) (- force-y))
+                    (incf (velocity3d-dz entity) (- force-z))))))))))
+
+(defun apply-attractive-forces (entity)
+  "Apply attractive forces along spring connections from ENTITY."
+  ;; Find all spring connections where entity is the 'from' node
+  (ecs:do-components ((conn spring-connection))
+    (when (= (spring-connection-from-entity conn) entity)
+      (let ((to-entity (spring-connection-to-entity conn)))
+        (when (and (>= to-entity 0)
+                   (entity-exists-p to-entity))
+          ;; Calculate spring force
+          (let* ((from-x (position3d-x entity))
+                 (from-y (position3d-y entity))
+                 (from-z (position3d-z entity))
+                 (to-x (position3d-x to-entity))
+                 (to-y (position3d-y to-entity))
+                 (to-z (position3d-z to-entity))
+                 (dx (- to-x from-x))
+                 (dy (- to-y from-y))
+                 (dz (- to-z from-z)))
+            ;; In 2D mode, ignore Y component for distance and force calculation
+            (if (view-mode-2d-p)
+                (let* ((distance (sqrt (+ (* dx dx) (* dz dz))))
+                       (rest-length (spring-connection-rest-length conn))
+                       (displacement (- distance rest-length))
+                       (spring-k (spring-connection-spring-constant conn))
+                       (force-magnitude (* spring-k displacement))
+                       (force-magnitude (min (abs force-magnitude) *max-force*))
+                       (force-magnitude (if (> displacement 0) force-magnitude (- force-magnitude))))
+                  (when (> distance 0.001)  ; Avoid division by zero
+                    (let ((force-x (* force-magnitude (/ dx distance)))
+                          (force-z (* force-magnitude (/ dz distance))))
+                      ;; Apply force to velocity (only X and Z in 2D mode)
+                      (incf (velocity3d-dx entity) force-x)
+                      (incf (velocity3d-dz entity) force-z))))
+                ;; 3D mode: include all dimensions
+                (let* ((distance (sqrt (+ (* dx dx) (* dy dy) (* dz dz))))
+                       (rest-length (spring-connection-rest-length conn))
+                       (displacement (- distance rest-length))
+                       (spring-k (spring-connection-spring-constant conn))
+                       (force-magnitude (* spring-k displacement))
+                       (force-magnitude (min (abs force-magnitude) *max-force*))
+                       (force-magnitude (if (> displacement 0) force-magnitude (- force-magnitude))))
+                  (when (> distance 0.001)  ; Avoid division by zero
+                    (let ((force-x (* force-magnitude (/ dx distance)))
+                          (force-y (* force-magnitude (/ dy distance)))
+                          (force-z (* force-magnitude (/ dz distance))))
+                      ;; Apply force to velocity
+                      (incf (velocity3d-dx entity) force-x)
+                      (incf (velocity3d-dy entity) force-y)
+                      (incf (velocity3d-dz entity) force-z))))))))))
+
+(defun apply-damping-and-limits (entity)
+  "Apply damping and velocity limits to prevent instability."
+  (let ((damping (force-directed-body-damping entity))
+        (max-vel (force-directed-body-max-velocity entity)))
+    ;; Apply damping
+    (setf (velocity3d-dx entity) (* (velocity3d-dx entity) damping))
+    (setf (velocity3d-dy entity) (* (velocity3d-dy entity) damping))
+    (setf (velocity3d-dz entity) (* (velocity3d-dz entity) damping))
+
+    ;; Apply velocity limits
+    (let ((vel-mag (sqrt (+ (* (velocity3d-dx entity) (velocity3d-dx entity))
+                            (* (velocity3d-dy entity) (velocity3d-dy entity))
+                            (* (velocity3d-dz entity) (velocity3d-dz entity))))))
+      (when (> vel-mag max-vel)
+        (let ((scale (/ max-vel vel-mag)))
+          (setf (velocity3d-dx entity) (* (velocity3d-dx entity) scale))
+          (setf (velocity3d-dy entity) (* (velocity3d-dy entity) scale))
+          (setf (velocity3d-dz entity) (* (velocity3d-dz entity) scale)))))))
+
+(defun integrate-velocity (entity)
+  "Integrate velocity to update position."
+  (let ((mass (force-directed-body-mass entity)))
+    (when (> mass 0.0)
+      ;; F = ma, so a = F/m, but we're using velocity as force accumulator
+      ;; So we need to scale by 1/mass and time step
+      (let ((accel-scale (/ *layout-time-step* mass)))
+        (incf (position3d-x entity) (* (velocity3d-dx entity) accel-scale))
+        (if (view-mode-2d-p)
+            ;; In 2D mode, flatten Y coordinate
+            (setf (position3d-y entity) (flatten-y-coordinate (position3d-y entity)))
+            ;; In 3D mode, update normally
+            (incf (position3d-y entity) (* (velocity3d-dy entity) accel-scale)))
+        (incf (position3d-z entity) (* (velocity3d-dz entity) accel-scale)))))))
+
+(defun set-view-mode (mode)
+  "Set the view mode to :2d or :3d.
+   In 2D mode, forces only act in XZ plane and Y coordinates are flattened."
+  (ecase mode
+    (:2d (setf *view-mode* :2d))
+    (:3d (setf *view-mode* :3d))))
+
+(defun view-mode-2d-p ()
+  "Return T if currently in 2D view mode."
+  (eq *view-mode* :2d))
+
+(defun flatten-y-coordinate (y)
+  "Flatten Y coordinate toward zero for 2D mode."
+  (if (view-mode-2d-p)
+      (if (< (abs y) *2d-flatten-threshold*)
+          0.0
+          (* y 0.1))  ; Gradually flatten
+      y))
+
 (defun run-systems-optimized ()
   "Run all ECS systems with the standard cl-fast-ecs infrastructure.
 
-   This is the recommended way to run ECS systems as it properly handles:
-   - Entity bitmap rebuilding for component changes
-   - Storage context management
-   - System ordering based on :after/:before constraints
+    This is the recommended way to run ECS systems as it properly handles:
+    - Entity bitmap rebuilding for component changes
+    - Storage context management
+    - System ordering based on :after/:before constraints
 
-   For true parallel execution of independent systems, the cl-fast-ecs
-   library would need to be extended to support running system subsets.
+    For true parallel execution of independent systems, the cl-fast-ecs
+    library would need to be extended to support running system subsets.
 
-   Currently equivalent to (cl-fast-ecs:run-systems)."
+    Currently equivalent to (cl-fast-ecs:run-systems)."
   (cl-fast-ecs:run-systems))

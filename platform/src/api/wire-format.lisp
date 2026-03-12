@@ -136,14 +136,54 @@ Looks at the 'type' field to decide JSON vs MessagePack."
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; WebSocket Send Helpers
 ;;; ═══════════════════════════════════════════════════════════════════
+;;;
+;;; These bypass Woo's async event-loop write mechanism (with-async-writing)
+;;; which requires *evloop* to be bound — only true inside Woo's event loop
+;;; thread. Background worker threads (e.g., Jarvis chat handlers) would get
+;;; SB-SYS:SYSTEM-AREA-POINTER NIL when trying to send responses.
+;;;
+;;; Instead, we construct the WebSocket frame bytes using make-frame (pure
+;;; computation) and write them directly to the socket fd. A per-connection
+;;; lock in api-connection serializes concurrent writes.
+
+(defun write-frame-to-fd (socket frame)
+  "Write complete WebSocket frame bytes directly to socket fd.
+Bypasses Woo's event loop — safe to call from any thread."
+  (let ((fd (woo.ev.socket:socket-fd socket)))
+    (cffi:with-pointer-to-vector-data (ptr frame)
+      (let ((remaining (length frame))
+            (offset 0))
+        (loop while (> remaining 0)
+              do (let ((n (woo.syscall:write fd
+                                            (cffi:inc-pointer ptr offset)
+                                            remaining)))
+                   (cond
+                     ((> n 0)
+                      (incf offset n)
+                      (decf remaining n))
+                     ((= n -1)
+                      (let ((errno (woo.syscall:errno)))
+                        (cond
+                          ((or (= errno woo.syscall:EWOULDBLOCK)
+                               (= errno woo.syscall:EINTR))
+                           ;; Transient — retry
+                           )
+                          (t
+                           (error "WebSocket write failed (errno ~D)" errno)))))
+                     (t
+                      ;; n=0 shouldn't happen for sockets, but treat as retry
+                      ))))))))
 
 (defun ws-send-text (socket string)
-  "Send a JSON text frame via Woo's native WebSocket."
-  (woo.websocket:send-text-frame socket string))
+  "Send a JSON text frame — thread-safe, bypasses Woo event loop."
+  (let* ((payload (trivial-utf-8:string-to-utf-8-bytes string))
+         (frame (woo.websocket::make-frame woo.websocket:+opcode-text+ payload)))
+    (write-frame-to-fd socket frame)))
 
 (defun ws-send-binary (socket bytes)
-  "Send a binary frame via Woo's native WebSocket."
-  (woo.websocket:send-binary-frame socket bytes))
+  "Send a binary frame — thread-safe, bypasses Woo event loop."
+  (let ((frame (woo.websocket::make-frame woo.websocket:+opcode-binary+ bytes)))
+    (write-frame-to-fd socket frame)))
 
 (defun ws-send-auto (socket data)
   "Send data over WebSocket, auto-selecting text or binary format."

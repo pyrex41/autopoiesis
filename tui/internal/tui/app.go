@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -86,11 +87,10 @@ type App struct {
 	eventsReady  bool
 
 	// Command
-	cmdInput     string
-	cmdHistory   []string
-	cmdHistIdx   int
-	cmdCursorPos int
-	cmdFocused   bool
+	cmdInput   textinput.Model
+	cmdHistory []string
+	cmdHistIdx int
+	cmdFocused bool
 
 	// Error display
 	lastError    string
@@ -103,10 +103,15 @@ type chatMsg struct {
 
 // NewApp creates the root TUI model.
 func NewApp(cfg Config, wsClient *ws.Client) App {
+	ti := textinput.New()
+	ti.Prompt = "> "
+	ti.Placeholder = "type : to enter a command..."
+	ti.CharLimit = 256
 	return App{
 		config:     cfg,
 		wsClient:   wsClient,
 		connState:  "connecting...",
+		cmdInput:   ti,
 		cmdHistIdx: -1,
 	}
 }
@@ -166,7 +171,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// If command input is focused, route there
-		if a.focus == PanelCommand {
+		if a.cmdFocused {
 			return a.updateCommand(msg)
 		}
 
@@ -174,20 +179,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, Keys.Tab):
 			a.focus = (a.focus + 1) % panelCount
 			if a.focus == PanelCommand {
-				a.cmdFocused = true
-			} else {
-				a.cmdFocused = false
+				a = a.focusCommand()
 			}
 		case key.Matches(msg, Keys.ShiftTab):
 			a.focus = (a.focus - 1 + panelCount) % panelCount
 			if a.focus == PanelCommand {
-				a.cmdFocused = true
-			} else {
-				a.cmdFocused = false
+				a = a.focusCommand()
 			}
 		case key.Matches(msg, Keys.FocusCmd):
 			a.focus = PanelCommand
-			a.cmdFocused = true
+			a = a.focusCommand()
 		case key.Matches(msg, Keys.Up):
 			a = a.handleUp()
 		case key.Matches(msg, Keys.Down):
@@ -277,11 +278,32 @@ func (a App) handleEnter() App {
 	return a
 }
 
+func (a App) focusCommand() App {
+	a.cmdFocused = true
+	a.cmdInput.Focus()
+	return a
+}
+
+func (a App) blurCommand() App {
+	a.cmdFocused = false
+	a.cmdInput.Blur()
+	a.cmdInput.SetValue("")
+	return a
+}
+
 func (a App) onAgentSelected() App {
 	if a.selectedIdx >= 0 && a.selectedIdx < len(a.agents) {
 		agent := a.agents[a.selectedIdx]
+		prevID := a.selectedID
 		a.selectedID = agent.ID
 		if a.wsClient != nil {
+			// Unsubscribe from previous agent's thoughts
+			if prevID != "" && prevID != agent.ID {
+				a.wsClient.Send(ws.UnsubscribeMsg{
+					Type:    "unsubscribe",
+					Channel: "thoughts:" + prevID,
+				})
+			}
 			// Request thoughts for the selected agent
 			a.wsClient.Send(ws.GetThoughtsMsg{
 				Type:    "get_thoughts",
@@ -301,44 +323,38 @@ func (a App) onAgentSelected() App {
 func (a App) updateCommand(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		cmd := a.cmdInput
+		cmd := a.cmdInput.Value()
 		if cmd != "" {
 			a.cmdHistory = append(a.cmdHistory, cmd)
 			a.cmdHistIdx = len(a.cmdHistory)
-			a.cmdInput = ""
+			a.cmdInput.SetValue("")
 			var cmds []tea.Cmd
 			a, cmds = a.executeCommand(cmd, nil)
 			return a, tea.Batch(cmds...)
 		}
 	case "esc":
 		a.focus = PanelAgents
-		a.cmdFocused = false
-		a.cmdInput = ""
+		a = a.blurCommand()
 	case "up":
 		if len(a.cmdHistory) > 0 && a.cmdHistIdx > 0 {
 			a.cmdHistIdx--
-			a.cmdInput = a.cmdHistory[a.cmdHistIdx]
+			a.cmdInput.SetValue(a.cmdHistory[a.cmdHistIdx])
+			a.cmdInput.CursorEnd()
 		}
 	case "down":
 		if a.cmdHistIdx < len(a.cmdHistory)-1 {
 			a.cmdHistIdx++
-			a.cmdInput = a.cmdHistory[a.cmdHistIdx]
+			a.cmdInput.SetValue(a.cmdHistory[a.cmdHistIdx])
+			a.cmdInput.CursorEnd()
 		} else {
 			a.cmdHistIdx = len(a.cmdHistory)
-			a.cmdInput = ""
+			a.cmdInput.SetValue("")
 		}
-	case "backspace":
-		if len(a.cmdInput) > 0 {
-			a.cmdInput = a.cmdInput[:len(a.cmdInput)-1]
-		}
-	case "ctrl+u":
-		a.cmdInput = ""
 	default:
-		if len(msg.String()) == 1 {
-			a.cmdInput += msg.String()
-		} else if msg.Type == tea.KeyRunes {
-			a.cmdInput += string(msg.Runes)
-		}
+		// Delegate to textinput for all other keys (typing, ctrl+a/e, paste, etc.)
+		var cmd tea.Cmd
+		a.cmdInput, cmd = a.cmdInput.Update(msg)
+		return a, cmd
 	}
 	return a, nil
 }
@@ -607,52 +623,51 @@ func (a App) handleServerMessage(msg ws.ServerMessage) App {
 }
 
 func (a App) recalcLayout() App {
-	// Initialize viewports if needed
 	rightW := a.width - sidebarWidth - 3
 	if rightW < 10 {
 		rightW = 10
 	}
 
-	// Thoughts viewport
-	thH := a.mainPanelHeight() / 2
-	vpW := rightW - 4
+	// Compute content heights for the 3 right-column panels (used by both layout and viewports)
+	detailContent, thoughtsContent, bottomContent := a.rightPanelContentHeights()
+
+	// Viewport content area = panel content height minus title line (1)
+	vpW := rightW - 4 // account for border (2) + small padding
 	if vpW < 1 {
 		vpW = 1
 	}
-	vpH := thH - 4
-	if vpH < 1 {
-		vpH = 1
+	thVPH := thoughtsContent - 1 // subtract title line
+	if thVPH < 1 {
+		thVPH = 1
 	}
+	botVPH := bottomContent - 1
+	if botVPH < 1 {
+		botVPH = 1
+	}
+	_ = detailContent // used only in View()
 
 	if !a.thoughtsReady {
-		a.thoughtsVP = viewport.New(vpW, vpH)
+		a.thoughtsVP = viewport.New(vpW, thVPH)
 		a.thoughtsReady = true
 	} else {
 		a.thoughtsVP.Width = vpW
-		a.thoughtsVP.Height = vpH
+		a.thoughtsVP.Height = thVPH
 	}
 
-	// Chat viewport
 	if !a.chatReady {
-		a.chatVP = viewport.New(vpW, vpH)
+		a.chatVP = viewport.New(vpW, botVPH)
 		a.chatReady = true
 	} else {
 		a.chatVP.Width = vpW
-		a.chatVP.Height = vpH
+		a.chatVP.Height = botVPH
 	}
 
-	// Events viewport
-	evH := a.mainPanelHeight() - thH
-	evVPH := evH - 4
-	if evVPH < 1 {
-		evVPH = 1
-	}
 	if !a.eventsReady {
-		a.eventsVP = viewport.New(vpW, evVPH)
+		a.eventsVP = viewport.New(vpW, botVPH)
 		a.eventsReady = true
 	} else {
 		a.eventsVP.Width = vpW
-		a.eventsVP.Height = evVPH
+		a.eventsVP.Height = botVPH
 	}
 
 	a = a.renderThoughts()
@@ -664,13 +679,42 @@ func (a App) recalcLayout() App {
 
 const sidebarWidth = 20
 
-func (a App) mainPanelHeight() int {
-	// Total height minus statusbar (1) minus command (3) minus some padding
-	h := a.height - 5
-	if h < 4 {
-		h = 4
+// mainAreaHeight returns the total pixel height available for the main area
+// (sidebar + right column), accounting for status bar and command bar.
+//
+// Layout budget:
+//   status bar:  1 line
+//   main area:   this value
+//   command bar:  3 lines (1 content + 2 border)
+func (a App) mainAreaHeight() int {
+	h := a.height - 4 // 1 status + 3 cmd
+	if h < 6 {
+		h = 6
 	}
 	return h
+}
+
+// rightPanelContentHeights returns the content heights (inside border) for
+// the 3 stacked right-column panels: detail, thoughts, bottom (chat/events).
+// The 3 panels' rendered heights (content + 2 border each = +6 total) must
+// equal mainAreaHeight so that the right column matches the sidebar.
+func (a App) rightPanelContentHeights() (detail, thoughts, bottom int) {
+	totalH := a.mainAreaHeight()
+	// 3 panels × 2 border lines = 6 lines consumed by borders
+	contentBudget := totalH - 6
+	if contentBudget < 6 {
+		contentBudget = 6
+	}
+
+	detail = 4
+	remaining := contentBudget - detail
+	if remaining < 2 {
+		remaining = 2
+		detail = contentBudget - remaining
+	}
+	thoughts = remaining / 2
+	bottom = remaining - thoughts
+	return
 }
 
 func (a App) renderThoughts() App {
@@ -744,50 +788,40 @@ func (a App) View() string {
 		return "Initializing..."
 	}
 
-	// Status bar
+	// Status bar (1 line)
 	statusBar := a.viewStatusBar()
 
 	// Main area: sidebar | right panels
-	sidebar := a.viewSidebar()
+	mainH := a.mainAreaHeight()
+	sidebar := a.viewSidebar(mainH)
 
 	rightW := a.width - sidebarWidth - 3
 	if rightW < 10 {
 		rightW = 10
 	}
 
-	mainH := a.mainPanelHeight()
+	// Right column: 3 panels whose rendered heights (content + 2 border each) sum to mainH
+	detailContent, thoughtsContent, bottomContent := a.rightPanelContentHeights()
 
-	// Right side: detail + thoughts on top, chat/events on bottom
-	detailH := 8
-	thoughtsH := mainH - detailH
-	if thoughtsH < 4 {
-		thoughtsH = 4
-		detailH = mainH - thoughtsH
-	}
-
-	detail := a.viewDetail(rightW, detailH)
-	thoughts := a.viewThoughts(rightW, thoughtsH/2)
-	chatOrEvents := a.viewChatOrEvents(rightW, thoughtsH-thoughtsH/2)
+	detail := a.viewDetail(rightW, detailContent)
+	thoughts := a.viewThoughts(rightW, thoughtsContent)
+	chatOrEvents := a.viewChatOrEvents(rightW, bottomContent)
 
 	rightCol := lipgloss.JoinVertical(lipgloss.Left, detail, thoughts, chatOrEvents)
 
 	mainArea := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, rightCol)
 
-	// Command bar
+	// Command bar (3 lines: 1 content + 2 border)
 	cmdBar := a.viewCommand()
 
-	// Error line
-	errLine := ""
+	// Show error inline in the status bar rather than adding a line
 	if a.lastError != "" {
-		errLine = StyleError.Render(" " + a.lastError)
+		statusBar = StyleStatusBar.Width(a.width).Render(
+			StyleError.Render(" "+a.lastError),
+		)
 	}
 
-	parts := []string{statusBar, mainArea, cmdBar}
-	if errLine != "" {
-		parts = append(parts, errLine)
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return lipgloss.JoinVertical(lipgloss.Left, statusBar, mainArea, cmdBar)
 }
 
 func (a App) viewStatusBar() string {
@@ -814,15 +848,16 @@ func (a App) viewStatusBar() string {
 	return StyleStatusBar.Width(a.width).Render(left + strings.Repeat(" ", gap) + right)
 }
 
-func (a App) viewSidebar() string {
+func (a App) viewSidebar(totalH int) string {
 	style := StylePanel
 	if a.focus == PanelAgents {
 		style = StylePanelFocused
 	}
 
 	title := StylePanelTitle.Render("Agents")
-	h := a.mainPanelHeight()
-	contentH := h - 4
+	// totalH includes border (2 lines), so content area = totalH - 2
+	// Subtract 1 more for title line
+	contentH := totalH - 3
 	if contentH < 1 {
 		contentH = 1
 	}
@@ -848,14 +883,15 @@ func (a App) viewSidebar() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, append([]string{title}, lines...)...)
-	return style.Width(sidebarWidth).Height(h).Render(content)
+	// Height is content height inside border; border adds 2 more for total = totalH
+	return style.Width(sidebarWidth).Height(totalH - 2).Render(content)
 }
 
-func (a App) viewDetail(w, h int) string {
+func (a App) viewDetail(w, contentH int) string {
 	style := StylePanel
 
 	if len(a.agents) == 0 || a.selectedIdx >= len(a.agents) {
-		return style.Width(w).Height(h).Render(" No agent selected")
+		return style.Width(w).Height(contentH).Render(" No agent selected")
 	}
 
 	agent := a.agents[a.selectedIdx]
@@ -880,10 +916,10 @@ func (a App) viewDetail(w, h int) string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return style.Width(w).Height(h).Render(content)
+	return style.Width(w).Height(contentH).Render(content)
 }
 
-func (a App) viewThoughts(w, h int) string {
+func (a App) viewThoughts(w, contentH int) string {
 	style := StylePanel
 	if a.focus == PanelThoughts {
 		style = StylePanelFocused
@@ -895,18 +931,17 @@ func (a App) viewThoughts(w, h int) string {
 		vpView = a.thoughtsVP.View()
 	}
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, vpView)
-	return style.Width(w).Height(h).Render(inner)
+	return style.Width(w).Height(contentH).Render(inner)
 }
 
-func (a App) viewChatOrEvents(w, h int) string {
-	// Show chat if active, otherwise events
+func (a App) viewChatOrEvents(w, contentH int) string {
 	if a.chatActive || len(a.chatMessages) > 0 {
-		return a.viewChat(w, h)
+		return a.viewChat(w, contentH)
 	}
-	return a.viewEvents(w, h)
+	return a.viewEvents(w, contentH)
 }
 
-func (a App) viewChat(w, h int) string {
+func (a App) viewChat(w, contentH int) string {
 	style := StylePanel
 	if a.focus == PanelChat {
 		style = StylePanelFocused
@@ -926,10 +961,10 @@ func (a App) viewChat(w, h int) string {
 		vpView = a.chatVP.View()
 	}
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, vpView)
-	return style.Width(w).Height(h).Render(inner)
+	return style.Width(w).Height(contentH).Render(inner)
 }
 
-func (a App) viewEvents(w, h int) string {
+func (a App) viewEvents(w, contentH int) string {
 	style := StylePanel
 	if a.focus == PanelEvents {
 		style = StylePanelFocused
@@ -941,18 +976,13 @@ func (a App) viewEvents(w, h int) string {
 		vpView = a.eventsVP.View()
 	}
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, vpView)
-	return style.Width(w).Height(h).Render(inner)
+	return style.Width(w).Height(contentH).Render(inner)
 }
 
 func (a App) viewCommand() string {
 	style := StyleCommandInput
-	if a.focus == PanelCommand {
+	if a.cmdFocused {
 		style = StyleCommandInputFocused
 	}
-
-	prompt := "> "
-	if a.cmdFocused {
-		return style.Width(a.width).Render(prompt + a.cmdInput + "█")
-	}
-	return style.Width(a.width).Render(prompt + "type : to enter a command...")
+	return style.Width(a.width).Render(a.cmdInput.View())
 }

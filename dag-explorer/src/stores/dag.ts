@@ -35,6 +35,7 @@ const [hoveredNode, setHoveredNode] = createSignal<string | null>(null);
 const [detailPanelOpen, setDetailPanelOpen] = createSignal(true);
 const [diffMode, setDiffMode] = createSignal(false);
 const [diffResult, setDiffResult] = createSignal<string | null>(null);
+const [viewMode, setViewMode] = createSignal<"2d" | "3d">("2d");
 
 // ── Derived data ──────────────────────────────────────────────────
 
@@ -232,6 +233,8 @@ export const dagStore = {
   setDiffMode,
   diffResult,
   setDiffResult,
+  viewMode,
+  setViewMode,
 
   // Actions
   loadFromAPI,

@@ -2,8 +2,9 @@ import { createSignal, onCleanup } from "solid-js";
 
 export interface ServerMessage {
   type: string;
-  data: unknown;
   channel?: string;
+  // All backend fields are at top level (no `data` wrapper)
+  [key: string]: unknown;
 }
 
 export type ClientMessage =
@@ -16,7 +17,11 @@ export type ClientMessage =
   | { type: "create_agent"; name: string; capabilities: string[] }
   | { type: "step_agent"; agentId: string; environment?: Record<string, unknown> }
   | { type: "fork_agent"; agentId: string; name?: string }
-  | { type: "upgrade_to_dual"; agentId: string };
+  | { type: "upgrade_to_dual"; agentId: string }
+  | { type: "conductor_status" }
+  | { type: "conductor_start" }
+  | { type: "conductor_stop" }
+  | { type: "subscribe_conductor" };
 
 type MessageHandler = (msg: ServerMessage) => void;
 

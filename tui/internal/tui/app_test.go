@@ -10,10 +10,7 @@ import (
 
 func makeTestApp() App {
 	// Create app without a real WS client (we'll test message handling directly)
-	return App{
-		config:    Config{WSURL: "ws://test:9080/ws"},
-		connState: "disconnected",
-	}
+	return NewApp(Config{WSURL: "ws://test:9080/ws"}, nil)
 }
 
 func makeServerMsg(data string) ws.ServerMessage {
