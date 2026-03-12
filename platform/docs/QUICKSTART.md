@@ -8,7 +8,29 @@ A self-configuring agent platform where cognition is code and code is cognition.
 
 ## 1. One-Command Local Setup (5 minutes)
 
-### Path A: Earthly (recommended)
+### Path D: Tilt (recommended for development)
+
+[Tilt](https://tilt.dev/) orchestrates the full stack — Earthly build, Docker backend, and bun frontend dev server — in one command:
+
+```bash
+git clone https://github.com/pyrex41/autopoiesis.git && cd autopoiesis
+
+tilt up --port 14400
+# Open the Tilt dashboard at http://localhost:14400
+# Open the web console at http://localhost:14403
+
+# Run browser E2E tests (14 suites, 109 assertions)
+tilt trigger e2e-tests
+```
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| Tilt UI | 14400 | Dev dashboard |
+| Backend (WS) | 14401 | WebSocket API |
+| Backend (REST) | 14402 | REST API + MCP |
+| Web Console | 14403 | SolidJS frontend (dag-explorer) |
+
+### Path A: Earthly
 
 [Earthly](https://earthly.dev) provides reproducible, containerized builds without needing to install SBCL or Quicklisp locally.
 
@@ -285,6 +307,41 @@ This opens a Bevy window with custom shaders (grid, agent shells, energy beams, 
 
 > **Pro Tip:** Both the standalone Holodeck and the Nexus TUI connect to the same WebSocket backend. Run them simultaneously for a TUI + 3D dual-view setup.
 
+### 3b. Web Console (dag-explorer)
+
+The primary web interface is a SolidJS application at `dag-explorer/` with 36 components and 8 reactive stores.
+
+```bash
+# Start standalone (backend must be running)
+cd dag-explorer && bun install && bun run dev -- --port 14403
+
+# Or via Tilt (recommended — starts everything):
+tilt up --port 14400
+# Web console auto-available at http://localhost:14403
+```
+
+**5 views** (switch with keys `1`–`5` or the sidebar):
+
+| View | Key | What it shows |
+|------|-----|---------------|
+| Dashboard | `1` | Agent overview, system status, quick actions |
+| DAG Explorer | `2` | Interactive snapshot DAG with force-directed layout, minimap |
+| Timeline | `3` | Chronological event stream with filters |
+| Tasks | `4` | Task scheduler, queue monitor, recurring task management |
+| Holodeck | `5` | Embedded 3D visualization (Three.js) |
+
+**Agent management:** Create, start, pause, stop, fork, and upgrade agents from the dashboard. Each agent shows live thought streams, capabilities, and lineage.
+
+**Jarvis chat bar:** Natural language input at the bottom of every view — type commands like "spawn a monitoring agent" or "crystallize heuristics". Responses include tool calls and approval prompts.
+
+**Command palette:** Press `Cmd+K` (or `Ctrl+K`) to open a fuzzy-search command palette for quick access to any action.
+
+**Team management:** Create teams with coordination strategies (leader-worker, parallel, pipeline, debate, consensus), assign agents, and monitor shared workspaces.
+
+**Activity & cost dashboards:** Track agent activity over time and monitor LLM API costs per agent/provider.
+
+The web console auto-connects to the WebSocket API on port 14401. All three frontends (web console, Nexus TUI, Holodeck) can run simultaneously against the same backend.
+
 ---
 
 ## 4. Understanding the 3-Layer Mental Model
@@ -519,6 +576,11 @@ autopoiesis/
 │       ├── nexus-mcp/     MCP integration
 │       └── nexus-voice/   Voice input support
 │
+├── dag-explorer/      ← TypeScript/SolidJS (web console)
+│   ├── src/components/    36 UI components
+│   ├── src/stores/        8 reactive stores (agents, dag, teams, ws, etc.)
+│   └── src/api/           REST + WebSocket client
+│
 ├── holodeck/          ← Rust (standalone 3D visualization)
 │   └── src/               Bevy app with custom shaders, particles, egui
 │
@@ -536,6 +598,8 @@ autopoiesis/
 | Add a new LLM provider | Common Lisp | `platform/src/integration/provider-*.lisp` |
 | New REST/WebSocket endpoint | Common Lisp | `platform/src/api/routes.lisp` |
 | New self-extension capabilities | Common Lisp | `platform/src/core/extension-compiler.lisp` |
+| Modify web console UI | TypeScript/SolidJS | `dag-explorer/src/components/` |
+| Add new web console store | TypeScript/SolidJS | `dag-explorer/src/stores/` |
 | Modify TUI layout, add widgets | Rust | `nexus/crates/nexus-tui/` |
 | Add TUI keybindings | Rust | `nexus/crates/nexus-tui/src/keybinds.rs` |
 | Modify 3D visualization | Rust | `holodeck/src/` |
@@ -631,7 +695,43 @@ sbcl --noinform --non-interactive --load platform/docs/demo/test-demo.lisp
 
 ---
 
-## 9. Next Steps & Where to Go Deeper
+## 9. Browser E2E Tests
+
+14 test suites with 109 assertions using [rodney](https://github.com/nicholasgasior/rodney) (Chrome CDP CLI):
+
+```bash
+# Run via Tilt (recommended — starts backend + frontend automatically)
+tilt trigger e2e-tests
+
+# Run standalone (requires backend + frontend already running)
+cd e2e && bash run.sh
+
+# Run specific suites
+cd e2e && bash run.sh 01-health 02-dashboard
+```
+
+| Suite | What it tests |
+|-------|---------------|
+| `01-health` | Backend health endpoint |
+| `02-dashboard` | Dashboard view loads, agent table renders |
+| `03-dag-explorer` | DAG view, canvas rendering |
+| `04-timeline` | Timeline view, event stream |
+| `05-tasks` | Task view, scheduler UI |
+| `06-holodeck` | Holodeck view, Three.js canvas |
+| `07-agent-lifecycle` | Create, start, pause, stop agents |
+| `08-conductor` | Conductor status, event queue |
+| `09-teams` | Team creation, strategy selection |
+| `10-jarvis` | Chat bar input, NL dispatch |
+| `11-command-palette` | Cmd+K palette, fuzzy search |
+| `12-activity` | Activity tracking dashboard |
+| `13-cost` | Cost dashboard, provider breakdown |
+| `14-ws-smoke` | WebSocket connection, message flow |
+
+> **SolidJS gotcha:** Standard CDP clicks don't trigger SolidJS event handlers due to `$$click` event delegation. The E2E helpers use `solidjs_click()` which checks for the delegated handler. Input signals need the native HTMLInputElement setter trick via `solidjs_input()`. See `e2e/helpers.sh` for details.
+
+---
+
+## 10. Next Steps & Where to Go Deeper
 
 ### Documentation
 

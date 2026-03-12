@@ -17,11 +17,11 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 
 ## Status
 
-**All phases (0-11) complete.** 4,300+ assertions across 28 test suites, all passing.
+**All phases (0-11) complete.** 4,300+ assertions across 28 test suites + 109 browser E2E assertions across 14 suites, all passing.
 
 ---
 
-**Start here** -> [`platform/docs/QUICKSTART.md`](platform/docs/QUICKSTART.md) — Full setup guide, first agent swarm, TUI cockpit, self-extension walkthrough, scaling guidance, and multi-language navigation.
+**Start here** -> [`platform/docs/QUICKSTART.md`](platform/docs/QUICKSTART.md) — Full setup guide, first agent swarm, web console, self-extension walkthrough, scaling guidance, and multi-language navigation.
 
 ---
 
@@ -29,15 +29,43 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 
 ### Prerequisites
 
-- [SBCL](http://www.sbcl.org/) (Steel Bank Common Lisp)
-- [Quicklisp](https://www.quicklisp.org/beta/)
+- [SBCL](http://www.sbcl.org/) (Steel Bank Common Lisp) + [Quicklisp](https://www.quicklisp.org/beta/)
+- [Bun](https://bun.sh/) (for the web console frontend)
+- [Tilt](https://tilt.dev/) (recommended for dev orchestration)
 
-### Install and Test
+### Fastest Path: Tilt
 
 ```bash
-git clone <repo-url> autopoiesis
-cd autopoiesis
+git clone <repo-url> autopoiesis && cd autopoiesis
+
+# Start everything: backend (Earthly/Docker) + frontend (bun dev server)
+tilt up --port 14400
+
+# Open the web console
+open http://localhost:14403
+
+# Run browser E2E tests
+tilt trigger e2e-tests
+```
+
+Tilt orchestrates the full stack:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| Tilt UI | 14400 | Dev dashboard |
+| Backend (WS) | 14401 | WebSocket API |
+| Backend (REST) | 14402 | REST API + MCP |
+| Web Console | 14403 | SolidJS frontend |
+
+### Manual Start
+
+```bash
+# Build and test the Lisp platform
+./platform/scripts/build.sh
 ./platform/scripts/test.sh
+
+# Start the web console
+cd dag-explorer && bun install && bun run dev -- --port 14403
 ```
 
 ### Hello World
@@ -543,7 +571,7 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 
 ## Architecture
 
-**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
+**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. Three frontends connect over WebSocket/REST: **dag-explorer** (SolidJS web console — primary), **Nexus** (Rust TUI cockpit), and **Holodeck** (Rust/Bevy 3D visualization). See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
 
 **Legacy view (17 layers):**
 
@@ -598,7 +626,8 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 │                        Value Index  •  Interning  •  defsystem       │
 └──────────────────────────────────────────────────────────────────────┘
 
-Separate ASDF systems: Holodeck (3D ECS viz), Sandbox (squashd containers), Research (parallel campaigns)
+Separate frontends: dag-explorer (SolidJS web console), Nexus (Rust TUI), Holodeck (3D ECS viz)
+Separate ASDF systems: Holodeck (CL-native ECS), Sandbox (squashd containers), Research (parallel campaigns)
 ```
 
 ### Substrate Layer (`platform/src/substrate/`)
