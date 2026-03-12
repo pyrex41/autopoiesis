@@ -48,6 +48,8 @@
     (define-key map (kbd "C-c a c") #'sly-autopoiesis-chat)
     (define-key map (kbd "C-c x E") #'sly-autopoiesis-toggle-event-bridge)
     (define-key map (kbd "C-c x n") #'sly-autopoiesis-snapshot-browser)
+    (define-key map (kbd "C-c x l") #'sly-autopoiesis-live-thoughts)
+    (define-key map (kbd "C-c x B") #'sly-autopoiesis-branch-manager)
     map)
   "Keymap for `sly-autopoiesis-mode'.")
 
@@ -151,6 +153,7 @@
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") #'sly-autopoiesis--chat-from-detail)
     (define-key map (kbd "t") #'sly-autopoiesis--thoughts-from-detail)
+    (define-key map (kbd "l") #'sly-autopoiesis--live-thoughts-from-detail)
     (define-key map (kbd "g") #'sly-autopoiesis--refresh-detail)
     (define-key map (kbd "q") #'quit-window)
     map)
@@ -177,7 +180,7 @@
     (insert "\nCapabilities:\n")
     (dolist (cap (plist-get info :capabilities))
       (insert (format "  - %s\n" cap)))
-    (insert "\n[c] chat  [t] thoughts  [g] refresh  [q] quit\n")
+    (insert "\n[c] chat  [t] thoughts  [l] live thoughts  [g] refresh  [q] quit\n")
     (goto-char (point-min))))
 
 (defun sly-autopoiesis-agent-detail-at-point ()
@@ -220,6 +223,12 @@
   (when sly-autopoiesis--detail-agent-id
     (sly-autopoiesis-show-thoughts sly-autopoiesis--detail-agent-id)))
 
+(defun sly-autopoiesis--live-thoughts-from-detail ()
+  "Open live thought buffer for the agent in this detail buffer."
+  (interactive)
+  (when sly-autopoiesis--detail-agent-id
+    (sly-autopoiesis-live-thoughts sly-autopoiesis--detail-agent-id)))
+
 ;;;; ────────────────────────────────────────────────────────────────────
 ;;;; Thoughts Buffer
 ;;;; ────────────────────────────────────────────────────────────────────
@@ -249,6 +258,60 @@
                   (insert (format "%s\n" (or content ""))))))
             (goto-char (point-min))))
         (pop-to-buffer buf)))))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Live Thought Buffer
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defvar-local sly-autopoiesis--live-agent-id nil
+  "Agent ID for this live thought buffer.")
+
+(defun sly-autopoiesis-live-thoughts (agent-id)
+  "Open a live thought streaming buffer for AGENT-ID.
+Thoughts arrive via the event bridge and are appended in real-time."
+  (interactive (list (read-string "Agent ID: "
+                      (when (bound-and-true-p sly-autopoiesis--detail-agent-id)
+                        sly-autopoiesis--detail-agent-id))))
+  ;; Buffer name uses "live" to distinguish from static
+  (let* ((buf-name (format "*autopoiesis-thoughts-live: %s*" agent-id))
+         (existing (get-buffer buf-name)))
+    (if existing
+        (pop-to-buffer existing)
+      (let ((buf (get-buffer-create buf-name)))
+        (with-current-buffer buf
+          (special-mode)
+          (setq sly-autopoiesis--live-agent-id agent-id)
+          (let ((inhibit-read-only t))
+            (insert (propertize (format "Live Thoughts — %s\n\n" agent-id)
+                                'face 'bold))
+            ;; Load recent history first
+            (insert (propertize "(loading history...)\n" 'face 'font-lock-comment-face))))
+        ;; Fetch recent thoughts as initial content
+        (sly-eval-async `(slynk-autopoiesis:agent-thoughts ,agent-id 50)
+          (lambda (thoughts)
+            (when (buffer-live-p buf)
+              (with-current-buffer buf
+                (let ((inhibit-read-only t))
+                  ;; Remove loading message
+                  (goto-char (point-min))
+                  (forward-line 2)
+                  (delete-region (point) (point-max))
+                  ;; Insert historical thoughts
+                  (dolist (th thoughts)
+                    (sly-autopoiesis--insert-live-thought th))
+                  (goto-char (point-max)))))))
+        (pop-to-buffer buf)))))
+
+(defun sly-autopoiesis--insert-live-thought (thought-alist)
+  "Insert a thought into the current live buffer with color coding."
+  (let ((type (cdr (assq :type thought-alist)))
+        (content (cdr (assq :content thought-alist)))
+        (ts (cdr (assq :timestamp thought-alist))))
+    (insert (propertize (format "[%s] " (or type "?"))
+                        'face (sly-autopoiesis--thought-face type)))
+    (insert (propertize (format "%s " (or ts ""))
+                        'face 'font-lock-comment-face))
+    (insert (format "%s\n" (or content "")))))
 
 ;;;; ────────────────────────────────────────────────────────────────────
 ;;;; Chat Shell (comint-based)
@@ -407,6 +470,18 @@ AGENT-ID is a string, THOUGHT-ALIST has :type, :content, :timestamp."
             (insert (propertize (format "%s " (or ts ""))
                                 'face 'font-lock-comment-face))
             (insert (format "%s\n" (or content ""))))))))
+  ;; Update live thought buffer if it exists
+  (when-let ((live-buf (get-buffer (format "*autopoiesis-thoughts-live: %s*" agent-id))))
+    (when (buffer-live-p live-buf)
+      (with-current-buffer live-buf
+        (let ((inhibit-read-only t)
+              (at-end (= (point) (point-max))))
+          (save-excursion
+            (goto-char (point-max))
+            (sly-autopoiesis--insert-live-thought thought-alist))
+          ;; Auto-scroll if point was at end
+          (when at-end
+            (goto-char (point-max)))))))
   ;; Also push to event log
   (push (list :thought agent-id thought-alist (current-time))
         sly-autopoiesis--event-log)
@@ -593,6 +668,96 @@ AGENT-ID is a string, THOUGHT-ALIST has :type, :content, :timestamp."
                       (insert "\n\n[q] quit\n")
                       (goto-char (point-min))))
                   (pop-to-buffer buf))))))))))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Branch Manager
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defvar sly-autopoiesis-branch-manager-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'sly-autopoiesis-checkout-branch-at-point)
+    (define-key map (kbd "c") #'sly-autopoiesis-create-branch)
+    (define-key map (kbd "d") #'sly-autopoiesis-diff-branch-at-point)
+    (define-key map (kbd "g") #'sly-autopoiesis--refresh-branches)
+    (define-key map (kbd "q") #'quit-window)
+    map))
+
+(define-derived-mode sly-autopoiesis-branch-manager-mode tabulated-list-mode
+  "AP-Branches"
+  "Major mode for managing Autopoiesis branches."
+  (setq tabulated-list-format
+        [("Name" 30 t)
+         ("Head" 40 t)
+         ("Created" 24 t)])
+  (tabulated-list-init-header)
+  (use-local-map (make-composed-keymap sly-autopoiesis-branch-manager-mode-map
+                                        tabulated-list-mode-map)))
+
+(defun sly-autopoiesis--branch-list-entries (branches)
+  "Convert BRANCHES alists to tabulated-list entries."
+  (mapcar (lambda (b)
+            (let ((name (cdr (assq :name b)))
+                  (head (cdr (assq :head b)))
+                  (created (cdr (assq :created b))))
+              (list name (vector (or name "?")
+                                 (or head "")
+                                 (or created "")))))
+          branches))
+
+(defun sly-autopoiesis--refresh-branches ()
+  "Refresh the branch manager buffer."
+  (interactive)
+  (sly-eval-async '(slynk-autopoiesis:list-branches)
+    (lambda (branches)
+      (when-let ((buf (get-buffer "*autopoiesis-branches*")))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (let ((inhibit-read-only t))
+              (setq tabulated-list-entries
+                    (sly-autopoiesis--branch-list-entries branches))
+              (tabulated-list-print t))))))))
+
+;;;###autoload
+(defun sly-autopoiesis-branch-manager ()
+  "Open the Autopoiesis branch manager."
+  (interactive)
+  (sly-eval-async '(slynk-autopoiesis:list-branches)
+    (lambda (branches)
+      (let ((buf (get-buffer-create "*autopoiesis-branches*")))
+        (with-current-buffer buf
+          (sly-autopoiesis-branch-manager-mode)
+          (setq tabulated-list-entries
+                (sly-autopoiesis--branch-list-entries branches))
+          (tabulated-list-print t))
+        (pop-to-buffer buf)))))
+
+(defun sly-autopoiesis-checkout-branch-at-point ()
+  "Checkout the branch at point."
+  (interactive)
+  (let ((branch-name (tabulated-list-get-id)))
+    (unless branch-name (user-error "No branch at point"))
+    (sly-eval-async `(slynk-autopoiesis:checkout-branch-rpc ,branch-name)
+      (lambda (_result)
+        (message "Switched to branch: %s" branch-name)
+        (sly-autopoiesis--refresh-branches)))))
+
+(defun sly-autopoiesis-create-branch ()
+  "Create a new branch."
+  (interactive)
+  (let ((name (read-string "Branch name: ")))
+    (when (and name (not (string-empty-p name)))
+      (sly-eval-async `(slynk-autopoiesis:create-branch-rpc ,name)
+        (lambda (_result)
+          (message "Created branch: %s" name)
+          (sly-autopoiesis--refresh-branches))))))
+
+(defun sly-autopoiesis-diff-branch-at-point ()
+  "Diff the branch at point with the current branch."
+  (interactive)
+  (let ((branch-name (tabulated-list-get-id)))
+    (unless branch-name (user-error "No branch at point"))
+    ;; Get the head snapshot of the selected branch and diff with current
+    (message "Diff for branch %s (not yet implemented)" branch-name)))
 
 ;;;; ────────────────────────────────────────────────────────────────────
 ;;;; Slynk load path

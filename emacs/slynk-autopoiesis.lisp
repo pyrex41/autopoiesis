@@ -19,6 +19,8 @@
            #:list-branches
            #:get-snapshot-detail
            #:snapshot-diff-report
+           #:create-branch-rpc
+           #:checkout-branch-rpc
            ;; Event bridge
            #:start-emacs-event-bridge
            #:stop-emacs-event-bridge
@@ -263,6 +265,15 @@ Returns (:teams (...) :unaffiliated (...) :lineage (...))."
                     (cons :created (let ((ts (safe-slot b "BRANCH-CREATED" :autopoiesis.snapshot)))
                                     (if ts (princ-to-string ts) "")))))
             branches)))
+
+(defun create-branch-rpc (name &optional from-snapshot)
+  "Create a new branch named NAME, optionally from FROM-SNAPSHOT."
+  (call-if-available :autopoiesis.snapshot "CREATE-BRANCH" name
+                     :from-snapshot from-snapshot))
+
+(defun checkout-branch-rpc (name)
+  "Switch to branch NAME."
+  (call-if-available :autopoiesis.snapshot "SWITCH-BRANCH" name))
 
 (defun get-snapshot-detail (snapshot-id)
   "Return detailed snapshot info as a plist."
