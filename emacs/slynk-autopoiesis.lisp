@@ -21,7 +21,9 @@
            #:snapshot-diff-report
            ;; Event bridge
            #:start-emacs-event-bridge
-           #:stop-emacs-event-bridge))
+           #:stop-emacs-event-bridge
+           ;; Org topology
+           #:org-topology))
 
 (in-package #:slynk-autopoiesis)
 
@@ -172,6 +174,71 @@ Returns the response text string."
           :health-status (getf health :status)
           :agent-count (if agents (length agents) 0)
           :checks (getf health :checks))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Org Topology
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun org-topology ()
+  "Return the complete agent/team topology as a structured plist.
+Returns (:teams (...) :unaffiliated (...) :lineage (...))."
+  (let* ((agents (handler-case
+                     (call-if-available :autopoiesis.agent "LIST-AGENTS")
+                   (error () nil)))
+         (team-fn (resolve :autopoiesis.team "LIST-TEAMS"))
+         (teams-raw (when (and team-fn (fboundp team-fn))
+                      (handler-case (funcall team-fn)
+                        (error () nil))))
+         (member-ids (make-hash-table :test 'equal))
+         (teams
+           (mapcar
+            (lambda (team)
+              (let* ((tid (or (safe-slot team "TEAM-ID" :autopoiesis.team) ""))
+                     (tname (or (safe-slot team "TEAM-NAME" :autopoiesis.team) ""))
+                     (strategy (let ((s (safe-slot team "TEAM-STRATEGY" :autopoiesis.team)))
+                                 (if s (string-downcase (symbol-name s)) "unknown")))
+                     (status (let ((s (safe-slot team "TEAM-STATUS" :autopoiesis.team)))
+                               (if s (string-downcase (symbol-name s)) "unknown")))
+                     (leader (let ((l (safe-slot team "TEAM-LEADER" :autopoiesis.team)))
+                               (if l (or (safe-slot l "AGENT-ID") "") "")))
+                     (raw-members (or (safe-slot team "TEAM-MEMBERS" :autopoiesis.team) nil))
+                     (members
+                       (mapcar
+                        (lambda (m)
+                          (let ((mid (or (safe-slot m "AGENT-ID") "")))
+                            (setf (gethash mid member-ids) t)
+                            (list :id mid
+                                  :name (or (safe-slot m "AGENT-NAME") "")
+                                  :state (let ((st (safe-slot m "AGENT-STATE")))
+                                           (if st (string-downcase (symbol-name st)) "unknown"))
+                                  :role (if (equal mid leader) "leader" "worker"))))
+                        raw-members)))
+                (when (and leader (not (equal leader "")))
+                  (setf (gethash leader member-ids) t))
+                (list :id tid :name tname :strategy strategy :status status
+                      :leader leader :members members)))
+            teams-raw))
+         (unaffiliated
+           (loop for agent in agents
+                 for aid = (or (safe-slot agent "AGENT-ID") "")
+                 unless (gethash aid member-ids)
+                   collect (list :id aid
+                                 :name (or (safe-slot agent "AGENT-NAME") "")
+                                 :state (let ((st (safe-slot agent "AGENT-STATE")))
+                                          (if st (string-downcase (symbol-name st)) "unknown")))))
+         (lineage
+           (loop for agent in agents
+                 for aid = (or (safe-slot agent "AGENT-ID") "")
+                 for parent = (safe-slot agent "AGENT-PARENT")
+                 for children = (safe-slot agent "AGENT-CHILDREN")
+                 when parent
+                   collect (list :parent (if (stringp parent) parent (princ-to-string parent))
+                                 :children (mapcar (lambda (c)
+                                                     (if (stringp c) c (princ-to-string c)))
+                                                   (or children nil))))))
+    (list :teams teams
+          :unaffiliated unaffiliated
+          :lineage lineage)))
 
 (defun list-snapshots (&optional (limit 50))
   "Return list of snapshot alists with ID, timestamp, parent, hash."

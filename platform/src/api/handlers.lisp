@@ -546,3 +546,157 @@ for data stream messages. Control messages are always JSON."
   (declare (ignore msg))
   (subscribe-connection conn "conductor")
   (ok-response "subscribed" "channel" "conductor"))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Holodeck Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(define-handler handle-holodeck-subscribe "holodeck_subscribe" (msg conn)
+  "Subscribe connection to holodeck frame stream."
+  (declare (ignore msg))
+  (subscribe-connection conn "holodeck")
+  (ok-response "subscribed" "channel" "holodeck"))
+
+(define-handler handle-holodeck-unsubscribe "holodeck_unsubscribe" (msg conn)
+  "Unsubscribe connection from holodeck frame stream."
+  (declare (ignore msg))
+  (unsubscribe-connection conn "holodeck")
+  (ok-response "unsubscribed" "channel" "holodeck"))
+
+(define-handler handle-holodeck-input "holodeck_input" (msg conn)
+  "Forward keyboard/mouse input events to holodeck."
+  (declare (ignore conn))
+  (unless (holodeck-available-p)
+    (return-from handle-holodeck-input
+      (error-response "holodeck_unavailable" "Holodeck is not loaded or running")))
+  (let ((action-name (gethash "action" msg))
+        (key (gethash "key" msg)))
+    (cond
+      (action-name
+       (let ((action-kw (find-symbol (string-upcase action-name) :keyword)))
+         (unless action-kw
+           (return-from handle-holodeck-input
+             (error-response "invalid_action"
+                             (format nil "Unknown action: ~a" action-name))))
+         (if (holodeck-execute-action action-kw)
+             (ok-response "holodeck_input_accepted" "action" action-name)
+             (error-response "action_failed"
+                             (format nil "Action handler not found: ~a" action-name)))))
+      (key
+       (let ((press-fn (find-symbol "HANDLE-KEY-PRESS" :autopoiesis.holodeck))
+             (holodeck-val (holodeck-available-p)))
+         (if (and press-fn (fboundp press-fn) holodeck-val)
+             (let ((handler-fn (find-symbol "HOLODECK-KEYBOARD-HANDLER"
+                                            :autopoiesis.holodeck)))
+               (if (and handler-fn (fboundp handler-fn))
+                   (let ((input-handler (funcall handler-fn holodeck-val)))
+                     (when input-handler
+                       (let ((key-sym (find-symbol (string-upcase key) :keyword)))
+                         (when key-sym
+                           (funcall press-fn input-handler key-sym))))
+                     (ok-response "holodeck_input_accepted" "key" key))
+                   (error-response "holodeck_error" "Input handler not available")))
+             (error-response "holodeck_error" "Key press handler not available"))))
+      (t
+       (error-response "missing_field"
+                       "holodeck_input requires 'action' or 'key'")))))
+
+(define-handler handle-holodeck-camera "holodeck_camera" (msg conn)
+  "Handle camera commands: orbit-left, orbit-right, zoom-in, zoom-out, reset-view."
+  (declare (ignore conn))
+  (unless (holodeck-available-p)
+    (return-from handle-holodeck-camera
+      (error-response "holodeck_unavailable" "Holodeck is not loaded or running")))
+  (let ((command (gethash "command" msg)))
+    (unless command
+      (return-from handle-holodeck-camera
+        (error-response "missing_field" "holodeck_camera requires 'command'")))
+    (let ((action-kw (find-symbol (string-upcase command) :keyword)))
+      (unless action-kw
+        (return-from handle-holodeck-camera
+          (error-response "invalid_command"
+                          (format nil "Unknown camera command: ~a" command))))
+      (if (holodeck-execute-action action-kw)
+          (ok-response "holodeck_camera_done" "command" command)
+          (error-response "command_failed"
+                          (format nil "Camera command handler not found: ~a" command))))))
+
+(define-handler handle-holodeck-select "holodeck_select" (msg conn)
+  "Select an entity in the holodeck by ID."
+  (declare (ignore conn))
+  (unless (holodeck-available-p)
+    (return-from handle-holodeck-select
+      (error-response "holodeck_unavailable" "Holodeck is not loaded or running")))
+  (let ((entity-id (gethash "entityId" msg)))
+    (unless entity-id
+      (return-from handle-holodeck-select
+        (error-response "missing_field" "holodeck_select requires 'entityId'")))
+    (let ((select-fn (find-symbol "SELECT-ENTITY" :autopoiesis.holodeck)))
+      (if (and select-fn (fboundp select-fn))
+          (handler-case
+              (progn
+                (funcall select-fn entity-id)
+                (ok-response "holodeck_selected" "entityId" entity-id))
+            (error (e)
+              (error-response "select_failed"
+                              (format nil "Failed to select entity: ~a" e))))
+          (error-response "holodeck_error" "Entity selection not available")))))
+
+(define-handler handle-holodeck-action "holodeck_action" (msg conn)
+  "Perform agent operations on a selected entity in the holodeck."
+  (declare (ignore conn))
+  (unless (holodeck-available-p)
+    (return-from handle-holodeck-action
+      (error-response "holodeck_unavailable" "Holodeck is not loaded or running")))
+  (let ((action (gethash "action" msg))
+        (entity-id (gethash "entityId" msg)))
+    (unless action
+      (return-from handle-holodeck-action
+        (error-response "missing_field" "holodeck_action requires 'action'")))
+    (let ((action-kw (find-symbol (string-upcase action) :keyword)))
+      (unless action-kw
+        (return-from handle-holodeck-action
+          (error-response "invalid_action"
+                          (format nil "Unknown holodeck action: ~a" action))))
+      (let ((entity-action-fn (find-symbol "ENTITY-ACTION" :autopoiesis.holodeck)))
+        (if (and entity-action-fn (fboundp entity-action-fn))
+            (handler-case
+                (progn
+                  (funcall entity-action-fn entity-id action-kw)
+                  (ok-response "holodeck_action_done"
+                               "action" action
+                               "entityId" entity-id))
+              (error (e)
+                (error-response "action_failed"
+                                (format nil "Holodeck action failed: ~a" e))))
+            (if (holodeck-execute-action action-kw)
+                (ok-response "holodeck_action_done"
+                             "action" action
+                             "entityId" entity-id)
+                (error-response "action_failed"
+                                (format nil "No handler for action: ~a" action))))))))
+
+(define-handler handle-holodeck-set-view "holodeck_set_view" (msg conn)
+  "Switch holodeck view mode."
+  (declare (ignore conn))
+  (unless (holodeck-available-p)
+    (return-from handle-holodeck-set-view
+      (error-response "holodeck_unavailable" "Holodeck is not loaded or running")))
+  (let ((view-mode (gethash "mode" msg)))
+    (unless view-mode
+      (return-from handle-holodeck-set-view
+        (error-response "missing_field" "holodeck_set_view requires 'mode'")))
+    (let ((set-view-fn (find-symbol "SET-VIEW-MODE" :autopoiesis.holodeck)))
+      (if (and set-view-fn (fboundp set-view-fn))
+          (handler-case
+              (let ((mode-kw (find-symbol (string-upcase view-mode) :keyword)))
+                (unless mode-kw
+                  (return-from handle-holodeck-set-view
+                    (error-response "invalid_mode"
+                                    (format nil "Unknown view mode: ~a" view-mode))))
+                (funcall set-view-fn mode-kw)
+                (ok-response "holodeck_view_set" "mode" view-mode))
+            (error (e)
+              (error-response "view_failed"
+                              (format nil "Failed to set view mode: ~a" e))))
+          (error-response "holodeck_error" "View mode switching not available")))))

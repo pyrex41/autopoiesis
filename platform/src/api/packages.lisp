@@ -108,11 +108,17 @@
     #:*activity-state*
     #:*cost-state*
 
-    ;; Holodeck bridge (frame serialization)
+    ;; Holodeck bridge (frame serialization + WS broadcast)
     #:serialize-holodeck-frame
     #:serialize-entity-desc
     #:serialize-connection-desc
     #:holodeck-single-frame
+    #:start-holodeck-bridge
+    #:stop-holodeck-bridge
+    #:*holodeck-bridge-thread*
+    #:*holodeck-bridge-running*
+    #:holodeck-available-p
+    #:holodeck-execute-action
 
     ;; Chat handlers (Jarvis bridge)
     #:*chat-sessions*

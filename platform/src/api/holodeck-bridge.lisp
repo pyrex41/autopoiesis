@@ -216,3 +216,81 @@ is not running or not loaded."
             (list "error" "holodeck not running")))
     (error (e)
       (list "error" (format nil "~a" e)))))
+
+;;; ===================================================================
+;;; Holodeck Availability Check
+;;; ===================================================================
+
+(defun holodeck-available-p ()
+  "Return the holodeck window instance if holodeck is loaded and active, or NIL."
+  (let ((pkg (find-package :autopoiesis.holodeck)))
+    (when pkg
+      (let ((holodeck-sym (find-symbol "*HOLODECK*" pkg)))
+        (when (and holodeck-sym (boundp holodeck-sym))
+          (symbol-value holodeck-sym))))))
+
+;;; ===================================================================
+;;; Broadcast Loop
+;;; ===================================================================
+
+(defvar *holodeck-bridge-thread* nil
+  "Background thread streaming holodeck frames to WebSocket subscribers.")
+
+(defvar *holodeck-bridge-running* nil
+  "Flag for cooperative shutdown of the holodeck bridge thread.")
+
+(defun start-holodeck-bridge ()
+  "Start the holodeck frame broadcast loop.
+   Spawns a background thread that calls holodeck-single-frame at 10fps
+   and broadcasts the result to all connections subscribed to \"holodeck\"."
+  (when *holodeck-bridge-thread*
+    (stop-holodeck-bridge))
+  (setf *holodeck-bridge-running* t)
+  (setf *holodeck-bridge-thread*
+        (bordeaux-threads:make-thread
+         (lambda ()
+           (loop while *holodeck-bridge-running*
+                 do (handler-case
+                        (when (holodeck-available-p)
+                          (let ((frame (holodeck-single-frame)))
+                            (when (and frame (not (getf frame "error")))
+                              (broadcast-stream-data frame
+                                                     :subscription-type "holodeck"))))
+                      (error (e)
+                        (log:warn "Holodeck bridge error: ~a" e)))
+                    (sleep 0.1)))  ; 10fps
+         :name "holodeck-bridge"))
+  (log:info "Holodeck bridge started (10fps)"))
+
+(defun stop-holodeck-bridge ()
+  "Stop the holodeck frame broadcast loop and join the thread."
+  (setf *holodeck-bridge-running* nil)
+  (when (and *holodeck-bridge-thread*
+             (bordeaux-threads:thread-alive-p *holodeck-bridge-thread*))
+    (ignore-errors (bordeaux-threads:join-thread *holodeck-bridge-thread*)))
+  (setf *holodeck-bridge-thread* nil)
+  (log:info "Holodeck bridge stopped"))
+
+;;; ===================================================================
+;;; Holodeck Interaction Helpers
+;;; ===================================================================
+
+(defun holodeck-execute-action (action-keyword)
+  "Execute a holodeck action by dispatching through the key-binding registry.
+   ACTION-KEYWORD should be a keyword like :ORBIT-LEFT."
+  (let ((holodeck-val (holodeck-available-p)))
+    (unless holodeck-val
+      (return-from holodeck-execute-action nil))
+    (let* ((pkg (find-package :autopoiesis.holodeck))
+           (get-handler-fn (when pkg (find-symbol "GET-ACTION-HANDLER" pkg))))
+      (when (and get-handler-fn (fboundp get-handler-fn))
+        (let* ((handler-fn (find-symbol "HOLODECK-KEYBOARD-HANDLER" pkg))
+               (registry-fn (find-symbol "HANDLER-REGISTRY" pkg)))
+          (when (and handler-fn (fboundp handler-fn)
+                     registry-fn (fboundp registry-fn))
+            (let* ((input-handler (funcall handler-fn holodeck-val))
+                   (registry (when input-handler (funcall registry-fn input-handler)))
+                   (action-handler (when registry (funcall get-handler-fn registry action-keyword))))
+              (when action-handler
+                (funcall action-handler)
+                t))))))))
