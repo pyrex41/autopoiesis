@@ -1,0 +1,97 @@
+VERSION 0.8
+
+FROM clfoundation/sbcl:latest
+
+deps:
+    RUN apt-get update && apt-get install -y \
+        libssl-dev ca-certificates libncurses-dev libffi-dev \
+        libev-dev liblmdb-dev build-essential curl git wget \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Quicklisp
+    RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
+        && echo | sbcl --noinform --non-interactive \
+                --load quicklisp.lisp \
+                --eval "(quicklisp-quickstart:install)" \
+                --eval "(ql:add-to-init-file)" \
+                --quit \
+        && rm quicklisp.lisp
+
+    WORKDIR /app
+
+    # Copy system definitions for layer caching
+    COPY autopoiesis.asd substrate.asd ./
+
+    # Pre-load dependencies in batches
+    RUN sbcl --noinform --non-interactive \
+        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(ql:quickload '(:alexandria :bordeaux-threads :cl-json :local-time :cl-ppcre :log4cl :ironclad :flexi-streams :babel :fset) :silent t)" \
+        --eval "(quit)"
+
+    RUN sbcl --noinform --non-interactive \
+        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(ql:quickload '(:dexador :cl-charms :hunchentoot :fiveam :lparallel) :silent t)" \
+        --eval "(quit)"
+
+    RUN sbcl --noinform --non-interactive \
+        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(ql:quickload '(:clack :lack :websocket-driver :com.inuoe.jzon :cl-messagepack :lmdb :slynk) :silent t)" \
+        --eval "(quit)"
+
+    SAVE IMAGE --cache-hint
+
+build:
+    FROM +deps
+
+    COPY src/ src/
+    COPY scripts/ scripts/
+    COPY test/ test/
+    COPY vendor/ vendor/
+
+    # Compile full system
+    RUN sbcl --noinform --non-interactive \
+        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
+        --eval "(handler-case \
+                  (progn \
+                    (ql:quickload :autopoiesis/api :silent t) \
+                    (format t \"~%System loaded successfully.~%\") \
+                    (quit :unix-status 0)) \
+                  (error (e) \
+                    (format t \"~%Load FAILED: ~a~%\" e) \
+                    (quit :unix-status 1)))"
+
+    ENV AUTOPOIESIS_DATA_DIR=/data
+    ENV AUTOPOIESIS_LOG_DIR=/data/logs
+    ENV AUTOPOIESIS_LOG_LEVEL=info
+    ENV AUTOPOIESIS_HOST=0.0.0.0
+    ENV AUTOPOIESIS_PORT=8080
+
+    RUN mkdir -p /data/logs /data/snapshots /app/static
+
+    EXPOSE 8080 8081 8082 4005
+
+    SAVE IMAGE autopoiesis:latest
+
+test:
+    FROM +build
+
+    RUN sbcl --noinform --non-interactive \
+        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
+        --eval "(ql:quickload :autopoiesis/test :silent t)" \
+        --eval "(let ((result (5am:run! 'autopoiesis.test::all-tests))) \
+                  (if (5am:results-status result) \
+                    (quit :unix-status 0) \
+                    (quit :unix-status 1)))"
+
+server:
+    FROM +build
+
+    ENTRYPOINT ["sbcl", "--noinform", \
+        "--eval", "(push #P\"/app/\" asdf:*central-registry*)", \
+        "--eval", "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)", \
+        "--eval", "(ql:quickload '(:autopoiesis/api :slynk) :silent t)", \
+        "--eval", "(autopoiesis.substrate:with-store () (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (slynk:create-server :port 4005 :dont-close t) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api | Slynk port 4005~%\") (loop (sleep 60)))"]
+
+    SAVE IMAGE autopoiesis-server:latest

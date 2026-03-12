@@ -32,6 +32,7 @@ const [error, setError] = createSignal<string | null>(null);
 // Jarvis chat
 const [chatMessages, setChatMessages] = createSignal<ChatMessage[]>([]);
 const [chatLoading, setChatLoading] = createSignal(false);
+let activeChatAgentId: string | null = null;
 
 // ── Derived ──────────────────────────────────────────────────────
 
@@ -89,31 +90,52 @@ async function loadEvents() {
   }
 }
 
+// Fix 7: Subscribe to per-agent thought channels
 function selectAgent(id: string | null) {
+  const prev = selectedId();
+  if (prev) wsStore.unsubscribe(`agent:${prev}`);
   setSelectedId(id);
+  if (id) wsStore.subscribe(`agent:${id}`);
 }
 
-// Agent lifecycle actions — these POST to the API
+// Fix 3: Map frontend action names to backend REST paths
+const restPathMap: Record<string, string> = {
+  step: "cycle",
+  start: "start",
+  stop: "stop",
+  pause: "pause",
+};
+
+// Agent lifecycle actions
 async function agentAction(action: string, agentId?: string) {
   const id = agentId ?? selectedId();
   if (!id) return;
   try {
-    wsStore.send({ type: "agent_action", action, agent_id: id });
-    // Also try REST as fallback
-    await fetch(`/api/agents/${id}/${action}`, { method: "POST" });
+    // Fix 2: Use camelCase field names
+    wsStore.send({ type: "agent_action", agentId: id, action });
+    // Fix 3: Use correct REST path; fork/upgrade have no REST endpoint
+    const restPath = restPathMap[action];
+    if (restPath) {
+      await fetch(`/api/agents/${id}/${restPath}`, { method: "POST" });
+    }
     await loadAgents(); // Refresh
   } catch (e) {
     console.error(`Agent action ${action} failed:`, e);
   }
 }
 
+// Fix 4: Create agent via WebSocket, REST as fallback
 async function createAgent(name: string, capabilities: string[]) {
   try {
-    await fetch("/api/agents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, capabilities }),
-    });
+    if (wsStore.connected()) {
+      wsStore.send({ type: "create_agent", name, capabilities });
+    } else {
+      await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, capabilities }),
+      });
+    }
     await loadAgents();
   } catch (e) {
     setError(e instanceof Error ? e.message : String(e));
@@ -127,8 +149,16 @@ async function stepAgent(id?: string) { return agentAction("step", id); }
 async function forkAgent(id?: string) { return agentAction("fork", id); }
 async function upgradeAgent(id?: string) { return agentAction("upgrade", id); }
 
-// Jarvis chat
+// Fix 5: Jarvis chat with proper protocol
 function sendChatMessage(content: string) {
+  const agentId = selectedId() ?? "jarvis";
+
+  // Start chat session if not active for this agent
+  if (activeChatAgentId !== agentId) {
+    wsStore.send({ type: "start_chat", agentId });
+    activeChatAgentId = agentId;
+  }
+
   const msg: ChatMessage = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     sender: "user",
@@ -138,12 +168,20 @@ function sendChatMessage(content: string) {
   setChatMessages((prev) => [...prev, msg]);
   setChatLoading(true);
 
-  wsStore.send({ type: "chat_prompt", content });
+  // Fix 5: Send with correct field names (text, not content; include agentId)
+  wsStore.send({ type: "chat_prompt", agentId, text: content });
 }
 
 // Handle incoming WS messages
 function handleWSMessage(msg: ServerMessage) {
   switch (msg.type) {
+    // Fix 6: Handle agent_created broadcast
+    case "agent_created": {
+      const agent = msg.data as Agent;
+      setAgents((prev) => [...prev, agent]);
+      break;
+    }
+
     case "agent_list":
     case "agents_updated":
       if (Array.isArray(msg.data)) {
@@ -173,12 +211,13 @@ function handleWSMessage(msg: ServerMessage) {
       break;
     }
 
+    // Fix 5: Backend sends "text", not "content"
     case "chat_response": {
-      const data = msg.data as { content: string };
+      const data = msg.data as { text: string; agentId: string };
       const reply: ChatMessage = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         sender: "jarvis",
-        content: data.content,
+        content: data.text,
         timestamp: Date.now(),
       };
       setChatMessages((prev) => [...prev, reply]);
@@ -193,7 +232,8 @@ function init() {
   wsStore.connect();
   wsStore.subscribe("agents");
   wsStore.subscribe("events");
-  wsStore.subscribe("thoughts");
+  // Fix 7: Don't subscribe to global "thoughts" — per-agent subscriptions
+  // happen in selectAgent()
   loadAgents();
   loadEvents();
 }

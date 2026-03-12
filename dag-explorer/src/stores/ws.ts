@@ -9,10 +9,14 @@ export interface ServerMessage {
 export type ClientMessage =
   | { type: "subscribe"; channel: string }
   | { type: "unsubscribe"; channel: string }
-  | { type: "start_chat"; agent_id: string }
-  | { type: "chat_prompt"; content: string }
+  | { type: "start_chat"; agentId: string }
+  | { type: "chat_prompt"; agentId: string; text: string }
   | { type: "stop_chat" }
-  | { type: "agent_action"; action: string; agent_id: string; params?: Record<string, unknown> };
+  | { type: "agent_action"; agentId: string; action: string; params?: Record<string, unknown> }
+  | { type: "create_agent"; name: string; capabilities: string[] }
+  | { type: "step_agent"; agentId: string; environment?: Record<string, unknown> }
+  | { type: "fork_agent"; agentId: string; name?: string }
+  | { type: "upgrade_to_dual"; agentId: string };
 
 type MessageHandler = (msg: ServerMessage) => void;
 
