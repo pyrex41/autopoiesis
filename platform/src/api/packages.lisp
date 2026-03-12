@@ -93,6 +93,10 @@
    #:thought-to-json-alist
    #:event-to-json-alist
 
+   ;; Team serialization
+   #:team-to-json-plist
+   #:team-to-json-alist
+
     ;; MCP server
     #:mcp-tool-definitions
     #:handle-mcp-endpoint

@@ -16,10 +16,17 @@ import TasksView from "./TasksView";
 
 // Only lazy-load the heavy DAG view (WebGL/Three.js)
 const DAGView = lazy(() => import("./DAGView"));
+const HolodeckView = lazy(() => import("./HolodeckView"));
 
 const LazyDAG: Component = () => (
   <Suspense fallback={<div class="view-loading">Loading DAG...</div>}>
     <DAGView />
+  </Suspense>
+);
+
+const LazyHolodeck: Component = () => (
+  <Suspense fallback={<div class="view-loading">Loading Holodeck...</div>}>
+    <HolodeckView />
   </Suspense>
 );
 
@@ -28,6 +35,7 @@ const viewComponents: Record<ViewId, Component> = {
   dag: LazyDAG,
   timeline: TimelineView,
   tasks: TasksView,
+  holodeck: LazyHolodeck,
 };
 
 const AppShell: Component = () => {
@@ -47,7 +55,7 @@ const AppShell: Component = () => {
     }
 
     // View switching: 1-4
-    const viewKeys: Record<string, ViewId> = { "1": "dashboard", "2": "dag", "3": "timeline", "4": "tasks" };
+    const viewKeys: Record<string, ViewId> = { "1": "dashboard", "2": "dag", "3": "timeline", "4": "tasks", "5": "holodeck" };
     if (viewKeys[e.key]) {
       e.preventDefault();
       setCurrentView(viewKeys[e.key]);

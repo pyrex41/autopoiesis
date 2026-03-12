@@ -13,7 +13,7 @@ export interface Command {
   handler: () => void;
 }
 
-export type ViewId = "dashboard" | "dag" | "timeline" | "tasks";
+export type ViewId = "dashboard" | "dag" | "timeline" | "tasks" | "holodeck";
 
 // View state — managed here so commands + ViewSwitcher share it
 import { createSignal } from "solid-js";
@@ -127,6 +127,15 @@ export const commands: Command[] = [
     category: "views",
     icon: "☰",
     handler: () => setCurrentView("tasks"),
+  },
+  {
+    id: "view.holodeck",
+    name: "Holodeck",
+    description: "3D agent visualization",
+    shortcut: "5",
+    category: "views",
+    icon: "⬡",
+    handler: () => setCurrentView("holodeck"),
   },
 
   // ── Navigation (DAG) ──────────────────────────────────────

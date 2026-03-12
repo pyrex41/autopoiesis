@@ -6,6 +6,7 @@ const views: { id: ViewId; label: string; icon: string; shortcut: string }[] = [
   { id: "dag", label: "DAG", icon: "◇", shortcut: "2" },
   { id: "timeline", label: "Timeline", icon: "≡", shortcut: "3" },
   { id: "tasks", label: "Tasks", icon: "☰", shortcut: "4" },
+  { id: "holodeck", label: "Holodeck", icon: "⬡", shortcut: "5" },
 ];
 
 const ViewSwitcher: Component = () => {

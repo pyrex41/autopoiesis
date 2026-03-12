@@ -602,6 +602,225 @@
                                       "initialized" "not initialized")))))
 
 ;;; ===================================================================
+;;; Team Endpoints
+;;; ===================================================================
+
+(defun %team-package-loaded-p ()
+  "Return T if the autopoiesis.team package is available."
+  (not (null (find-package :autopoiesis.team))))
+
+(defun %team-fn (name)
+  "Find a function symbol in the autopoiesis.team package."
+  (when (find-package :autopoiesis.team)
+    (find-symbol (string name) :autopoiesis.team)))
+
+(defun %call-team (fn-name &rest args)
+  "Call a function in autopoiesis.team by name."
+  (let ((fn (%team-fn fn-name)))
+    (unless fn
+      (error "Team function ~A not found" fn-name))
+    (apply fn args)))
+
+(defun %team-slot (obj slot-name)
+  "Access a team object slot via its accessor."
+  (let ((fn (%team-fn slot-name)))
+    (when fn (funcall fn obj))))
+
+(defun team-to-json-alist (team)
+  "Convert a team object to a JSON-friendly alist for REST responses."
+  `((:id . ,(%team-slot team "TEAM-ID"))
+    (:status . ,(string-downcase
+                 (symbol-name (%team-slot team "TEAM-STATUS"))))
+    (:task . ,(%team-slot team "TEAM-TASK"))
+    (:leader . ,(%team-slot team "TEAM-LEADER"))
+    (:members . ,(or (%team-slot team "TEAM-MEMBERS") #()))
+    (:member--count . ,(length (or (%team-slot team "TEAM-MEMBERS") nil)))
+    (:workspace--id . ,(%team-slot team "TEAM-WORKSPACE-ID"))
+    (:strategy . ,(let ((strat (%team-slot team "TEAM-STRATEGY")))
+                    (when strat
+                      (string-downcase (symbol-name (type-of strat))))))
+    (:created--at . ,(%team-slot team "TEAM-CREATED-AT"))))
+
+(defun string-to-strategy-keyword (str)
+  "Convert a strategy string to a keyword, e.g. \"leader-worker\" -> :LEADER-WORKER."
+  (when (and str (> (length str) 0))
+    (let ((kw (find-symbol (string-upcase str) :keyword)))
+      (or kw (intern (string-upcase str) :keyword)))))
+
+(defun handle-teams (request)
+  "Dispatch /api/teams requests."
+  (let ((method (hunchentoot:request-method request))
+        (team-id (extract-path-segment request "/api/teams/")))
+    (cond
+      ;; GET /api/teams - list all teams
+      ((and (eq method :get) (null team-id))
+       (handle-teams-list))
+      ;; POST /api/teams - create team
+      ((and (eq method :post) (null team-id))
+       (handle-team-create))
+      ;; GET /api/teams/:id - get team detail
+      ((and (eq method :get) team-id)
+       (handle-team-detail team-id))
+      ;; POST /api/teams/:id/... - team actions
+      ((and (eq method :post) team-id)
+       (let ((sub-path (path-after-segment request "/api/teams/" team-id)))
+         (cond
+           ((string= sub-path "/start")
+            (handle-team-start team-id))
+           ((string= sub-path "/members")
+            (handle-team-members-add team-id))
+           (t (json-not-found "Route"
+                              (format nil "/api/teams/~A~A" team-id sub-path))))))
+      ;; DELETE /api/teams/:id - disband team
+      ((and (eq method :delete) team-id)
+       (let ((sub-path (path-after-segment request "/api/teams/" team-id)))
+         (cond
+           ((or (null sub-path) (string= sub-path "") (string= sub-path "/"))
+            (handle-team-delete team-id))
+           ((string= sub-path "/members")
+            (handle-team-members-remove team-id))
+           (t (json-not-found "Route"
+                              (format nil "/api/teams/~A~A" team-id sub-path))))))
+      (t (json-error "Method not allowed" :status 405
+                     :error-type "Method Not Allowed")))))
+
+(defun handle-teams-list ()
+  "GET /api/teams - List all teams."
+  (require-permission :read)
+  (unless (%team-package-loaded-p)
+    (return-from handle-teams-list
+      (json-error "Team extension not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let ((teams (%call-team "LIST-TEAMS")))
+    (json-ok (mapcar #'team-to-json-alist teams))))
+
+(defun handle-team-detail (team-id)
+  "GET /api/teams/:id - Get team details."
+  (require-permission :read)
+  (unless (%team-package-loaded-p)
+    (return-from handle-team-detail
+      (json-error "Team extension not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let ((team (%call-team "FIND-TEAM" team-id)))
+    (if team
+        (json-ok (team-to-json-alist team))
+        (json-not-found "Team" team-id))))
+
+(defun handle-team-create ()
+  "POST /api/teams - Create a new team."
+  (require-permission :write)
+  (unless (%team-package-loaded-p)
+    (return-from handle-team-create
+      (json-error "Team extension not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let* ((body (parse-json-body))
+         (name (cdr (assoc :name body)))
+         (strategy-str (cdr (assoc :strategy body)))
+         (members (cdr (assoc :members body)))
+         (leader (cdr (assoc :leader body)))
+         (task (cdr (assoc :task body))))
+    (unless name
+      (return-from handle-team-create
+        (json-error "Missing 'name' field")))
+    (let ((strategy-kw (when strategy-str
+                         (string-to-strategy-keyword strategy-str))))
+      (handler-case
+          (let ((team (%call-team "CREATE-TEAM" name
+                                  :strategy strategy-kw
+                                  :members (or members nil)
+                                  :leader leader
+                                  :task task)))
+            (sse-broadcast "team_created" (team-to-json-alist team))
+            (json-ok (team-to-json-alist team) :status 201))
+        (error (e)
+          (json-error (format nil "Failed to create team: ~A" e)
+                      :status 400))))))
+
+(defun handle-team-delete (team-id)
+  "DELETE /api/teams/:id - Disband a team."
+  (require-permission :write)
+  (unless (%team-package-loaded-p)
+    (return-from handle-team-delete
+      (json-error "Team extension not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let ((team (%call-team "FIND-TEAM" team-id)))
+    (unless team
+      (return-from handle-team-delete
+        (json-not-found "Team" team-id)))
+    (handler-case
+        (progn
+          (%call-team "DISBAND-TEAM" team)
+          (sse-broadcast "team_disbanded"
+                         `((:id . ,team-id) (:disbanded . t)))
+          (json-ok `((:disbanded . t) (:id . ,team-id))))
+      (error (e)
+        (json-error (format nil "Failed to disband team: ~A" e)
+                    :status 500 :error-type "Internal Error")))))
+
+(defun handle-team-start (team-id)
+  "POST /api/teams/:id/start - Start a team."
+  (require-permission :write)
+  (unless (%team-package-loaded-p)
+    (return-from handle-team-start
+      (json-error "Team extension not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let ((team (%call-team "FIND-TEAM" team-id)))
+    (unless team
+      (return-from handle-team-start
+        (json-not-found "Team" team-id)))
+    (handler-case
+        (progn
+          (%call-team "START-TEAM" team)
+          (sse-broadcast "team_started" (team-to-json-alist team))
+          (json-ok (team-to-json-alist team)))
+      (error (e)
+        (json-error (format nil "Failed to start team: ~A" e)
+                    :status 500 :error-type "Internal Error")))))
+
+(defun handle-team-members-add (team-id)
+  "POST /api/teams/:id/members - Add a member to a team."
+  (require-permission :write)
+  (unless (%team-package-loaded-p)
+    (return-from handle-team-members-add
+      (json-error "Team extension not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let ((team (%call-team "FIND-TEAM" team-id)))
+    (unless team
+      (return-from handle-team-members-add
+        (json-not-found "Team" team-id)))
+    (let* ((body (parse-json-body))
+           (agent-name (cdr (assoc :agent--name body))))
+      (unless agent-name
+        (return-from handle-team-members-add
+          (json-error "Missing 'agent_name' field")))
+      (%call-team "ADD-TEAM-MEMBER" team agent-name)
+      (sse-broadcast "team_member_added"
+                     `((:team--id . ,team-id) (:agent--name . ,agent-name)))
+      (json-ok (team-to-json-alist team)))))
+
+(defun handle-team-members-remove (team-id)
+  "DELETE /api/teams/:id/members - Remove a member from a team."
+  (require-permission :write)
+  (unless (%team-package-loaded-p)
+    (return-from handle-team-members-remove
+      (json-error "Team extension not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let ((team (%call-team "FIND-TEAM" team-id)))
+    (unless team
+      (return-from handle-team-members-remove
+        (json-not-found "Team" team-id)))
+    (let* ((body (parse-json-body))
+           (agent-name (or (cdr (assoc :agent--name body))
+                           (hunchentoot:get-parameter "agent_name"))))
+      (unless agent-name
+        (return-from handle-team-members-remove
+          (json-error "Missing 'agent_name' field")))
+      (%call-team "REMOVE-TEAM-MEMBER" team agent-name)
+      (sse-broadcast "team_member_removed"
+                     `((:team--id . ,team-id) (:agent--name . ,agent-name)))
+      (json-ok (team-to-json-alist team)))))
+
+;;; ===================================================================
 ;;; Main Router
 ;;; ===================================================================
 
@@ -638,6 +857,11 @@
                (and (> (length uri) 13)
                     (string= "/api/pending/" (subseq uri 0 13))))
            (rest-handle-pending request))
+          ;; /api/teams or /api/teams/...
+          ((or (string= uri "/api/teams")
+               (and (> (length uri) 11)
+                    (string= "/api/teams/" (subseq uri 0 11))))
+           (handle-teams request))
           ;; /api/events (exact match)
           ((string= uri "/api/events")
            (rest-handle-events request))

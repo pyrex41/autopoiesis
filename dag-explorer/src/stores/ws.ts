@@ -21,7 +21,11 @@ export type ClientMessage =
   | { type: "conductor_status" }
   | { type: "conductor_start" }
   | { type: "conductor_stop" }
-  | { type: "subscribe_conductor" };
+  | { type: "subscribe_conductor" }
+  | { type: "holodeck_subscribe" }
+  | { type: "holodeck_unsubscribe" }
+  | { type: "holodeck_input"; key: string }
+  | { type: "holodeck_select"; entityId: number };
 
 type MessageHandler = (msg: ServerMessage) => void;
 

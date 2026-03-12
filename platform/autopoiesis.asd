@@ -238,6 +238,7 @@
       (:file "serializers")
       (:file "connections")
       (:file "handlers")
+      (:file "team-handlers")
       (:file "chat-handlers")
       (:file "events")
       (:file "activity-tracker")

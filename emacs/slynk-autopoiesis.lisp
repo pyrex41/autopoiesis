@@ -24,6 +24,9 @@
            ;; Event bridge
            #:start-emacs-event-bridge
            #:stop-emacs-event-bridge
+           ;; Activity tracking
+           #:agent-activity-summary
+           #:all-agent-activities
            ;; Org topology
            #:org-topology))
 
@@ -401,5 +404,176 @@ Events are forwarded via slynk:eval-in-emacs for zero-latency push."
         (when (and fn (fboundp fn))
           (funcall fn form t)))  ; t = nowait
     (error () nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Agent Activity Tracking
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *activity-tracker* (make-hash-table :test 'equal)
+  "In-memory activity tracker: agent-id -> activity plist.
+   Each plist has :state, :current-tool, :started-at, :total-cost,
+   :call-count, :last-update.")
+
+(defvar *activity-lock* (bordeaux-threads:make-lock "activity-tracker")
+  "Lock for *activity-tracker*.")
+
+(defun %update-activity (agent-id &rest keys)
+  "Update activity record for AGENT-ID with KEYS plist entries."
+  (bordeaux-threads:with-lock-held (*activity-lock*)
+    (let ((existing (or (gethash agent-id *activity-tracker*)
+                        (list :state "idle" :current-tool nil
+                              :started-at (get-universal-time)
+                              :total-cost 0.0 :call-count 0
+                              :last-update (get-universal-time)))))
+      (loop for (k v) on keys by #'cddr
+            do (setf (getf existing k) v))
+      (setf (getf existing :last-update) (get-universal-time))
+      (setf (gethash agent-id *activity-tracker*) existing))))
+
+(defun %get-activity (agent-id)
+  "Get activity record for AGENT-ID."
+  (bordeaux-threads:with-lock-held (*activity-lock*)
+    (gethash agent-id *activity-tracker*)))
+
+(defun agent-activity-summary (agent-id-string)
+  "Return activity plist for a single agent.
+   Returns (:state ... :current-tool ... :duration ... :total-cost ... :call-count ...)."
+  ;; First try the API package if available
+  (let ((api-fn (resolve :autopoiesis.api "AGENT-ACTIVITY")))
+    (if (and api-fn (fboundp api-fn))
+        (funcall api-fn agent-id-string)
+        ;; Fall back to local tracker
+        (let ((activity (%get-activity agent-id-string)))
+          (if activity
+              (let* ((now (get-universal-time))
+                     (started (or (getf activity :started-at) now))
+                     (duration (- now started)))
+                (list :state (or (getf activity :state) "idle")
+                      :current-tool (getf activity :current-tool)
+                      :duration duration
+                      :total-cost (or (getf activity :total-cost) 0.0)
+                      :call-count (or (getf activity :call-count) 0)))
+              ;; No activity data — synthesize from agent state
+              (let ((agent (ignore-errors
+                            (call-if-available :autopoiesis.agent "FIND-AGENT" agent-id-string))))
+                (if agent
+                    (list :state (let ((st (safe-slot agent "AGENT-STATE")))
+                                   (if st (string-downcase (symbol-name st)) "unknown"))
+                          :current-tool nil
+                          :duration 0
+                          :total-cost 0.0
+                          :call-count 0)
+                    (list :state "unknown" :current-tool nil
+                          :duration 0 :total-cost 0.0 :call-count 0))))))))
+
+(defun all-agent-activities ()
+  "Return list of (agent-id . activity-plist) for all known agents.
+   Merges data from agent registry and activity tracker."
+  (let ((result nil)
+        (seen (make-hash-table :test 'equal)))
+    ;; First, include all agents from the agent registry
+    (ignore-errors
+      (let ((agents (call-if-available :autopoiesis.agent "LIST-AGENTS")))
+        (dolist (agent agents)
+          (let ((id (safe-slot agent "AGENT-ID")))
+            (when id
+              (setf (gethash id seen) t)
+              (push (cons id (agent-activity-summary id)) result))))))
+    ;; Then add any agents only known to the activity tracker
+    (bordeaux-threads:with-lock-held (*activity-lock*)
+      (maphash (lambda (id activity)
+                 (unless (gethash id seen)
+                   (let* ((now (get-universal-time))
+                          (started (or (getf activity :started-at) now)))
+                     (push (cons id (list :state (or (getf activity :state) "idle")
+                                          :current-tool (getf activity :current-tool)
+                                          :duration (- now started)
+                                          :total-cost (or (getf activity :total-cost) 0.0)
+                                          :call-count (or (getf activity :call-count) 0)))
+                           result))))
+               *activity-tracker*))
+    (nreverse result)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Organization Topology
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun org-topology ()
+  "Return organization topology as (:teams ... :unaffiliated ... :lineage ...).
+   Each team: (:name ... :strategy ... :status ... :leader ... :members ...).
+   Each member: (:name ... :state ... :role ...).
+   Lineage: list of (:parent ... :child ... :relation ...)."
+  (let ((teams-data nil)
+        (affiliated (make-hash-table :test 'equal))
+        (lineage nil))
+    ;; Collect team data if team package is available
+    (when (find-package :autopoiesis.team)
+      (let ((list-fn (resolve :autopoiesis.team "LIST-TEAMS")))
+        (when (and list-fn (fboundp list-fn))
+          (dolist (team (funcall list-fn))
+            (let* ((team-id (safe-slot team "TEAM-ID" :autopoiesis.team))
+                   (strategy (safe-slot team "TEAM-STRATEGY" :autopoiesis.team))
+                   (status (safe-slot team "TEAM-STATUS" :autopoiesis.team))
+                   (leader (safe-slot team "TEAM-LEADER" :autopoiesis.team))
+                   (member-ids (safe-slot team "TEAM-MEMBERS" :autopoiesis.team))
+                   (members nil))
+              ;; Mark all members as affiliated
+              (dolist (mid member-ids)
+                (setf (gethash mid affiliated) t))
+              (when leader
+                (setf (gethash leader affiliated) t))
+              ;; Build member details
+              (dolist (mid member-ids)
+                (let ((agent (ignore-errors
+                              (call-if-available :autopoiesis.agent "FIND-AGENT" mid))))
+                  (push (list :name mid
+                              :state (if agent
+                                         (let ((st (safe-slot agent "AGENT-STATE")))
+                                           (if st (string-downcase (symbol-name st)) "unknown"))
+                                         "unknown")
+                              :role (if (and leader (equal mid leader)) "leader" "member"))
+                        members)))
+              (push (list :name (or team-id "unnamed-team")
+                          :strategy (if strategy
+                                        (string-downcase
+                                         (symbol-name (type-of strategy)))
+                                        "none")
+                          :status (if status
+                                      (string-downcase (symbol-name status))
+                                      "unknown")
+                          :leader leader
+                          :members (nreverse members))
+                    teams-data))))))
+    ;; Collect unaffiliated agents
+    (let ((unaffiliated nil))
+      (ignore-errors
+        (let ((agents (call-if-available :autopoiesis.agent "LIST-AGENTS")))
+          (dolist (agent agents)
+            (let ((id (safe-slot agent "AGENT-ID")))
+              (unless (gethash id affiliated)
+                (push (list :name id
+                            :state (let ((st (safe-slot agent "AGENT-STATE")))
+                                     (if st (string-downcase (symbol-name st)) "unknown")))
+                      unaffiliated))))))
+      ;; Collect lineage (parent-child relationships)
+      (ignore-errors
+        (let ((agents (call-if-available :autopoiesis.agent "LIST-AGENTS")))
+          (dolist (agent agents)
+            (let ((id (safe-slot agent "AGENT-ID"))
+                  (parent (safe-slot agent "AGENT-PARENT"))
+                  (children (safe-slot agent "AGENT-CHILDREN")))
+              (when (and parent (not (equal parent "none")))
+                (push (list :parent parent :child id :relation "fork")
+                      lineage))
+              (when (listp children)
+                (dolist (child-id children)
+                  (unless (find child-id lineage
+                                :key (lambda (l) (getf l :child))
+                                :test #'equal)
+                    (push (list :parent id :child child-id :relation "fork")
+                          lineage))))))))
+      (list :teams (nreverse teams-data)
+            :unaffiliated (nreverse unaffiliated)
+            :lineage (nreverse lineage)))))
 
 (provide :slynk-autopoiesis)

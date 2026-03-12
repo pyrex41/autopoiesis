@@ -16,11 +16,15 @@
 ;;   - Agent detail view
 ;;   - Chat shell (comint-mode derivative) bridging to Jarvis sessions
 ;;   - System status in minibuffer
+;;   - Agent activity view with live updates
+;;   - Organization topology view (teams, lineage)
 ;;
 ;; Keybindings (under C-c a prefix when sly-autopoiesis-mode is active):
 ;;   C-c a l  - List agents
 ;;   C-c a s  - System status
 ;;   C-c a c  - Chat with agent (prompts for agent ID)
+;;   C-c x !  - Agent activity view
+;;   C-c x O  - Organization topology view
 
 ;;; Code:
 
@@ -50,6 +54,8 @@
     (define-key map (kbd "C-c x n") #'sly-autopoiesis-snapshot-browser)
     (define-key map (kbd "C-c x l") #'sly-autopoiesis-live-thoughts)
     (define-key map (kbd "C-c x B") #'sly-autopoiesis-branch-manager)
+    (define-key map (kbd "C-c x !") #'sly-autopoiesis-activity-view)
+    (define-key map (kbd "C-c x O") #'sly-autopoiesis-org-view)
     map)
   "Keymap for `sly-autopoiesis-mode'.")
 
@@ -189,19 +195,6 @@
   (let ((agent-id (tabulated-list-get-id)))
     (unless agent-id (user-error "No agent at point"))
     (sly-autopoiesis-show-agent agent-id)))
-
-(defun sly-autopoiesis-show-agent (agent-id)
-  "Display detail buffer for AGENT-ID."
-  (sly-eval-async `(slynk-autopoiesis:get-agent ,agent-id)
-    (lambda (info)
-      (let ((buf (get-buffer-create
-                  (format "*autopoiesis-agent: %s*"
-                          (plist-get info :name)))))
-        (with-current-buffer buf
-          (sly-autopoiesis-agent-detail-mode)
-          (setq sly-autopoiesis--detail-agent-id agent-id)
-          (sly-autopoiesis--render-detail info))
-        (pop-to-buffer buf)))))
 
 (defun sly-autopoiesis--refresh-detail ()
   "Refresh the current agent detail buffer."
@@ -758,6 +751,490 @@ AGENT-ID is a string, THOUGHT-ALIST has :type, :content, :timestamp."
     (unless branch-name (user-error "No branch at point"))
     ;; Get the head snapshot of the selected branch and diff with current
     (message "Diff for branch %s (not yet implemented)" branch-name)))
+
+;;;; Faces
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defface sly-autopoiesis-active-face
+  '((t :foreground "green" :weight bold))
+  "Face for active agents (currently executing a tool)."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-idle-face
+  '((t :foreground "gray60"))
+  "Face for idle agents (idle < 5 minutes)."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-warning-face
+  '((t :foreground "red" :weight bold))
+  "Face for agents idle > 5 minutes or in error state."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-team-name-face
+  '((t :weight bold :underline t))
+  "Face for team names in org topology view."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-leader-face
+  '((t :foreground "gold" :weight bold))
+  "Face for team leaders."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-running-face
+  '((t :foreground "green"))
+  "Face for running agents in org view."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-paused-face
+  '((t :foreground "yellow"))
+  "Face for paused agents in org view."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-stopped-face
+  '((t :foreground "red"))
+  "Face for stopped agents in org view."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-strategy-face
+  '((((class color)) :foreground "cyan" :slant italic)
+    (t :slant italic))
+  "Face for strategy names in org topology view."
+  :group 'sly-autopoiesis)
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Agent Activity View (B2)
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defvar sly-autopoiesis-activity-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'sly-autopoiesis--activity-detail-at-point)
+    (define-key map (kbd "g") #'sly-autopoiesis--activity-refresh)
+    (define-key map (kbd "q") #'quit-window)
+    map)
+  "Keymap for activity view buffer.")
+
+(define-derived-mode sly-autopoiesis-activity-mode tabulated-list-mode
+  "AP-Activity"
+  "Major mode for viewing agent activity."
+  (setq tabulated-list-format
+        [("Agent" 15 t)
+         ("State" 10 t)
+         ("Current Tool" 20 t)
+         ("Duration" 10 t :right-align t)
+         ("Total Cost" 10 t :right-align t)
+         ("Calls" 6 t :right-align t)])
+  (setq tabulated-list-padding 2)
+  (tabulated-list-init-header)
+  (use-local-map (make-composed-keymap sly-autopoiesis-activity-mode-map
+                                        tabulated-list-mode-map))
+  (add-hook 'tabulated-list-revert-hook #'sly-autopoiesis--activity-refresh nil t))
+
+(defun sly-autopoiesis--format-duration (seconds)
+  "Format SECONDS as a human-readable duration string."
+  (cond
+   ((null seconds) "n/a")
+   ((< seconds 60) (format "%ds" seconds))
+   ((< seconds 3600) (format "%dm%ds" (/ seconds 60) (mod seconds 60)))
+   (t (format "%dh%dm" (/ seconds 3600) (mod (/ seconds 60) 60)))))
+
+(defun sly-autopoiesis--activity-face (state current-tool duration)
+  "Return the face for an activity row based on STATE, CURRENT-TOOL, and DURATION."
+  (cond
+   (current-tool 'sly-autopoiesis-active-face)
+   ((and duration (> duration 300)) 'sly-autopoiesis-warning-face)
+   ((and duration (> duration 30)) 'sly-autopoiesis-idle-face)
+   ((member state '("running" "active")) 'sly-autopoiesis-active-face)
+   ((member state '("stopped" "error" "failed")) 'sly-autopoiesis-warning-face)
+   (t 'default)))
+
+(defun sly-autopoiesis--activity-entries (activities)
+  "Convert ACTIVITIES (list of (agent-id . plist)) to tabulated-list entries."
+  (mapcar
+   (lambda (entry)
+     (let* ((agent-id (car entry))
+            (info (cdr entry))
+            (state (or (plist-get info :state) "unknown"))
+            (tool (plist-get info :current-tool))
+            (duration (plist-get info :duration))
+            (cost (or (plist-get info :total-cost) 0))
+            (calls (or (plist-get info :call-count) 0))
+            (face (sly-autopoiesis--activity-face state tool duration)))
+       (list agent-id
+             (vector (propertize (or agent-id "?") 'face face)
+                     (propertize state 'face face)
+                     (propertize (or tool "-") 'face face)
+                     (propertize (sly-autopoiesis--format-duration duration) 'face face)
+                     (propertize (format "$%.4f" cost) 'face face)
+                     (propertize (format "%d" calls) 'face face)))))
+   activities))
+
+(defun sly-autopoiesis--activity-refresh ()
+  "Refresh the activity view buffer."
+  (interactive)
+  (when-let ((buf (get-buffer "*autopoiesis-activity*")))
+    (when (buffer-live-p buf)
+      (sly-eval-async '(slynk-autopoiesis:all-agent-activities)
+        (lambda (activities)
+          (when (buffer-live-p buf)
+            (with-current-buffer buf
+              (let ((inhibit-read-only t))
+                (setq tabulated-list-entries
+                      (sly-autopoiesis--activity-entries activities))
+                (tabulated-list-print t)))))))))
+
+(defun sly-autopoiesis--activity-detail-at-point ()
+  "Show detail for the agent at point in the activity view."
+  (interactive)
+  (let ((agent-id (tabulated-list-get-id)))
+    (unless agent-id (user-error "No agent at point"))
+    (sly-autopoiesis-show-agent agent-id)))
+
+;;;###autoload
+(defun sly-autopoiesis-activity-view ()
+  "Display agent activity in a tabulated list."
+  (interactive)
+  (sly-eval-async '(slynk-autopoiesis:all-agent-activities)
+    (lambda (activities)
+      (let ((buf (get-buffer-create "*autopoiesis-activity*")))
+        (with-current-buffer buf
+          (sly-autopoiesis-activity-mode)
+          (setq tabulated-list-entries
+                (sly-autopoiesis--activity-entries activities))
+          (tabulated-list-print t))
+        (pop-to-buffer buf)))))
+
+;;; Activity section in agent detail buffer
+
+(defun sly-autopoiesis--render-activity-section (agent-id)
+  "Fetch and render activity section for AGENT-ID in current buffer."
+  (sly-eval-async `(slynk-autopoiesis:agent-activity-summary ,agent-id)
+    (lambda (activity)
+      (when activity
+        (let ((inhibit-read-only t))
+          (goto-char (point-max))
+          ;; Find the keybinding help line and insert before it
+          (when (search-backward "[c] chat" nil t)
+            (beginning-of-line)
+            (insert "\n")
+            (insert (propertize "Activity:\n" 'face 'bold))
+            (let* ((state (or (plist-get activity :state) "unknown"))
+                   (tool (plist-get activity :current-tool))
+                   (duration (plist-get activity :duration))
+                   (cost (or (plist-get activity :total-cost) 0))
+                   (calls (or (plist-get activity :call-count) 0)))
+              (insert (format "  State:        %s\n" state))
+              (when tool
+                (insert (format "  Current Tool: %s\n" tool)))
+              (insert (format "  Duration:     %s\n" (sly-autopoiesis--format-duration duration)))
+              (insert (format "  Total Cost:   $%.4f\n" cost))
+              (insert (format "  API Calls:    %d\n" calls)))
+            (insert "\n")))))))
+
+;;; Event bridge handler for live activity updates
+
+(defun sly-autopoiesis--handle-activity-update (_event)
+  "Handle an activity update event from the event bridge.
+Refreshes the activity buffer if it exists."
+  (sly-autopoiesis--activity-refresh))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Organization Topology View (B6pt2)
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defvar sly-autopoiesis-org-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'sly-autopoiesis--org-action-at-point)
+    (define-key map (kbd "g") #'sly-autopoiesis--org-refresh)
+    (define-key map (kbd "q") #'quit-window)
+    map)
+  "Keymap for org topology view buffer.")
+
+(define-derived-mode sly-autopoiesis-org-mode special-mode
+  "AP-Org"
+  "Major mode for organization topology view."
+  (use-local-map sly-autopoiesis-org-mode-map))
+
+(defun sly-autopoiesis--agent-state-face (state)
+  "Return face for agent STATE string."
+  (pcase state
+    ("running" 'sly-autopoiesis-running-face)
+    ("active"  'sly-autopoiesis-running-face)
+    ("paused"  'sly-autopoiesis-paused-face)
+    ("stopped" 'sly-autopoiesis-stopped-face)
+    ("idle"    'sly-autopoiesis-idle-face)
+    (_         'default)))
+
+(defun sly-autopoiesis--insert-agent-link (name state)
+  "Insert agent NAME with STATE face and clickable text property."
+  (insert (propertize name
+                      'face (sly-autopoiesis--agent-state-face state)
+                      'sly-autopoiesis-agent-id name))
+  (insert (propertize (format " (%s)" state)
+                      'face (sly-autopoiesis--agent-state-face state))))
+
+(defun sly-autopoiesis--insert-team-link (name)
+  "Insert team NAME with face and clickable text property."
+  (insert (propertize name
+                      'face 'sly-autopoiesis-team-name-face
+                      'sly-autopoiesis-team-name name)))
+
+(defun sly-autopoiesis--strategy-keyword (strategy-string)
+  "Convert STRATEGY-STRING like \"leader-worker-strategy\" to display form."
+  (let ((s (replace-regexp-in-string "-strategy$" "" (or strategy-string "none"))))
+    s))
+
+(defun sly-autopoiesis--render-leader-worker (team)
+  "Render a leader-worker TEAM layout."
+  (let ((_leader (plist-get team :leader))
+        (members (plist-get team :members)))
+    ;; Find and render leader
+    (let ((leader-member (cl-find-if (lambda (m) (equal (plist-get m :role) "leader"))
+                                      members)))
+      (when leader-member
+        (insert "  ")
+        (insert (propertize (concat (string #x2605) " ") 'face 'sly-autopoiesis-leader-face))
+        (sly-autopoiesis--insert-agent-link
+         (plist-get leader-member :name)
+         (plist-get leader-member :state))
+        (insert (propertize " --- leader" 'face 'sly-autopoiesis-leader-face))
+        (insert "\n")))
+    ;; Render workers (non-leader members)
+    (let ((workers (cl-remove-if (lambda (m) (equal (plist-get m :role) "leader")) members)))
+      (cl-loop for worker in workers
+               for i from 0
+               for last-p = (= i (1- (length workers)))
+               do (insert (if last-p "  +-- " "  |-- "))
+                  (sly-autopoiesis--insert-agent-link
+                   (plist-get worker :name)
+                   (plist-get worker :state))
+                  (insert "\n")))))
+
+(defun sly-autopoiesis--render-pipeline (team)
+  "Render a pipeline TEAM layout with arrow chain."
+  (let ((members (plist-get team :members)))
+    (insert "  ")
+    (let ((leader (plist-get team :leader)))
+      (when leader
+        (let ((leader-member (cl-find-if (lambda (m) (equal (plist-get m :name) leader)) members)))
+          (when leader-member
+            (insert (propertize (concat (string #x25C6) " ") 'face 'sly-autopoiesis-leader-face))))))
+    (cl-loop for member in members
+             for i from 0
+             do (when (> i 0)
+                  (insert " -> "))
+                (sly-autopoiesis--insert-agent-link
+                 (plist-get member :name)
+                 (plist-get member :state)))
+    (insert "\n")))
+
+(defun sly-autopoiesis--render-parallel (team)
+  "Render a parallel TEAM layout."
+  (let ((members (plist-get team :members)))
+    (insert "  ")
+    (cl-loop for member in members
+             for i from 0
+             do (when (> i 0)
+                  (insert " | "))
+                (sly-autopoiesis--insert-agent-link
+                 (plist-get member :name)
+                 (plist-get member :state)))
+    (insert "\n")))
+
+(defun sly-autopoiesis--render-debate (team)
+  "Render a debate TEAM layout."
+  (let ((members (plist-get team :members)))
+    (insert (format "  %s " (string #x27F2)))
+    (cl-loop for member in members
+             for i from 0
+             do (when (> i 0)
+                  (insert ", "))
+                (sly-autopoiesis--insert-agent-link
+                 (plist-get member :name)
+                 (plist-get member :state)))
+    (insert "\n")))
+
+(defun sly-autopoiesis--render-consensus (team)
+  "Render a consensus TEAM layout."
+  (let ((members (plist-get team :members)))
+    (insert (format "  %s " (string #x27F3)))
+    (cl-loop for member in members
+             for i from 0
+             do (when (> i 0)
+                  (insert ", "))
+                (sly-autopoiesis--insert-agent-link
+                 (plist-get member :name)
+                 (plist-get member :state)))
+    (insert "\n")))
+
+(defun sly-autopoiesis--render-team (team)
+  "Render a single TEAM entry."
+  (let* ((name (plist-get team :name))
+         (strategy-raw (plist-get team :strategy))
+         (strategy (sly-autopoiesis--strategy-keyword strategy-raw))
+         (status (or (plist-get team :status) "unknown")))
+    ;; Team header
+    (insert "[")
+    (sly-autopoiesis--insert-team-link name)
+    (insert "] ")
+    (insert (propertize strategy 'face 'sly-autopoiesis-strategy-face))
+    (insert (format " (%s)\n" status))
+    ;; Members by strategy
+    (let ((members (plist-get team :members)))
+      (if (null members)
+          (insert "  (no members)\n")
+        (pcase strategy
+          ("leader-worker"              (sly-autopoiesis--render-leader-worker team))
+          ("hierarchical-leader-worker" (sly-autopoiesis--render-leader-worker team))
+          ("leader-parallel"            (sly-autopoiesis--render-leader-worker team))
+          ("rotating-leader"            (sly-autopoiesis--render-leader-worker team))
+          ("pipeline"                   (sly-autopoiesis--render-pipeline team))
+          ("parallel"                   (sly-autopoiesis--render-parallel team))
+          ("debate"                     (sly-autopoiesis--render-debate team))
+          ("consensus"                  (sly-autopoiesis--render-consensus team))
+          ("debate-consensus"           (sly-autopoiesis--render-debate team))
+          (_ (sly-autopoiesis--render-parallel team)))))))
+
+(defun sly-autopoiesis--render-lineage (lineage)
+  "Render LINEAGE tree from list of (:parent ... :child ... :relation ...)."
+  (when lineage
+    ;; Build parent->children map
+    (let ((tree (make-hash-table :test 'equal))
+          (has-parent (make-hash-table :test 'equal)))
+      (dolist (entry lineage)
+        (let ((parent (plist-get entry :parent))
+              (child (plist-get entry :child))
+              (relation (or (plist-get entry :relation) "fork")))
+          (push (cons child relation) (gethash parent tree))
+          (puthash child t has-parent)))
+      ;; Find roots (parents that are not children)
+      (let ((roots nil))
+        (maphash (lambda (parent _children)
+                   (unless (gethash parent has-parent)
+                     (cl-pushnew parent roots :test #'equal)))
+                 tree)
+        ;; Render each root tree
+        (dolist (root roots)
+          (sly-autopoiesis--render-lineage-node root tree "  " t))))))
+
+(defun sly-autopoiesis--render-lineage-node (node tree prefix is-root)
+  "Render NODE and its children from TREE with PREFIX indentation."
+  (if is-root
+      (progn
+        (insert prefix)
+        (insert (propertize node
+                            'face 'default
+                            'sly-autopoiesis-agent-id node)))
+    (insert (propertize node
+                        'face 'default
+                        'sly-autopoiesis-agent-id node)))
+  (let ((children (gethash node tree)))
+    (if children
+        (let ((children (reverse children)))  ; restore original order
+          (dolist (child-entry children)
+            (let ((child (car child-entry))
+                  (relation (cdr child-entry)))
+              (insert (format " --%s--> " relation))
+              (sly-autopoiesis--render-lineage-node child tree (concat prefix (make-string 16 ?\s)) nil)))
+          (insert "\n"))
+      (insert "\n"))))
+
+(defun sly-autopoiesis--render-org-topology (topology)
+  "Render full org TOPOLOGY into the current buffer."
+  (let ((inhibit-read-only t)
+        (teams (plist-get topology :teams))
+        (unaffiliated (plist-get topology :unaffiliated))
+        (lineage (plist-get topology :lineage)))
+    (erase-buffer)
+    (insert (propertize (concat (string #x2550 #x2550 #x2550)
+                                " Organization View "
+                                (string #x2550 #x2550 #x2550))
+                        'face 'bold))
+    (insert "\n\n")
+    ;; Teams
+    (if teams
+        (dolist (team teams)
+          (sly-autopoiesis--render-team team)
+          (insert "\n"))
+      (insert (propertize "(no teams)\n\n" 'face 'font-lock-comment-face)))
+    ;; Unaffiliated agents
+    (when unaffiliated
+      (insert (propertize "Unaffiliated:\n" 'face 'bold))
+      (dolist (agent unaffiliated)
+        (let ((name (plist-get agent :name))
+              (state (or (plist-get agent :state) "unknown")))
+          (insert (format "  %s " (string #x25CB)))
+          (sly-autopoiesis--insert-agent-link name state)
+          (insert "\n")))
+      (insert "\n"))
+    ;; Lineage
+    (when lineage
+      (insert (propertize "Lineage:\n" 'face 'bold))
+      (sly-autopoiesis--render-lineage lineage)
+      (insert "\n"))
+    ;; Footer
+    (insert (propertize "[RET] detail  [g] refresh  [q] quit\n"
+                        'face 'font-lock-comment-face))
+    (goto-char (point-min))))
+
+(defun sly-autopoiesis--org-action-at-point ()
+  "Navigate to the agent or team at point in the org view."
+  (interactive)
+  (let ((agent-id (get-text-property (point) 'sly-autopoiesis-agent-id))
+        (team-name (get-text-property (point) 'sly-autopoiesis-team-name)))
+    (cond
+     (agent-id (sly-autopoiesis-show-agent agent-id))
+     (team-name (message "Team: %s" team-name))
+     (t (user-error "Nothing actionable at point")))))
+
+(defun sly-autopoiesis--org-refresh ()
+  "Refresh the org topology view buffer."
+  (interactive)
+  (when-let ((buf (get-buffer "*autopoiesis-org*")))
+    (when (buffer-live-p buf)
+      (sly-eval-async '(slynk-autopoiesis:org-topology)
+        (lambda (topology)
+          (when (buffer-live-p buf)
+            (with-current-buffer buf
+              (sly-autopoiesis--render-org-topology topology))))))))
+
+;;;###autoload
+(defun sly-autopoiesis-org-view ()
+  "Display organization topology view."
+  (interactive)
+  (sly-eval-async '(slynk-autopoiesis:org-topology)
+    (lambda (topology)
+      (let ((buf (get-buffer-create "*autopoiesis-org*")))
+        (with-current-buffer buf
+          (sly-autopoiesis-org-mode)
+          (sly-autopoiesis--render-org-topology topology))
+        (pop-to-buffer buf)))))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Enhanced Agent Detail (with activity section)
+;;;; ────────────────────────────────────────────────────────────────────
+
+;; Override the original render-detail to include activity
+(defun sly-autopoiesis--render-detail-with-activity (info)
+  "Render agent INFO plist into the current buffer, including activity."
+  (sly-autopoiesis--render-detail info)
+  ;; Asynchronously fetch and append activity section
+  (let ((agent-id (plist-get info :id)))
+    (when agent-id
+      (sly-autopoiesis--render-activity-section agent-id))))
+
+;; Patch show-agent to use the enhanced renderer
+(defun sly-autopoiesis-show-agent (agent-id)
+  "Display detail buffer for AGENT-ID."
+  (sly-eval-async `(slynk-autopoiesis:get-agent ,agent-id)
+    (lambda (info)
+      (let ((buf (get-buffer-create
+                  (format "*autopoiesis-agent: %s*"
+                          (plist-get info :name)))))
+        (with-current-buffer buf
+          (sly-autopoiesis-agent-detail-mode)
+          (setq sly-autopoiesis--detail-agent-id agent-id)
+          (sly-autopoiesis--render-detail-with-activity info))
+        (pop-to-buffer buf)))))
 
 ;;;; ────────────────────────────────────────────────────────────────────
 ;;;; Slynk load path
