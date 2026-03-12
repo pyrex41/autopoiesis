@@ -84,7 +84,7 @@ If NIL, no static files are served.")
                           (let* ((json-string (trivial-utf-8:utf-8-bytes-to-string payload))
                                  (response (handle-message connection json-string)))
                             (when response
-                              (woo.websocket:send-text-frame socket response)))
+                              (ws-send-text socket response)))
                         (error (e)
                           (log:warn "WebSocket message error for ~a: ~a"
                                     (connection-id connection) e))))
@@ -103,11 +103,26 @@ If NIL, no static files are served.")
                       (ok-response "connected"
                                    "connectionId" (connection-id connection)
                                    "version" (autopoiesis:version)))))
-        (woo.websocket:send-text-frame socket welcome))
+        (ws-send-text socket welcome))
 
       ;; Don't call responder - we've already written the upgrade response
       ;; and set up the WebSocket frame parser on the socket
       nil)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Dashboard Serving
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun serve-dashboard ()
+  "Serve the agent swarm dashboard HTML page."
+  (let ((dashboard-path (merge-pathnames "dashboard.html" *api-static-path*)))
+    (if (and *api-static-path* (probe-file dashboard-path))
+        (list 200
+              '(:content-type "text/html")
+              (list (uiop:read-file-string dashboard-path)))
+        (list 404
+              '(:content-type "text/html")
+              (list "<html><body><h1>Dashboard not found</h1><p>Static path not configured or dashboard.html missing.</p></body></html>")))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; HTTP Routes
@@ -144,9 +159,13 @@ If NIL, no static files are served.")
                             (gethash "protocol" h) "See docs for WebSocket message protocol")
                       h)))))
 
-      ;; Root redirect to /api
+      ;; Dashboard
+      ((and (eq method :get) (equal path "/dashboard"))
+       (serve-dashboard))
+
+      ;; Root redirect to /dashboard
       ((and (eq method :get) (equal path "/"))
-       '(302 (:location "/api") ("")))
+       '(302 (:location "/dashboard") ("")))
 
       ;; 404
       (t
@@ -234,12 +253,22 @@ If NIL, no static files are served.")
     (log:warn "API server already running, stopping first")
     (stop-api-server))
 
+  ;; Set static path - default to platform/static if not specified
   (when static-path
     (setf *api-static-path* (pathname static-path)))
+  (unless *api-static-path*
+    ;; Default to platform/static relative to the autopoiesis.asd file
+    (let ((asd-path (asdf:system-source-directory :autopoiesis)))
+      (when asd-path
+        (setf *api-static-path* (merge-pathnames "static/" asd-path)))))
 
-  ;; Start event bridge and blocking notifier
+  ;; Start event bridge, blocking notifier, and activity tracker
   (start-event-bridge)
   (start-blocking-notifier)
+  (start-activity-tracker)
+
+  ;; Initialize web console
+  (init-web-console)
 
   ;; Start the Clack server with Woo backend
   (setf *api-server*
@@ -260,6 +289,7 @@ If NIL, no static files are served.")
   "Stop the API server and clean up."
   (stop-event-bridge)
   (stop-blocking-notifier)
+  (stop-activity-tracker)
 
   (when *api-server*
     (handler-case

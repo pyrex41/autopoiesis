@@ -10,20 +10,20 @@
   :version "0.1.0"
   :serial t
   :depends-on (#:substrate          ; Standalone datom store (substrate.asd)
-               #:alexandria
-               #:bordeaux-threads
-               #:cl-json
-               #:local-time
-               #:cl-ppcre
-               #:log4cl
-               #:ironclad        ; For hashing
-               #:flexi-streams   ; For binary streams
-               #:babel           ; For UTF-8 encoding
-               #:dexador         ; For HTTP client
-               #:cl-charms       ; For ncurses terminal UI
-               #:hunchentoot     ; For HTTP server (monitoring endpoints)
-               #:lparallel       ; For parallel swarm evaluation
-               #:fset)           ; Persistent functional collections
+                #:alexandria
+                #:bordeaux-threads
+                #:cl-json
+                #:local-time
+                #:cl-ppcre
+                #:log4cl
+                #:ironclad        ; For hashing
+                #:flexi-streams   ; For binary streams
+                #:babel           ; For UTF-8 encoding
+                #:dexador         ; For HTTP client
+                #:cl-charms       ; For ncurses terminal UI
+                #:hunchentoot     ; For HTTP server (monitoring endpoints)
+                #:lparallel       ; For parallel swarm evaluation
+                #:fset)           ; Persistent functional collections
   :components
   ((:module "src"
     :components
@@ -177,14 +177,15 @@
         (:file "detail-panel")
         (:file "navigator")
         (:file "terminal-ui")))
-     (:module "security"
-      :serial t
-      :depends-on ("core" "agent")
-      :components
-      ((:file "packages")
-       (:file "permissions")
-       (:file "audit")
-       (:file "validation")))
+      (:module "security"
+       :serial t
+       :depends-on ("core" "agent")
+       :components
+       ((:file "packages")
+        (:file "permissions")
+        (:file "audit")
+        (:file "validation")
+        (:file "authentication")))
      (:module "monitoring"
       :serial t
       :depends-on ("core" "agent" "snapshot")
@@ -228,18 +229,21 @@
                #:websocket-driver     ; WebSocket protocol
                #:com.inuoe.jzon      ; Fast, safe JSON (control messages)
                #:cl-messagepack)     ; Binary encoding (data streams)
-  :components
-  ((:module "src/api"
-    :serial t
-    :components
-    ((:file "packages")
-     (:file "wire-format")
-     (:file "serializers")
-     (:file "connections")
-     (:file "handlers")
-     (:file "chat-handlers")
-     (:file "events")
-     (:file "server")))))
+   :components
+   ((:module "src/api"
+     :serial t
+     :components
+     ((:file "packages")
+      (:file "wire-format")
+      (:file "serializers")
+      (:file "connections")
+      (:file "handlers")
+      (:file "chat-handlers")
+      (:file "events")
+      (:file "activity-tracker")
+      (:file "holodeck-bridge")
+      (:file "web-console")
+      (:file "server")))))
 
 ;;; API test system
 (asdf:defsystem #:autopoiesis/api-test
@@ -304,18 +308,19 @@
   :version "0.1.0"
   :depends-on (#:autopoiesis)
   :serial t
-  :components
-  ((:module "src/crystallize"
-    :serial t
-    :components
-    ((:file "packages")
-     (:file "emitter")
-     (:file "capability-crystallizer")
-     (:file "heuristic-crystallizer")
-     (:file "genome-crystallizer")
-     (:file "snapshot-integration")
-     (:file "asdf-fragment")
-     (:file "git-export")))))
+   :components
+    ((:module "src/crystallize"
+      :serial t
+      :components
+      ((:file "packages")
+       (:file "trigger-conditions")
+       (:file "emitter")
+       (:file "capability-crystallizer")
+       (:file "heuristic-crystallizer")
+       (:file "genome-crystallizer")
+       (:file "snapshot-integration")
+       (:file "asdf-fragment")
+       (:file "git-export")))))
 
 ;;; Team coordination extension (optional)
 (asdf:defsystem #:autopoiesis/team

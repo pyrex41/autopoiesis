@@ -56,7 +56,8 @@
    #:encode-message
    #:decode-message
 
-   ;; Serialization helpers (WebSocket - string-keyed plists)
+   ;; Serialization helpers (WebSocket - hash-table JSON objects)
+   #:json-object
    #:agent-to-json-plist
    #:thought-to-json-plist
    #:snapshot-to-json-plist
@@ -92,14 +93,40 @@
    #:thought-to-json-alist
    #:event-to-json-alist
 
-   ;; MCP server
-   #:mcp-tool-definitions
-   #:handle-mcp-endpoint
-   #:*mcp-sessions*
+    ;; MCP server
+    #:mcp-tool-definitions
+    #:handle-mcp-endpoint
+    #:*mcp-sessions*
 
-   ;; Chat handlers (Jarvis bridge)
-   #:*chat-sessions*
-   #:*chat-sessions-lock*
-   #:*chat-session-owners*
-   #:cleanup-chat-sessions-for-connection
-   #:hash-table-to-plist))
+    ;; Activity + Cost tracking
+    #:agent-activity
+    #:all-activities
+    #:agent-cost
+    #:cost-summary
+    #:start-activity-tracker
+    #:stop-activity-tracker
+    #:*activity-state*
+    #:*cost-state*
+
+    ;; Holodeck bridge (frame serialization)
+    #:serialize-holodeck-frame
+    #:serialize-entity-desc
+    #:serialize-connection-desc
+    #:holodeck-single-frame
+
+    ;; Chat handlers (Jarvis bridge)
+    #:*chat-sessions*
+    #:*chat-sessions-lock*
+    #:*chat-session-owners*
+    #:cleanup-chat-sessions-for-connection
+    #:hash-table-to-plist
+
+    ;; Web console
+    #:init-web-console
+    #:require-web-auth
+    #:require-web-auth-with-permission
+    #:*session-cookie-name*
+    #:*session-cookie-secure*
+    #:*session-cookie-http-only*
+    #:*session-cookie-path*
+    #:*session-cookie-max-age*))
