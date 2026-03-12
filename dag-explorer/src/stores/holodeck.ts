@@ -4,6 +4,14 @@ import { agentStore } from "./agents";
 
 // ── Types ────────────────────────────────────────────────────────
 
+export interface EntityActivity {
+  tool: string | null;
+  idle: boolean;
+  cost: number;
+  calls: number;
+  pendingHuman: number;
+}
+
 export interface EntityData {
   id: number;
   kind: string;
@@ -19,6 +27,7 @@ export interface EntityData {
   lod: string;
   agentId?: string;
   cognitivePhase?: string;
+  activity?: EntityActivity;
   selected: boolean;
   hovered: boolean;
 }

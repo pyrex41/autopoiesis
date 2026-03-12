@@ -56,6 +56,8 @@
     (define-key map (kbd "C-c x B") #'sly-autopoiesis-branch-manager)
     (define-key map (kbd "C-c x !") #'sly-autopoiesis-activity-view)
     (define-key map (kbd "C-c x O") #'sly-autopoiesis-org-view)
+    (define-key map (kbd "C-c x $") #'sly-autopoiesis-costs)
+    (define-key map (kbd "C-c x 3") #'sly-autopoiesis-holodeck)
     map)
   "Keymap for `sly-autopoiesis-mode'.")
 
@@ -1235,6 +1237,226 @@ Refreshes the activity buffer if it exists."
           (setq sly-autopoiesis--detail-agent-id agent-id)
           (sly-autopoiesis--render-detail-with-activity info))
         (pop-to-buffer buf)))))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Cost Dashboard (B4)
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defface sly-autopoiesis-cost-header-face
+  '((t :weight bold :height 1.2))
+  "Face for cost dashboard header."
+  :group 'sly-autopoiesis)
+
+(defface sly-autopoiesis-cost-amount-face
+  '((((class color)) :foreground "gold" :weight bold)
+    (t :weight bold))
+  "Face for cost amounts."
+  :group 'sly-autopoiesis)
+
+(defvar sly-autopoiesis-cost-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "g") #'sly-autopoiesis--cost-refresh)
+    (define-key map (kbd "q") #'quit-window)
+    map)
+  "Keymap for cost dashboard buffer.")
+
+(define-derived-mode sly-autopoiesis-cost-mode special-mode
+  "AP-Costs"
+  "Major mode for the cost dashboard."
+  (use-local-map sly-autopoiesis-cost-mode-map))
+
+(defun sly-autopoiesis--sparkline (values &optional width)
+  "Render VALUES as a Unicode sparkline string of WIDTH chars.
+VALUES is a list of numbers.  Uses block characters."
+  (let* ((w (or width (length values)))
+         (vals (if (> (length values) w)
+                   (cl-subseq values (- (length values) w))
+                 values))
+         (mn (apply #'min (or vals '(0))))
+         (mx (apply #'max (or vals '(1))))
+         (range (max (- mx mn) 0.001))
+         (blocks (vector " " (string #x2581) (string #x2582) (string #x2583)
+                         (string #x2584) (string #x2585) (string #x2586)
+                         (string #x2587) (string #x2588))))
+    (mapconcat (lambda (v)
+                 (let ((idx (min 8 (floor (* (/ (- v mn) range) 8)))))
+                   (aref blocks idx)))
+               vals "")))
+
+(defun sly-autopoiesis--render-cost-dashboard (summary)
+  "Render cost SUMMARY into the current buffer."
+  (let ((inhibit-read-only t)
+        (total (or (plist-get summary :total) 0))
+        (total-tokens (or (plist-get summary :total-tokens) 0))
+        (total-calls (or (plist-get summary :total-calls) 0))
+        (per-agent (plist-get summary :per-agent)))
+    (erase-buffer)
+    ;; Header
+    (insert (propertize (concat (string #x2550 #x2550 #x2550)
+                                " Cost Dashboard "
+                                (string #x2550 #x2550 #x2550))
+                        'face 'sly-autopoiesis-cost-header-face))
+    (insert "\n\n")
+    ;; Summary cards
+    (insert (format "Total Session Cost: %s\n"
+                    (propertize (format "$%.4f" total)
+                                'face 'sly-autopoiesis-cost-amount-face)))
+    (insert (format "Total API Calls:    %d\n" total-calls))
+    (insert (format "Total Tokens:       %s\n"
+                    (if (> total-tokens 1000)
+                        (format "%dk" (/ total-tokens 1000))
+                      (format "%d" total-tokens))))
+    (insert "\n")
+    ;; Per-agent table
+    (if (null per-agent)
+        (insert (propertize "(no cost data yet)\n" 'face 'font-lock-comment-face))
+      (progn
+        (insert (propertize "Per Agent:\n" 'face 'bold))
+        (insert (format "  %-20s %7s %10s %10s\n"
+                        "Agent" "Calls" "Cost" "Avg Cost"))
+        (insert (format "  %-20s %7s %10s %10s\n"
+                        (make-string 20 ?─) (make-string 7 ?─)
+                        (make-string 10 ?─) (make-string 10 ?─)))
+        ;; Sort by cost descending
+        (let ((sorted (sort (copy-sequence per-agent)
+                            (lambda (a b)
+                              (> (or (plist-get a :cost) 0)
+                                 (or (plist-get b :cost) 0))))))
+          (dolist (entry sorted)
+            (let* ((id (or (plist-get entry :id) "?"))
+                   (cost (or (plist-get entry :cost) 0))
+                   (calls (or (plist-get entry :calls) 0))
+                   (avg (if (> calls 0) (/ cost calls) 0)))
+              (insert (format "  %-20s %7d %10s %10s\n"
+                              (truncate-string-to-width id 20)
+                              calls
+                              (propertize (format "$%.4f" cost)
+                                          'face 'sly-autopoiesis-cost-amount-face)
+                              (format "$%.4f" avg))))))))
+    ;; Cost sparkline (show cost distribution as visual bar)
+    (when per-agent
+      (let ((costs (mapcar (lambda (e) (or (plist-get e :cost) 0)) per-agent)))
+        (when (cl-some (lambda (c) (> c 0)) costs)
+          (insert "\n")
+          (insert (propertize "Cost Distribution: " 'face 'bold))
+          (insert (sly-autopoiesis--sparkline costs 30))
+          (insert "\n"))))
+    ;; Footer
+    (insert (format "\n%s\n"
+                    (propertize "[g] refresh  [q] quit"
+                                'face 'font-lock-comment-face)))
+    (goto-char (point-min))))
+
+(defun sly-autopoiesis--cost-refresh ()
+  "Refresh the cost dashboard buffer."
+  (interactive)
+  (when-let ((buf (get-buffer "*autopoiesis-costs*")))
+    (when (buffer-live-p buf)
+      (sly-eval-async '(slynk-autopoiesis:cost-summary-rpc)
+        (lambda (summary)
+          (when (buffer-live-p buf)
+            (with-current-buffer buf
+              (sly-autopoiesis--render-cost-dashboard summary))))))))
+
+;;;###autoload
+(defun sly-autopoiesis-costs ()
+  "Display the cost dashboard."
+  (interactive)
+  (sly-eval-async '(slynk-autopoiesis:cost-summary-rpc)
+    (lambda (summary)
+      (let ((buf (get-buffer-create "*autopoiesis-costs*")))
+        (with-current-buffer buf
+          (sly-autopoiesis-cost-mode)
+          (sly-autopoiesis--render-cost-dashboard summary))
+        (pop-to-buffer buf)))))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Holodeck xwidget-webkit Integration (B3)
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defvar sly-autopoiesis--holodeck-xwidget nil
+  "The xwidget session for the holodeck buffer, if any.")
+
+(defvar sly-autopoiesis-holodeck-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "q") #'sly-autopoiesis--holodeck-quit)
+    (define-key map (kbd "g") #'sly-autopoiesis--holodeck-reconnect)
+    (define-key map (kbd "C-c x a") #'sly-autopoiesis-list-agents)
+    (define-key map (kbd "C-c x d") #'sly-autopoiesis-system-status)
+    map)
+  "Keymap for holodeck xwidget buffer.")
+
+(define-derived-mode sly-autopoiesis-holodeck-mode special-mode
+  "AP-Holodeck"
+  "Major mode for the holodeck xwidget buffer."
+  (use-local-map sly-autopoiesis-holodeck-mode-map))
+
+(defun sly-autopoiesis--holodeck-url (port)
+  "Build the holodeck URL for PORT."
+  (format "http://localhost:%d/holodeck.html?ws=ws://localhost:%d/ws" port port))
+
+(defun sly-autopoiesis--holodeck-quit ()
+  "Close the holodeck buffer."
+  (interactive)
+  (quit-window t))
+
+(defun sly-autopoiesis--holodeck-reconnect ()
+  "Reconnect the holodeck xwidget."
+  (interactive)
+  (when sly-autopoiesis--holodeck-xwidget
+    (sly-eval-async '(slynk-autopoiesis:get-api-port)
+      (lambda (port)
+        (when port
+          (xwidget-webkit-goto-url
+           sly-autopoiesis--holodeck-xwidget
+           (sly-autopoiesis--holodeck-url port)))))))
+
+(defun sly-autopoiesis--holodeck-select-agent (entity-id)
+  "Select ENTITY-ID in the holodeck xwidget via JavaScript."
+  (when sly-autopoiesis--holodeck-xwidget
+    (xwidget-webkit-execute-script
+     sly-autopoiesis--holodeck-xwidget
+     (format "holodeckSelectAgent(%d)" entity-id))))
+
+(defun sly-autopoiesis--handle-holodeck-message (_event)
+  "Handle a message from the holodeck xwidget (agent selection sync)."
+  ;; xwidget-webkit events deliver postMessage data
+  ;; This is called via xwidget-event hooks
+  nil)
+
+;;;###autoload
+(defun sly-autopoiesis-holodeck ()
+  "Open the Autopoiesis holodeck in an xwidget-webkit buffer.
+Requires Emacs built with xwidget-webkit support."
+  (interactive)
+  (unless (featurep 'xwidget)
+    (user-error "Emacs was not built with xwidget-webkit support"))
+  (sly-eval-async '(slynk-autopoiesis:get-api-port)
+    (lambda (port)
+      (unless port
+        (user-error "API server not running — start-system first"))
+      (let* ((url (sly-autopoiesis--holodeck-url port))
+             (buf (get-buffer-create "*autopoiesis-holodeck*")))
+        (with-current-buffer buf
+          (sly-autopoiesis-holodeck-mode)
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (let ((xw (xwidget-insert (point-min) 'webkit
+                                       "autopoiesis-holodeck"
+                                       (window-pixel-width)
+                                       (window-pixel-height))))
+              (setq sly-autopoiesis--holodeck-xwidget xw)
+              (xwidget-webkit-goto-url xw url))))
+        (switch-to-buffer buf)
+        (message "Holodeck connected at %s" url)))))
+
+;;;; ────────────────────────────────────────────────────────────────────
+;;;; Event bridge handlers for cost updates
+;;;; ────────────────────────────────────────────────────────────────────
+
+(defun sly-autopoiesis--handle-cost-event (_kind _data)
+  "Handle a provider-response event to refresh cost dashboard."
+  (sly-autopoiesis--cost-refresh))
 
 ;;;; ────────────────────────────────────────────────────────────────────
 ;;;; Slynk load path

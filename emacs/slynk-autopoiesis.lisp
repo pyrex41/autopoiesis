@@ -27,8 +27,13 @@
            ;; Activity tracking
            #:agent-activity-summary
            #:all-agent-activities
+           ;; Cost tracking
+           #:cost-summary-rpc
+           #:agent-cost-rpc
            ;; Org topology
-           #:org-topology))
+           #:org-topology
+           ;; Holodeck
+           #:get-api-port))
 
 (in-package #:slynk-autopoiesis)
 
@@ -379,7 +384,10 @@ Events are forwarded via slynk:eval-in-emacs for zero-latency push."
        (eval-in-emacs-safe
         `(sly-autopoiesis--handle-activity
           ,agent-id "provider-response" nil
-          ,(princ-to-string (or timestamp "")))))
+          ,(princ-to-string (or timestamp ""))))
+       ;; Also refresh cost dashboard if open
+       (eval-in-emacs-safe
+        `(sly-autopoiesis--handle-cost-event "provider-response" nil)))
 
       ;; Agent state changes
       ((:team-created :team-started :team-completed :team-failed
@@ -575,5 +583,77 @@ Events are forwarded via slynk:eval-in-emacs for zero-latency push."
       (list :teams (nreverse teams-data)
             :unaffiliated (nreverse unaffiliated)
             :lineage (nreverse lineage)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Cost Dashboard RPCs
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun cost-summary-rpc ()
+  "Return aggregate cost summary as a plist.
+Returns (:total <cost> :total-tokens <n> :total-calls <n>
+         :per-agent ((:id <id> :cost <c> :tokens <t> :calls <n>) ...))."
+  (let ((api-fn (resolve :autopoiesis.api "COST-SUMMARY")))
+    (if (and api-fn (fboundp api-fn))
+        (let* ((summary (funcall api-fn))
+               (total (or (getf summary :total) 0))
+               (per-agent (getf summary :per-agent)))
+          ;; Also get token totals from individual agent cost queries
+          (let ((total-tokens 0)
+                (total-calls 0)
+                (enriched nil)
+                (cost-fn (resolve :autopoiesis.api "AGENT-COST")))
+            (dolist (entry per-agent)
+              (let* ((id (first entry))
+                     (cost (or (second entry) 0))
+                     (calls (or (third entry) 0))
+                     (tokens (if (and cost-fn (fboundp cost-fn))
+                                 (let ((cd (funcall cost-fn id)))
+                                   (or (getf cd :total-tokens) 0))
+                                 0)))
+                (incf total-tokens tokens)
+                (incf total-calls calls)
+                (push (list :id id :cost cost :tokens tokens :calls calls)
+                      enriched)))
+            (list :total total
+                  :total-tokens total-tokens
+                  :total-calls total-calls
+                  :per-agent (nreverse enriched))))
+        ;; Fallback: aggregate from local tracker
+        (let ((total-cost 0) (total-tokens 0) (total-calls 0) (per-agent nil))
+          (bordeaux-threads:with-lock-held (*activity-lock*)
+            (maphash (lambda (id state)
+                       (let ((cost (or (getf state :total-cost) 0))
+                             (calls (or (getf state :call-count) 0)))
+                         (incf total-cost cost)
+                         (incf total-calls calls)
+                         (push (list :id id :cost cost :tokens 0 :calls calls) per-agent)))
+                     *activity-tracker*))
+          (list :total total-cost
+                :total-tokens total-tokens
+                :total-calls total-calls
+                :per-agent (nreverse per-agent))))))
+
+(defun agent-cost-rpc (agent-id-string)
+  "Return cost plist for a single agent.
+Returns (:total-cost <c> :total-tokens <t> :total-calls <n>)."
+  (let ((api-fn (resolve :autopoiesis.api "AGENT-COST")))
+    (if (and api-fn (fboundp api-fn))
+        (let ((data (funcall api-fn agent-id-string)))
+          (list :total-cost (or (getf data :total-cost) 0)
+                :total-tokens (or (getf data :total-tokens) 0)
+                :total-calls (or (getf data :total-calls) 0)))
+        (list :total-cost 0 :total-tokens 0 :total-calls 0))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Holodeck Port Discovery
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun get-api-port ()
+  "Return the port the API/WebSocket server is running on, or NIL.
+Checks *api-port* or *ws-port* in the autopoiesis.api package."
+  (let ((port-sym (or (resolve :autopoiesis.api "*API-PORT*")
+                       (resolve :autopoiesis.api "*WS-PORT*"))))
+    (when (and port-sym (boundp port-sym))
+      (symbol-value port-sym))))
 
 (provide :slynk-autopoiesis)

@@ -92,6 +92,26 @@ to avoid hard dependency on the holodeck package."
 ;;; Entity Description Serialization
 ;;; ===================================================================
 
+(defun serialize-entity-activity (entity-id)
+  "Look up activity and cost data for ENTITY-ID from the activity tracker.
+Returns a string-keyed plist with tool, idle, cost, pendingHuman, or NIL."
+  (handler-case
+      (let ((activity (agent-activity entity-id))
+            (cost-data (agent-cost entity-id)))
+        (when (or activity cost-data)
+          (let* ((tool (getf activity :current-tool))
+                 (last-active (getf activity :last-active))
+                 (idle-p (and last-active
+                              (> (- (get-universal-time) last-active) 30)))
+                 (total-cost (or (getf cost-data :total-cost) 0))
+                 (total-calls (or (getf cost-data :total-calls) 0)))
+            (list "tool" (when tool (princ-to-string tool))
+                  "idle" (if idle-p t 'null)
+                  "cost" total-cost
+                  "calls" total-calls
+                  "pendingHuman" 0))))
+    (error () nil)))
+
 (defun serialize-entity-desc (desc)
   "Convert a snapshot render description plist to a JSON-friendly string-keyed plist.
 
@@ -100,8 +120,9 @@ Input is a keyword plist from rendering.lisp with :entity, :visible-p, :position
 
 Output is a string-keyed plist suitable for jzon/msgpack encoding."
   (let ((mesh (getf desc :mesh))
-        (material (getf desc :material)))
-    (list "id" (getf desc :entity)
+        (material (getf desc :material))
+        (entity-id (getf desc :entity)))
+    (list "id" entity-id
           "visible" (if (getf desc :visible-p) t 'null)
           "position" (getf desc :position)
           "scale" (getf desc :scale)
@@ -113,7 +134,8 @@ Output is a string-keyed plist suitable for jzon/msgpack encoding."
           "label" (getf desc :label-text)
           "labelOffset" (getf desc :label-offset)
           "lod" (when (getf desc :lod)
-                  (string-downcase (symbol-name (getf desc :lod)))))))
+                  (string-downcase (symbol-name (getf desc :lod))))
+          "activity" (serialize-entity-activity entity-id))))
 
 ;;; ===================================================================
 ;;; Connection Description Serialization

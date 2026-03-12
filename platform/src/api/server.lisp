@@ -73,8 +73,31 @@ If NIL, no static files are served.")
     ;; call responder with a streaming writer (which we won't use)
     ;; so Woo keeps the socket in its event loop.
     (lambda (responder)
-      ;; Write 101 Switching Protocols
-      (woo.websocket:write-websocket-upgrade-response socket accept-key)
+      ;; Write 101 Switching Protocols AND the welcome message in a single
+      ;; async write batch. This ensures the 101 response is flushed before
+      ;; any WebSocket frames — mixing with-async-writing (for 101) and
+      ;; ws-send-text (direct fd write) would race.
+      (let ((welcome-payload (trivial-utf-8:string-to-utf-8-bytes
+                              (encode-message
+                               (ok-response "connected"
+                                            "connectionId" (connection-id connection)
+                                            "version" (autopoiesis:version)))))
+            (welcome-frame nil))
+        (setf welcome-frame
+              (woo.websocket::make-frame woo.websocket:+opcode-text+ welcome-payload))
+        (woo.ev.socket:with-async-writing (socket)
+          (woo.response:write-socket-string socket "HTTP/1.1 101 Switching Protocols")
+          (woo.response:write-socket-crlf socket)
+          (woo.response:write-socket-string socket "Upgrade: websocket")
+          (woo.response:write-socket-crlf socket)
+          (woo.response:write-socket-string socket "Connection: Upgrade")
+          (woo.response:write-socket-crlf socket)
+          (woo.response:write-socket-string socket "Sec-WebSocket-Accept: ")
+          (woo.response:write-socket-string socket accept-key)
+          (woo.response:write-socket-crlf socket)
+          (woo.response:write-socket-crlf socket)
+          ;; Welcome frame in same write batch — after 101
+          (woo.ev.socket:write-socket-data socket welcome-frame)))
 
       ;; Set up WebSocket frame handling on this socket
       (woo.websocket:setup-websocket socket
@@ -97,13 +120,8 @@ If NIL, no static files are served.")
                     (cleanup-chat-sessions-for-connection connection)
                     (unregister-connection connection)))
 
-      ;; Register and send welcome
+      ;; Register connection (after setup, so handlers are ready)
       (register-connection connection)
-      (let ((welcome (encode-message
-                      (ok-response "connected"
-                                   "connectionId" (connection-id connection)
-                                   "version" (autopoiesis:version)))))
-        (ws-send-text socket welcome))
 
       ;; Don't call responder - we've already written the upgrade response
       ;; and set up the WebSocket frame parser on the socket

@@ -1,0 +1,18 @@
+services:
+  autopoiesis-server:
+    image: autopoiesis-server:latest
+    ports:
+      - "14401:8080"   # WS + health
+      - "14402:8082"   # REST API
+    environment:
+      - AUTOPOIESIS_DATA_DIR=/data
+      - AUTOPOIESIS_LOG_DIR=/data/logs
+      - AUTOPOIESIS_LOG_LEVEL=info
+      - AUTOPOIESIS_HOST=0.0.0.0
+      - AUTOPOIESIS_PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s

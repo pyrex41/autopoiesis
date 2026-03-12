@@ -5,7 +5,7 @@ import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRe
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { holodeckStore, type EntityData, type ConnectionData } from "../stores/holodeck";
+import { holodeckStore, type EntityData, type ConnectionData, type EntityActivity } from "../stores/holodeck";
 import HolodeckHUD from "./HolodeckHUD";
 
 const HolodeckView: Component = () => {
@@ -26,6 +26,8 @@ const HolodeckView: Component = () => {
   const entityGroups = new Map<number, THREE.Group>();
   const entityMeshes = new Map<number, THREE.Mesh>();
   const entityLabels = new Map<number, CSS2DObject>();
+  const entityActivityLabels = new Map<number, CSS2DObject>();
+  const entityCostBadges = new Map<number, CSS2DObject>();
   const connectionLines = new Map<number, THREE.Line>();
 
   // Geometry/material caches
@@ -91,6 +93,74 @@ const HolodeckView: Component = () => {
       white-space: nowrap;
     `;
     return new CSS2DObject(div);
+  }
+
+  function createActivityLabel(): CSS2DObject {
+    const div = document.createElement("div");
+    div.className = "holodeck-activity-label";
+    div.style.cssText = `
+      color: #80ff80;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      padding: 1px 4px;
+      background: rgba(0, 40, 0, 0.8);
+      border: 1px solid rgba(80, 255, 80, 0.4);
+      border-radius: 2px;
+      pointer-events: none;
+      white-space: nowrap;
+    `;
+    return new CSS2DObject(div);
+  }
+
+  function createCostBadge(): CSS2DObject {
+    const div = document.createElement("div");
+    div.className = "holodeck-cost-badge";
+    div.style.cssText = `
+      color: #ffcc44;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      padding: 1px 3px;
+      background: rgba(40, 30, 0, 0.8);
+      border: 1px solid rgba(255, 200, 60, 0.3);
+      border-radius: 2px;
+      pointer-events: none;
+      white-space: nowrap;
+    `;
+    return new CSS2DObject(div);
+  }
+
+  function updateEntityActivity(id: number, group: THREE.Group, activity: EntityActivity | undefined) {
+    // Activity tool label (below the main label)
+    if (activity?.tool) {
+      let actLabel = entityActivityLabels.get(id);
+      if (!actLabel) {
+        actLabel = createActivityLabel();
+        actLabel.position.set(0, -0.8, 0);
+        group.add(actLabel);
+        entityActivityLabels.set(id, actLabel);
+      }
+      actLabel.element.textContent = activity.tool;
+      actLabel.visible = true;
+    } else {
+      const actLabel = entityActivityLabels.get(id);
+      if (actLabel) actLabel.visible = false;
+    }
+
+    // Cost badge (offset to the right)
+    if (activity && activity.cost > 0) {
+      let badge = entityCostBadges.get(id);
+      if (!badge) {
+        badge = createCostBadge();
+        badge.position.set(1.0, 0.8, 0);
+        group.add(badge);
+        entityCostBadges.set(id, badge);
+      }
+      badge.element.textContent = `$${activity.cost.toFixed(3)}`;
+      badge.visible = true;
+    } else {
+      const badge = entityCostBadges.get(id);
+      if (badge) badge.visible = false;
+    }
   }
 
   function initScene() {
@@ -238,12 +308,34 @@ const HolodeckView: Component = () => {
           mat.emissive.copy(color);
           mat.emissiveIntensity = ent.glow ? (ent.glowIntensity || 0.5) : 0;
 
+          // Idle dimming — reduce glow and desaturate
+          if (ent.activity?.idle) {
+            mat.emissiveIntensity *= 0.3;
+            const hsl = { h: 0, s: 0, l: 0 };
+            mat.color.getHSL(hsl);
+            mat.color.setHSL(hsl.h, hsl.s * 0.4, hsl.l * 0.7);
+          }
+
+          // Active tool — boost glow
+          if (ent.activity?.tool) {
+            mat.emissiveIntensity = Math.max(mat.emissiveIntensity, 0.8);
+          }
+
+          // Pending human request — amber tint
+          if (ent.activity?.pendingHuman && ent.activity.pendingHuman > 0) {
+            mat.emissive.setRGB(1.0, 0.7, 0.1);
+            mat.emissiveIntensity = 0.6 + 0.4 * Math.sin(Date.now() * 0.005);
+          }
+
           // Selection highlight
           if (ent.id === holodeckStore.selectedEntityId()) {
             mat.emissiveIntensity = Math.max(mat.emissiveIntensity, 1.0);
           }
         }
       }
+
+      // Update activity overlays
+      updateEntityActivity(id, group, ent.activity);
 
       // Update transform
       group.position.set(ent.position[0], ent.position[1], ent.position[2]);
@@ -269,9 +361,20 @@ const HolodeckView: Component = () => {
 
         const label = entityLabels.get(id);
         if (label) {
-          const div = label.element;
-          div.parentElement?.removeChild(div);
+          label.element.parentElement?.removeChild(label.element);
           entityLabels.delete(id);
+        }
+
+        const actLabel = entityActivityLabels.get(id);
+        if (actLabel) {
+          actLabel.element.parentElement?.removeChild(actLabel.element);
+          entityActivityLabels.delete(id);
+        }
+
+        const costBadge = entityCostBadges.get(id);
+        if (costBadge) {
+          costBadge.element.parentElement?.removeChild(costBadge.element);
+          entityCostBadges.delete(id);
         }
       }
     }
@@ -369,6 +472,16 @@ const HolodeckView: Component = () => {
       label.element.parentElement?.removeChild(label.element);
     }
     entityLabels.clear();
+
+    for (const [, label] of entityActivityLabels) {
+      label.element.parentElement?.removeChild(label.element);
+    }
+    entityActivityLabels.clear();
+
+    for (const [, badge] of entityCostBadges) {
+      badge.element.parentElement?.removeChild(badge.element);
+    }
+    entityCostBadges.clear();
 
     // Dispose connections
     for (const [, line] of connectionLines) {
