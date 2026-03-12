@@ -1,5 +1,6 @@
 import { dagStore } from "../stores/dag";
 import { agentStore } from "../stores/agents";
+import { teamStore } from "../stores/teams";
 import { fitToView } from "../graph/globals";
 
 export interface Command {
@@ -89,6 +90,40 @@ export const commands: Command[] = [
     icon: "⇑",
     requiresAgent: true,
     handler: () => agentStore.upgradeAgent(),
+  },
+
+  // ── Teams ──────────────────────────────────────────────────
+  {
+    id: "team.create",
+    name: "Create Team",
+    description: "Create a new agent team",
+    category: "agents",
+    icon: "\u2295",
+    handler: () => {
+      window.dispatchEvent(new CustomEvent("ap:create-team"));
+    },
+  },
+  {
+    id: "team.start",
+    name: "Start Team",
+    description: "Start the selected team's strategy",
+    category: "agents",
+    icon: "\u25B6",
+    handler: () => {
+      const id = teamStore.selectedTeamId();
+      if (id) teamStore.startTeam(id);
+    },
+  },
+  {
+    id: "team.disband",
+    name: "Disband Team",
+    description: "Disband the selected team",
+    category: "agents",
+    icon: "\u2715",
+    handler: () => {
+      const id = teamStore.selectedTeamId();
+      if (id) teamStore.disbandTeam(id);
+    },
   },
 
   // ── Views ──────────────────────────────────────────────────

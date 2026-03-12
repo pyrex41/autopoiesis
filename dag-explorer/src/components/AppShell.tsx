@@ -2,14 +2,17 @@ import { type Component, Show, lazy, Suspense, onMount, onCleanup, createMemo } 
 import { Dynamic } from "solid-js/web";
 import { currentView, setCurrentView, commands, type ViewId } from "../lib/commands";
 import { agentStore } from "../stores/agents";
+import { teamStore } from "../stores/teams";
 import { dagStore } from "../stores/dag";
 import StatusBar from "./StatusBar";
 import ViewSwitcher from "./ViewSwitcher";
 import AgentList from "./AgentList";
+import TeamPanel from "./TeamPanel";
 import AgentDetail from "./AgentDetail";
 import JarvisBar from "./JarvisBar";
 import CommandPalette from "./CommandPalette";
 import CreateAgentDialog from "./CreateAgentDialog";
+import CreateTeamDialog from "./CreateTeamDialog";
 import Dashboard from "./Dashboard";
 import TimelineView from "./TimelineView";
 import TasksView from "./TasksView";
@@ -81,6 +84,7 @@ const AppShell: Component = () => {
 
   onMount(() => {
     agentStore.init();
+    teamStore.init();
     window.addEventListener("keydown", handleKeyDown);
   });
 
@@ -96,8 +100,9 @@ const AppShell: Component = () => {
       <ViewSwitcher />
 
       <div class="app-body">
-        {/* Left panel — Agent list */}
+        {/* Left panel — Agent list + Teams */}
         <AgentList />
+        <TeamPanel />
 
         {/* Main content */}
         <div class="app-content">
@@ -111,6 +116,7 @@ const AppShell: Component = () => {
       <JarvisBar />
       <CommandPalette />
       <CreateAgentDialog />
+      <CreateTeamDialog />
     </div>
   );
 };

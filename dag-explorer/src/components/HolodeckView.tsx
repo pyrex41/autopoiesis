@@ -412,15 +412,49 @@ const HolodeckView: Component = () => {
     }
   }
 
+  // Holodeck-specific keyboard shortcuts
+  const keyActionMap: Record<string, string> = {
+    "Tab": "cycle-focus-next",
+    "[": "step-backward",
+    "]": "step-forward",
+    "Home": "goto-genesis",
+    "End": "goto-head",
+    "f": "fork-here",
+    "m": "merge-prompt",
+    "b": "show-branches",
+    "h": "toggle-hud",
+    "/": "command-palette",
+    "?": "show-help",
+    "o": "overview",
+    " ": "toggle-follow",
+    "Enter": "enter-human-loop",
+    "Escape": "exit-visualization",
+  };
+
+  function handleHolodeckKeyDown(e: KeyboardEvent) {
+    const el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el as HTMLElement).isContentEditable)) {
+      return;
+    }
+
+    const action = keyActionMap[e.key];
+    if (action) {
+      e.preventDefault();
+      holodeckStore.sendAction(action);
+    }
+  }
+
   onMount(() => {
     holodeckStore.init();
     initScene();
     animate();
 
+    window.addEventListener("keydown", handleHolodeckKeyDown);
     const resizeObserver = new ResizeObserver(handleResize);
     if (containerRef) resizeObserver.observe(containerRef);
 
     onCleanup(() => {
+      window.removeEventListener("keydown", handleHolodeckKeyDown);
       resizeObserver.disconnect();
       disposeAll();
     });

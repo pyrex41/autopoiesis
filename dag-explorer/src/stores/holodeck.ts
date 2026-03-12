@@ -1,5 +1,6 @@
 import { createSignal, createMemo } from "solid-js";
 import { wsStore, type ServerMessage } from "./ws";
+import { agentStore } from "./agents";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -78,11 +79,32 @@ function selectEntity(id: number | null) {
   setSelectedEntityId(id);
   if (id !== null) {
     wsStore.send({ type: "holodeck_select", entityId: id } as any);
+    // Sync: if entity has agentId, select in agent store too
+    const entity = entities().get(id);
+    if (entity?.agentId) {
+      agentStore.selectAgent(entity.agentId);
+    }
+  }
+}
+
+function focusOnAgent(agentId: string) {
+  // Find entity with this agentId
+  for (const [id, ent] of entities()) {
+    if (ent.agentId === agentId) {
+      selectEntity(id);
+      // Send camera focus command
+      sendAction("focus-entity");
+      return;
+    }
   }
 }
 
 function sendInput(key: string) {
   wsStore.send({ type: "holodeck_input", key } as any);
+}
+
+function sendAction(action: string) {
+  wsStore.send({ type: "holodeck_input", action } as any);
 }
 
 function updateFps() {
@@ -168,7 +190,9 @@ export const holodeckStore = {
   init,
   cleanup,
   selectEntity,
+  focusOnAgent,
   sendInput,
+  sendAction,
   setViewMode,
   setHudVisible,
 };

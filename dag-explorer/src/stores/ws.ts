@@ -27,7 +27,14 @@ export type ClientMessage =
   | { type: "holodeck_input"; key: string }
   | { type: "holodeck_select"; entityId: number }
   | { type: "get_activities" }
-  | { type: "get_costs" };
+  | { type: "get_costs" }
+  | { type: "list_teams" }
+  | { type: "create_team"; name: string; strategy: string; members?: string[]; leader?: string; task?: string }
+  | { type: "start_team"; teamId: string }
+  | { type: "disband_team"; teamId: string }
+  | { type: "add_team_member"; teamId: string; agentName: string }
+  | { type: "remove_team_member"; teamId: string; agentName: string }
+  | { type: "query_team"; teamId: string };
 
 type MessageHandler = (msg: ServerMessage) => void;
 

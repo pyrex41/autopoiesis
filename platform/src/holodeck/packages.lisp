@@ -101,6 +101,29 @@
     #:spring-connection-spring-constant
     #:spring-connection-damping
 
+   ;; Team topology components
+   #:team-binding
+   #:make-team-binding
+   #:team-binding-team-id
+   #:team-binding-role
+   #:team-binding-strategy
+   #:team-layout
+   #:make-team-layout
+   #:team-layout-center-x
+   #:team-layout-center-y
+   #:team-layout-center-z
+   #:team-layout-radius
+   #:team-layout-arrangement
+
+   ;; Team topology systems
+   #:team-sync-system
+   #:team-layout-system
+   #:*team-entity-map*
+   #:*team-member-bindings*
+   #:*team-sync-interval*
+   #:strategy-to-arrangement
+   #:compute-team-member-position
+
    ;; Persistent agent ECS components
    #:*persistent-root-table*
    #:persistent-root
@@ -686,4 +709,10 @@
 
     ;; Camera and view mode switching
     #:switch-camera-mode
-    #:toggle-2d-3d-mode))
+    #:toggle-2d-3d-mode
+
+    ;; Follow mode and entity focus
+    #:holodeck-follow-mode-p
+    #:holodeck-focused-entity-id
+    #:focus-on-entity-smooth
+    #:%emit-holodeck-event))

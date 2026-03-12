@@ -82,7 +82,13 @@
                :documentation "Current chat input string.")
    (chat-messages :initform nil
                   :accessor holodeck-chat-messages
-                  :documentation "List of (sender . text) cons pairs for chat history."))
+                  :documentation "List of (sender . text) cons pairs for chat history.")
+   (follow-mode-p :initform nil
+                   :accessor holodeck-follow-mode-p
+                   :documentation "Whether the camera follows the focused entity.")
+   (focused-entity-id :initform nil
+                       :accessor holodeck-focused-entity-id
+                       :documentation "Entity ID of the currently focused entity, or NIL."))
   (:documentation
    "Main window class for the 3D holodeck visualization.
     Manages the rendering context, scene graph, camera, HUD, and input handlers.
@@ -224,6 +230,38 @@
   nil)
 
 ;;; ===================================================================
+;;; Holodeck Event Emission Helper
+;;; ===================================================================
+
+(defun %emit-holodeck-event (event-type data)
+  "Emit a holodeck event through the integration event bus, if available.
+   Uses find-symbol to avoid compile-time circular dependency."
+  (handler-case
+      (when (find-package :autopoiesis.integration)
+        (let ((emit-fn (find-symbol "EMIT-INTEGRATION-EVENT" :autopoiesis.integration)))
+          (when (and emit-fn (fboundp emit-fn))
+            (funcall emit-fn event-type :holodeck data))))
+    (error () nil)))
+
+;;; ===================================================================
+;;; Entity Focus Helper
+;;; ===================================================================
+
+(defun focus-on-entity-smooth (window entity)
+  "Smoothly move the camera to focus on ENTITY.
+   Creates a camera transition to the entity's position using
+   focus-on-snapshot which handles offset and transition creation."
+  (when (and entity (entity-valid-p entity))
+    (handler-case
+        (let ((camera (holodeck-camera window)))
+          (when camera
+            (let ((transition (focus-on-snapshot camera entity
+                                                 :duration *focus-duration*)))
+              (when transition
+                (setf *holodeck-transition* transition)))))
+      (error () nil))))
+
+;;; ===================================================================
 ;;; Additional Action Handlers
 ;;; ===================================================================
 
@@ -239,7 +277,199 @@
   ;; 2D/3D view mode toggle
   (register-action-handler registry :toggle-2d-3d
     (lambda ()
-      (toggle-2d-3d-mode window))))
+      (toggle-2d-3d-mode window)))
+
+  ;; ── Navigation actions ──────────────────────────────────────────
+
+  (register-action-handler registry :step-backward
+    (lambda ()
+      (let ((entities *snapshot-entities*))
+        (when entities
+          (let* ((current (holodeck-focused-entity-id window))
+                 (idx (if current (position current entities) nil))
+                 (prev-idx (if idx (max 0 (1- idx)) (1- (length entities))))
+                 (target (nth prev-idx entities)))
+            (when target
+              (setf (holodeck-focused-entity-id window) target)
+              (select-entity target)
+              (focus-on-entity-smooth window target)))))))
+
+  (register-action-handler registry :step-forward
+    (lambda ()
+      (let ((entities *snapshot-entities*))
+        (when entities
+          (let* ((current (holodeck-focused-entity-id window))
+                 (idx (if current (position current entities) nil))
+                 (next-idx (if idx (min (1- (length entities)) (1+ idx)) 0))
+                 (target (nth next-idx entities)))
+            (when target
+              (setf (holodeck-focused-entity-id window) target)
+              (select-entity target)
+              (focus-on-entity-smooth window target)))))))
+
+  (register-action-handler registry :goto-genesis
+    (lambda ()
+      (let ((entities *snapshot-entities*))
+        (when entities
+          (let ((first-entity (first entities)))
+            (when first-entity
+              (setf (holodeck-focused-entity-id window) first-entity)
+              (select-entity first-entity)
+              (focus-on-entity-smooth window first-entity)))))))
+
+  (register-action-handler registry :goto-head
+    (lambda ()
+      (let ((entities *snapshot-entities*))
+        (when entities
+          (let ((last-entity (car (last entities))))
+            (when last-entity
+              (setf (holodeck-focused-entity-id window) last-entity)
+              (select-entity last-entity)
+              (focus-on-entity-smooth window last-entity)))))))
+
+  ;; ── Branching actions ───────────────────────────────────────────
+
+  (register-action-handler registry :fork-here
+    (lambda ()
+      (let ((focused (holodeck-focused-entity-id window)))
+        (if focused
+            (handler-case
+                (let ((snapshot-id (ignore-errors (snapshot-binding-snapshot-id focused))))
+                  (when snapshot-id
+                    (%emit-holodeck-event :fork-requested
+                                          (list :snapshot-id snapshot-id
+                                                :entity-id focused))))
+              (error () nil))
+            (%emit-holodeck-event :fork-requested nil)))))
+
+  (register-action-handler registry :merge-prompt
+    (lambda ()
+      (%emit-holodeck-event :merge-prompt-requested nil)))
+
+  (register-action-handler registry :show-branches
+    (lambda ()
+      (let ((hud (holodeck-hud window)))
+        (when hud
+          (toggle-panel-visibility hud :branches)))))
+
+  ;; ── View mode actions ──────────────────────────────────────────
+
+  (register-action-handler registry :set-view-timeline
+    (lambda ()
+      (%emit-holodeck-event :view-mode-changed (list :mode :timeline))))
+
+  (register-action-handler registry :set-view-tree
+    (lambda ()
+      (%emit-holodeck-event :view-mode-changed (list :mode :tree))))
+
+  (register-action-handler registry :set-view-constellation
+    (lambda ()
+      (%emit-holodeck-event :view-mode-changed (list :mode :constellation))))
+
+  (register-action-handler registry :set-view-diff
+    (lambda ()
+      (%emit-holodeck-event :view-mode-changed (list :mode :diff))))
+
+  ;; ── Focus actions ──────────────────────────────────────────────
+
+  (register-action-handler registry :cycle-focus-next
+    (lambda ()
+      (let ((entities *snapshot-entities*))
+        (when entities
+          (let* ((current (holodeck-focused-entity-id window))
+                 (idx (if current (position current entities) nil))
+                 (next-idx (if idx
+                               (mod (1+ idx) (length entities))
+                               0))
+                 (target (nth next-idx entities)))
+            (when target
+              (setf (holodeck-focused-entity-id window) target)
+              (select-entity target)
+              (when (holodeck-follow-mode-p window)
+                (focus-on-entity-smooth window target))))))))
+
+  (register-action-handler registry :cycle-focus-prev
+    (lambda ()
+      (let ((entities *snapshot-entities*))
+        (when entities
+          (let* ((current (holodeck-focused-entity-id window))
+                 (idx (if current (position current entities) nil))
+                 (prev-idx (if idx
+                                (mod (1- idx) (length entities))
+                                (1- (length entities))))
+                 (target (nth prev-idx entities)))
+            (when target
+              (setf (holodeck-focused-entity-id window) target)
+              (select-entity target)
+              (when (holodeck-follow-mode-p window)
+                (focus-on-entity-smooth window target))))))))
+
+  (register-action-handler registry :toggle-follow
+    (lambda ()
+      (setf (holodeck-follow-mode-p window)
+            (not (holodeck-follow-mode-p window)))
+      ;; If follow mode just turned on and we have a focused entity, snap to it
+      (when (and (holodeck-follow-mode-p window)
+                 (holodeck-focused-entity-id window))
+        (focus-on-entity-smooth window (holodeck-focused-entity-id window)))))
+
+  (register-action-handler registry :overview
+    (lambda ()
+      (let ((camera (holodeck-camera window)))
+        (when camera
+          (let ((transition (camera-overview camera)))
+            (when transition
+              (setf *holodeck-transition* transition)))))))
+
+  ;; ── Detail actions ─────────────────────────────────────────────
+
+  (register-action-handler registry :increase-detail
+    (lambda ()
+      (dolist (entity *snapshot-entities*)
+        (when (entity-valid-p entity)
+          (handler-case
+              (let ((current (detail-level-current entity)))
+                (case current
+                  (:culled (setf (detail-level-current entity) :low))
+                  (:low (setf (detail-level-current entity) :high))))
+            (error () nil))))))
+
+  (register-action-handler registry :decrease-detail
+    (lambda ()
+      (dolist (entity *snapshot-entities*)
+        (when (entity-valid-p entity)
+          (handler-case
+              (let ((current (detail-level-current entity)))
+                (case current
+                  (:high (setf (detail-level-current entity) :low))
+                  (:low (setf (detail-level-current entity) :culled))))
+            (error () nil))))))
+
+  ;; ── UI actions ─────────────────────────────────────────────────
+
+  (register-action-handler registry :enter-human-loop
+    (lambda ()
+      (%emit-holodeck-event :human-loop-requested nil)))
+
+  (register-action-handler registry :exit-visualization
+    (lambda ()
+      (stop-holodeck)))
+
+  (register-action-handler registry :toggle-hud
+    (lambda ()
+      (let ((hud (holodeck-hud window)))
+        (when hud
+          (toggle-hud-visibility hud)))))
+
+  (register-action-handler registry :command-palette
+    (lambda ()
+      (%emit-holodeck-event :command-palette-requested nil)))
+
+  (register-action-handler registry :show-help
+    (lambda ()
+      (let ((hud (holodeck-hud window)))
+        (when hud
+          (toggle-panel-visibility hud :help))))))
 
 (defgeneric switch-camera-mode (window)
   (:documentation "Switch between orbit and fly camera modes."))
@@ -633,7 +863,23 @@ void main() {
      (metabolic-glow-system dt-f)
      (lineage-rendering-system dt-f)
 
-     ;; 3c. Sync snapshots for real-time updates
+     ;; 3d. Run team topology systems
+     (handler-case
+         (progn
+           (team-sync-system dt-f)
+           (team-layout-system dt-f))
+       (error () nil))
+
+     ;; 3e. Follow-mode camera update
+     (when (and (holodeck-follow-mode-p window)
+                (holodeck-focused-entity-id window))
+       (let ((focused (holodeck-focused-entity-id window)))
+         (when (entity-valid-p focused)
+           (handler-case
+               (focus-on-entity-smooth window focused)
+             (error () nil)))))
+
+     ;; 3f. Sync snapshots for real-time updates
      (sync-snapshots window)
 
      ;; 4. Collect snapshot entity render descriptions

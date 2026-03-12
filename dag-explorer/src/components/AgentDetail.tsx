@@ -1,6 +1,8 @@
 import { type Component, Show, createMemo, createSignal, onMount, onCleanup } from "solid-js";
 import { agentStore } from "../stores/agents";
 import { activityStore } from "../stores/activity";
+import { holodeckStore } from "../stores/holodeck";
+import { setCurrentView } from "../lib/commands";
 import AgentActions from "./AgentActions";
 import ThoughtStream from "./ThoughtStream";
 
@@ -42,6 +44,21 @@ const AgentDetail: Component = () => {
             </div>
 
             <AgentActions agent={a()} />
+
+            <Show when={holodeckStore.entityCount() > 0}>
+              <div style={{ padding: "0 16px 8px" }}>
+                <button
+                  class="btn-secondary"
+                  style={{ "font-size": "11px", padding: "4px 10px" }}
+                  onClick={() => {
+                    holodeckStore.focusOnAgent(a().id);
+                    setCurrentView("holodeck");
+                  }}
+                >
+                  Show in 3D
+                </button>
+              </div>
+            </Show>
 
             <div class="agent-detail-sections">
               <div class="agent-detail-section">

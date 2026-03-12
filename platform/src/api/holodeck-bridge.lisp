@@ -167,6 +167,52 @@ HUD commands are typically plists or strings from the holodeck HUD system."
     (t (format nil "~S" cmd))))
 
 ;;; ===================================================================
+;;; Team Data Serialization
+;;; ===================================================================
+
+(defun serialize-team-data ()
+  "Serialize team topology data from holodeck ECS for JSON transmission.
+   Returns a list of team plists, each containing id, arrangement, members,
+   and center position.  Returns NIL if holodeck is not loaded."
+  (handler-case
+      (let ((pkg (find-package :autopoiesis.holodeck)))
+        (when pkg
+          (let ((team-map-sym (find-symbol "*TEAM-ENTITY-MAP*" pkg))
+                (member-map-sym (find-symbol "*TEAM-MEMBER-BINDINGS*" pkg))
+                (layout-center-x (find-symbol "TEAM-LAYOUT-CENTER-X" pkg))
+                (layout-center-y (find-symbol "TEAM-LAYOUT-CENTER-Y" pkg))
+                (layout-center-z (find-symbol "TEAM-LAYOUT-CENTER-Z" pkg))
+                (layout-arrangement (find-symbol "TEAM-LAYOUT-ARRANGEMENT" pkg))
+                (layout-radius (find-symbol "TEAM-LAYOUT-RADIUS" pkg))
+                (entity-valid-fn (find-symbol "ENTITY-VALID-P" pkg)))
+            (when (and team-map-sym (boundp team-map-sym)
+                       member-map-sym (boundp member-map-sym))
+              (let ((team-map (symbol-value team-map-sym))
+                    (member-map (symbol-value member-map-sym))
+                    (result nil))
+                (maphash
+                 (lambda (tid anchor)
+                   (when (and (funcall entity-valid-fn anchor)
+                              (fboundp layout-center-x))
+                     (let ((members (gethash tid member-map))
+                           (cx (ignore-errors (funcall layout-center-x anchor)))
+                           (cy (ignore-errors (funcall layout-center-y anchor)))
+                           (cz (ignore-errors (funcall layout-center-z anchor)))
+                           (arr (ignore-errors (funcall layout-arrangement anchor)))
+                           (rad (ignore-errors (funcall layout-radius anchor))))
+                       (push (list "id" tid
+                                   "arrangement" (when arr
+                                                    (string-downcase (symbol-name arr)))
+                                   "radius" rad
+                                   "center" (list cx cy cz)
+                                   "memberCount" (length members)
+                                   "memberIds" (mapcar (lambda (eid) eid) members))
+                             result))))
+                 team-map)
+                result)))))
+    (error () nil)))
+
+;;; ===================================================================
 ;;; Full Frame Serialization
 ;;; ===================================================================
 
@@ -195,6 +241,7 @@ or encode-msgpack via the wire-format layer."
                       "commands" (or (mapcar #'serialize-hud-command
                                             (getf frame-result :hud-commands))
                                      #())))
+        "teams" (or (serialize-team-data) #())
         "frameId" (get-universal-time)))
 
 ;;; ===================================================================
