@@ -1,0 +1,23 @@
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+
+;;
+;; http://localhost:5000/
+
+(ql:quickload :hunchentoot :silent t)
+
+(hunchentoot:define-easy-handler (say-hello :uri "/") ()
+  (setf (hunchentoot:content-type*) "text/plain")
+  "Hello, World")
+
+(defun main (&optional multi-threaded-p &rest argv)
+  (declare (ignore argv))
+  (hunchentoot:start (apply #'make-instance 'hunchentoot:easy-acceptor
+                            :port 5000
+                            :access-log-destination nil
+                            (if multi-threaded-p
+                                '()
+                                (list :taskmaster (make-instance 'hunchentoot:single-threaded-taskmaster)))))
+  (loop (sleep 60)))

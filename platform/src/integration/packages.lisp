@@ -203,6 +203,7 @@
    #:provider-alive-p
    #:provider-start-session
    #:provider-send
+   #:provider-send-streaming
    #:provider-stop-session
    #:provider-to-sexpr
    #:provider-status

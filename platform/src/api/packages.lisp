@@ -124,6 +124,21 @@
     #:holodeck-available-p
     #:holodeck-execute-action
 
+    ;; Agent runtime (LLM-backed cognitive loops)
+    #:runtime-start-agent
+    #:runtime-stop-agent
+    #:runtime-pause-agent
+    #:runtime-resume-agent
+    #:auto-snapshot-agent
+    #:send-message-to-agent
+    #:get-agent-runtime
+    #:*agent-runtimes*
+
+    ;; Holodeck sync (agent -> holodeck entity broadcast)
+    #:start-holodeck-sync
+    #:stop-holodeck-sync
+    #:agents-to-holodeck-frame
+
     ;; Chat handlers (Jarvis bridge)
     #:*chat-sessions*
     #:*chat-sessions-lock*

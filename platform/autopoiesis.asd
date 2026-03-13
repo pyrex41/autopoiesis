@@ -240,6 +240,8 @@
       (:file "handlers")
       (:file "team-handlers")
       (:file "chat-handlers")
+      (:file "agent-runtime")
+      (:file "holodeck-sync")
       (:file "events")
       (:file "activity-tracker")
       (:file "holodeck-bridge")

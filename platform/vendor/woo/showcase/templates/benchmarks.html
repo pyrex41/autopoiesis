@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+{% block title %}Benchmarks - Woo{% endblock %}
+
+{% block content %}
+<section class="benchmarks-page">
+  <h1>Performance Benchmarks</h1>
+  <p class="subtitle">Hello World response, 100 concurrent connections, 4 threads, 10 seconds</p>
+
+  <div class="chart-container">
+    <canvas id="throughputChart"></canvas>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="latencyChart"></canvas>
+  </div>
+
+  <div class="benchmark-table">
+    <h2>Detailed Results</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Server</th>
+          <th>Language</th>
+          <th>Requests/sec</th>
+          <th>Avg Latency</th>
+          <th>Max Latency</th>
+        </tr>
+      </thead>
+      <tbody id="benchmarkTableBody">
+        <!-- Populated by JS -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="environment-info">
+    <h3>Test Environment</h3>
+    <ul>
+      <li><strong>CPU:</strong> 8 Core</li>
+      <li><strong>Memory:</strong> 16GB</li>
+      <li><strong>OS:</strong> Ubuntu 16.04.2 LTS</li>
+      <li><strong>Tool:</strong> wrk 4.0.0</li>
+      <li><strong>Command:</strong> <code>wrk -c 100 -t 4 -d 10 http://127.0.0.1:5000</code></li>
+    </ul>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}

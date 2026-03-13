@@ -83,24 +83,88 @@
     (unless (and agent-id text)
       (return-from handle-chat-prompt
         (error-response "missing_field" "chat_prompt requires agentId and text")))
+    ;; Check if this is a running agent with its own runtime
+    ;; If so, route the message to the agent's mailbox instead of Jarvis
+    (let ((runtime (get-agent-runtime agent-id)))
+      (when (and runtime (not (equal agent-id "jarvis")))
+        ;; Route to agent's cognitive loop via mailbox
+        (handler-case
+            (progn
+              (send-message-to-agent agent-id text :from "user")
+              ;; Subscribe this connection to agent thoughts so they get the response
+              (subscribe-connection conn (format nil "agent:~a" agent-id))
+              ;; Return acknowledgment — response comes async via broadcast
+              (return-from handle-chat-prompt
+                (ok-response "chat_prompt_accepted"
+                             "agentId" agent-id
+                             "routed" "agent")))
+          (error (e)
+            (return-from handle-chat-prompt
+              (error-response "agent_message_error"
+                              (format nil "~a" e)))))))
+    ;; Fall through to Jarvis session for non-running agents or "jarvis" id
     (let ((session (bordeaux-threads:with-lock-held (*chat-sessions-lock*)
                      (gethash agent-id *chat-sessions*))))
       (unless session
         (return-from handle-chat-prompt
           (error-response "no_session"
                           "No chat session for this agent. Send start_chat first.")))
-      ;; Spawn worker — jarvis-prompt blocks
+      ;; Spawn worker — jarvis-prompt-streaming or jarvis-prompt blocks
       (bordeaux-threads:make-thread
        (lambda ()
          (handler-case
-             (let* ((response-text (call-jarvis "JARVIS-PROMPT" session text))
-                    (result (ok-response "chat_response"
-                                         "agentId" agent-id
-                                         "text" response-text
-                                         "sessionId" (format nil "~a" agent-id))))
-               (when request-id
-                 (setf (gethash "requestId" result) request-id))
-               (send-to-connection conn (encode-message result)))
+             (let ((stream-fn (and (find-package :autopoiesis.jarvis)
+                                   (find-symbol "JARVIS-PROMPT-STREAMING"
+                                                :autopoiesis.jarvis))))
+               (if stream-fn
+                   ;; Streaming path
+                   (progn
+                     ;; Signal stream start
+                     (send-to-connection
+                      conn
+                      (encode-message
+                       (let ((r (ok-response "chat_stream_start" "agentId" agent-id)))
+                         (when request-id (setf (gethash "requestId" r) request-id))
+                         r)))
+                     ;; Stream deltas
+                     (let ((response-text
+                             (funcall stream-fn session text
+                                      (lambda (delta)
+                                        (let ((msg (ok-response "chat_stream_delta"
+                                                                "agentId" agent-id
+                                                                "delta" delta)))
+                                          (when request-id
+                                            (setf (gethash "requestId" msg) request-id))
+                                          (ignore-errors
+                                            (send-to-connection
+                                             conn (encode-message msg))))))))
+                       ;; Signal stream end
+                       (let ((end-msg (ok-response "chat_stream_end"
+                                                   "agentId" agent-id)))
+                         (when request-id
+                           (setf (gethash "requestId" end-msg) request-id))
+                         (send-to-connection conn (encode-message end-msg)))
+                       ;; Send full response (or error if empty)
+                       (let* ((final-text (if (and response-text
+                                                   (not (string= "" response-text)))
+                                              response-text
+                                              "Provider returned empty response. Check API credentials (XAI_API_KEY) and rho-cli configuration."))
+                              (result (ok-response "chat_response"
+                                                   "agentId" agent-id
+                                                   "text" final-text
+                                                   "sessionId" (format nil "~a" agent-id))))
+                         (when request-id
+                           (setf (gethash "requestId" result) request-id))
+                         (send-to-connection conn (encode-message result)))))
+                   ;; Non-streaming fallback
+                   (let* ((response-text (call-jarvis "JARVIS-PROMPT" session text))
+                          (result (ok-response "chat_response"
+                                               "agentId" agent-id
+                                               "text" response-text
+                                               "sessionId" (format nil "~a" agent-id))))
+                     (when request-id
+                       (setf (gethash "requestId" result) request-id))
+                     (send-to-connection conn (encode-message result)))))
            (error (e)
              (let ((err-result (error-response "chat_error"
                                                (format nil "~a" e))))

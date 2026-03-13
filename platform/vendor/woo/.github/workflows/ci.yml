@@ -1,0 +1,34 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: ${{ matrix.lisp }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lisp: [sbcl-bin]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies from APT
+        run: sudo apt-get install -y libev-dev gcc libc6-dev
+      - name: Generate server certificates
+        run: sh ./t/generate-certificates.sh
+      - name: Install Roswell
+        env:
+          LISP: ${{ matrix.lisp }}
+          ROSWELL_INSTALL_DIR: /usr
+        run: |
+          curl -L https://raw.githubusercontent.com/roswell/roswell/master/scripts/install-for-ci.sh | sh
+      - name: Install Ultralisp
+        run: ros -e '(ql-dist:install-dist "http://dist.ultralisp.org/" :prompt nil)'
+      - name: Install Rove
+        run: ros install rove
+      - name: Run tests
+        env:
+          LISP: ${{ matrix.lisp }}
+        run: |
+          PATH="~/.roswell/bin:$PATH"
+          rove woo-test.asd

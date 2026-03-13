@@ -26,6 +26,7 @@
 
    ;; Conversation
    #:jarvis-prompt
+   #:jarvis-prompt-streaming
 
    ;; Tool dispatch
    #:parse-tool-call

@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autopoiesis Agent Swarm Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        .header {
+            background: #2d2d2d;
+            padding: 1rem;
+            border-bottom: 1px solid #404040;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #00d4aa;
+        }
+
+        .status {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .main {
+            display: flex;
+            height: calc(100vh - 80px);
+        }
+
+        .sidebar {
+            width: 300px;
+            background: #252525;
+            border-right: 1px solid #404040;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+
+        .content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .agent-list {
+            border-bottom: 1px solid #404040;
+            margin-bottom: 1rem;
+        }
+
+        .agent-item {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            background: #2d2d2d;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .agent-item:hover {
+            background: #353535;
+        }
+
+        .agent-item.selected {
+            background: #00d4aa;
+            color: #1a1a1a;
+        }
+
+        .agent-item .status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+
+        .agent-item .status.running {
+            background: #00d4aa;
+        }
+
+        .agent-item .status.stopped {
+            background: #666;
+        }
+
+        .agent-item .status.paused {
+            background: #ffa500;
+        }
+
+        .agent-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        button {
+            padding: 0.5rem 1rem;
+            background: #404040;
+            color: #e0e0e0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        button.primary {
+            background: #00d4aa;
+            color: #1a1a1a;
+        }
+
+        button.danger {
+            background: #d40000;
+            color: #fff;
+        }
+
+        .agent-details {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .details-panels {
+            display: flex;
+            flex: 1;
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .panel {
+            flex: 1;
+            background: #252525;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel h3 {
+            color: #00d4aa;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid #404040;
+            padding-bottom: 0.5rem;
+        }
+
+        .capabilities-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .capability-item {
+            padding: 0.25rem;
+            margin: 0.125rem 0;
+            background: #2d2d2d;
+            border-radius: 2px;
+            font-size: 0.9em;
+        }
+
+        .thoughts-stream {
+            flex: 1;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        .thought-item {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            background: #2d2d2d;
+            border-radius: 4px;
+            border-left: 3px solid #00d4aa;
+        }
+
+        .thought-item .timestamp {
+            color: #888;
+            font-size: 0.8em;
+        }
+
+        .thought-item .content {
+            margin-top: 0.25rem;
+        }
+
+        .lineage-tree {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .tree-node {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
+
+        .tree-node.root {
+            border-left: 3px solid #00d4aa;
+        }
+
+        .tree-node.child {
+            margin-left: 1rem;
+            border-left: 3px solid #666;
+        }
+
+        .connection-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8em;
+        }
+
+        .connection-status.connected {
+            background: #00d4aa;
+            color: #1a1a1a;
+        }
+
+        .connection-status.disconnected {
+            background: #d40000;
+            color: #fff;
+        }
+
+        .connection-status.connecting {
+            background: #ffa500;
+            color: #1a1a1a;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Autopoiesis Agent Swarm Dashboard</h1>
+        <div class="status">
+            <span id="connection-status" class="connection-status disconnected">Disconnected</span>
+            <span id="agent-count">0 agents</span>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="sidebar">
+            <div class="agent-list">
+                <h3>Agents</h3>
+                <div id="agent-list"></div>
+            </div>
+
+            <div class="agent-controls">
+                <button id="spawn-agent" class="primary">Spawn Agent</button>
+                <button id="fork-agent">Fork</button>
+                <button id="start-agent">Start</button>
+                <button id="pause-agent">Pause</button>
+                <button id="stop-agent" class="danger">Stop</button>
+                <button id="upgrade-dual">Upgrade to Dual</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="details-panels">
+                <div class="panel">
+                    <h3>Capabilities</h3>
+                    <div id="capabilities-list" class="capabilities-list"></div>
+                </div>
+
+                <div class="panel">
+                    <h3>Lineage Tree</h3>
+                    <div id="lineage-tree" class="lineage-tree"></div>
+                </div>
+
+                <div class="panel">
+                    <h3>Thoughts Stream</h3>
+                    <div id="thoughts-stream" class="thoughts-stream"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Dashboard JavaScript will be added here
+        class AgentDashboard {
+            constructor() {
+                this.ws = null;
+                this.selectedAgentId = null;
+                this.agents = new Map();
+                this.thoughtsBuffer = [];
+                this.maxThoughts = 100;
+
+                this.init();
+            }
+
+            init() {
+                this.connectWebSocket();
+                this.connectSSE();
+                this.bindEvents();
+                this.updateUI();
+            }
+
+            connectWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+                this.ws = new WebSocket(wsUrl);
+
+                this.ws.onopen = () => {
+                    this.updateConnectionStatus('connected');
+                    this.subscribeToAgents();
+                };
+
+                this.ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        this.handleWebSocketMessage(message);
+                    } catch (e) {
+                        console.error('Failed to parse WebSocket message:', e);
+                    }
+                };
+
+                this.ws.onclose = () => {
+                    this.updateConnectionStatus('disconnected');
+                    setTimeout(() => this.connectWebSocket(), 5000);
+                };
+
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    this.updateConnectionStatus('disconnected');
+                };
+            }
+
+            connectSSE() {
+                const eventSource = new EventSource('/api/events');
+
+                eventSource.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        this.handleSSEMessage(data);
+                    } catch (e) {
+                        console.error('Failed to parse SSE message:', e);
+                    }
+                };
+
+                eventSource.onerror = (error) => {
+                    console.error('SSE error:', error);
+                };
+            }
+
+            handleWebSocketMessage(message) {
+                switch (message.type) {
+                    case 'agents':
+                        this.updateAgents(message.agents);
+                        break;
+                    case 'agent_created':
+                        this.addAgent(message.agent);
+                        break;
+                    case 'agent_state_changed':
+                        this.updateAgentState(message.agentId, message.state);
+                        break;
+                    default:
+                        console.log('Unhandled WebSocket message:', message);
+                }
+            }
+
+            handleSSEMessage(data) {
+                if (data.type === 'thought_added') {
+                    this.addThought(data.agentId, data.thought);
+                }
+            }
+
+            updateConnectionStatus(status) {
+                const element = document.getElementById('connection-status');
+                element.className = `connection-status ${status}`;
+                element.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            }
+
+            subscribeToAgents() {
+                if (this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'subscribe',
+                        channel: 'agents'
+                    }));
+
+                    // Request initial agent list
+                    this.ws.send(JSON.stringify({
+                        type: 'list_agents'
+                    }));
+                }
+            }
+
+            updateAgents(agents) {
+                this.agents.clear();
+                agents.forEach(agent => {
+                    this.agents.set(agent.id, agent);
+                });
+                this.updateUI();
+            }
+
+            addAgent(agent) {
+                this.agents.set(agent.id, agent);
+                this.updateUI();
+            }
+
+            updateAgentState(agentId, state) {
+                const agent = this.agents.get(agentId);
+                if (agent) {
+                    agent.state = state;
+                    this.updateUI();
+                }
+            }
+
+            addThought(agentId, thought) {
+                this.thoughtsBuffer.unshift({
+                    agentId,
+                    thought,
+                    timestamp: new Date().toISOString()
+                });
+
+                if (this.thoughtsBuffer.length > this.maxThoughts) {
+                    this.thoughtsBuffer = this.thoughtsBuffer.slice(0, this.maxThoughts);
+                }
+
+                this.updateThoughtsDisplay();
+            }
+
+            bindEvents() {
+                // Agent selection
+                document.getElementById('agent-list').addEventListener('click', (e) => {
+                    if (e.target.classList.contains('agent-item')) {
+                        const agentId = e.target.dataset.agentId;
+                        this.selectAgent(agentId);
+                    }
+                });
+
+                // Control buttons
+                document.getElementById('spawn-agent').addEventListener('click', () => this.spawnAgent());
+                document.getElementById('fork-agent').addEventListener('click', () => this.forkAgent());
+                document.getElementById('start-agent').addEventListener('click', () => this.startAgent());
+                document.getElementById('pause-agent').addEventListener('click', () => this.pauseAgent());
+                document.getElementById('stop-agent').addEventListener('click', () => this.stopAgent());
+                document.getElementById('upgrade-dual').addEventListener('click', () => this.upgradeToDual());
+            }
+
+            selectAgent(agentId) {
+                this.selectedAgentId = agentId;
+                this.updateUI();
+                this.loadAgentDetails(agentId);
+            }
+
+            async loadAgentDetails(agentId) {
+                try {
+                    const response = await fetch(`/api/agents/${agentId}`);
+                    const data = await response.json();
+                    if (data.type === 'agent') {
+                        this.updateAgentDetails(data.agent);
+                    }
+                } catch (error) {
+                    console.error('Failed to load agent details:', error);
+                }
+            }
+
+            updateAgentDetails(agent) {
+                // Update capabilities
+                const capabilitiesList = document.getElementById('capabilities-list');
+                capabilitiesList.innerHTML = '';
+
+                if (agent.capabilities) {
+                    agent.capabilities.forEach(cap => {
+                        const div = document.createElement('div');
+                        div.className = 'capability-item';
+                        div.textContent = cap;
+                        capabilitiesList.appendChild(div);
+                    });
+                }
+
+                // Update lineage tree
+                this.updateLineageTree(agent);
+            }
+
+            updateLineageTree(agent) {
+                const lineageTree = document.getElementById('lineage-tree');
+                lineageTree.innerHTML = '';
+
+                if (agent.persistent) {
+                    // Build tree structure for persistent agents
+                    this.buildPersistentTree(agent, lineageTree, 0);
+                } else {
+                    // Simple display for regular agents
+                    const agentDiv = document.createElement('div');
+                    agentDiv.className = 'tree-node root';
+                    agentDiv.innerHTML = `
+                        <strong>${agent.name}</strong><br>
+                        <small>ID: ${agent.id}</small><br>
+                        <small>State: ${agent.state || 'unknown'}</small><br>
+                        <small>Type: Regular Agent</small>
+                    `;
+                    lineageTree.appendChild(agentDiv);
+                }
+            }
+
+            buildPersistentTree(agent, container, depth) {
+                const agentDiv = document.createElement('div');
+                agentDiv.className = `tree-node ${depth === 0 ? 'root' : 'child'}`;
+                agentDiv.style.marginLeft = `${depth * 20}px`;
+
+                const version = agent.version || 0;
+                const children = agent.children || [];
+
+                agentDiv.innerHTML = `
+                    <strong>${agent.name}</strong> (v${version})<br>
+                    <small>ID: ${agent.id}</small><br>
+                    <small>State: ${agent.state || 'unknown'}</small><br>
+                    ${agent.parentRoot ? `<small>Parent: ${agent.parentRoot}</small><br>` : ''}
+                    ${children.length > 0 ? `<small>Children: ${children.length}</small>` : '<small>No children</small>'}
+                `;
+
+                container.appendChild(agentDiv);
+
+                // Recursively build children (simplified - would need to fetch child details)
+                if (children.length > 0 && depth < 2) { // Limit depth to avoid infinite recursion
+                    children.forEach(childId => {
+                        // In a real implementation, you'd fetch child agent details
+                        const childDiv = document.createElement('div');
+                        childDiv.className = 'tree-node child';
+                        childDiv.style.marginLeft = `${(depth + 1) * 20}px`;
+                        childDiv.innerHTML = `<em>Child: ${childId}</em>`;
+                        container.appendChild(childDiv);
+                    });
+                }
+            }
+
+            updateThoughtsDisplay() {
+                const thoughtsStream = document.getElementById('thoughts-stream');
+                thoughtsStream.innerHTML = '';
+
+                this.thoughtsBuffer.forEach(item => {
+                    if (!this.selectedAgentId || item.agentId === this.selectedAgentId) {
+                        const div = document.createElement('div');
+                        div.className = 'thought-item';
+                        div.innerHTML = `
+                            <div class="timestamp">${new Date(item.timestamp).toLocaleTimeString()}</div>
+                            <div class="content">${item.thought.content || item.thought}</div>
+                        `;
+                        thoughtsStream.appendChild(div);
+                    }
+                });
+            }
+
+            updateUI() {
+                // Update agent count
+                document.getElementById('agent-count').textContent = `${this.agents.size} agents`;
+
+                // Update agent list
+                const agentList = document.getElementById('agent-list');
+                agentList.innerHTML = '';
+
+                this.agents.forEach(agent => {
+                    const div = document.createElement('div');
+                    div.className = `agent-item ${this.selectedAgentId === agent.id ? 'selected' : ''}`;
+                    div.dataset.agentId = agent.id;
+
+                    const statusClass = agent.state === 'running' ? 'running' :
+                                      agent.state === 'stopped' ? 'stopped' : 'paused';
+
+                    div.innerHTML = `
+                        <span class="status ${statusClass}"></span>
+                        ${agent.name || agent.id}
+                    `;
+
+                    agentList.appendChild(div);
+                });
+
+                // Update thoughts display
+                this.updateThoughtsDisplay();
+            }
+
+            spawnAgent() {
+                const name = prompt('Enter agent name:');
+                if (name && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'create_agent',
+                        name: name,
+                        capabilities: []
+                    }));
+                }
+            }
+
+            forkAgent() {
+                if (!this.selectedAgentId) return;
+                const name = prompt('Enter name for forked agent:');
+                if (name && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'fork_agent',
+                        agentId: this.selectedAgentId,
+                        name: name
+                    }));
+                }
+            }
+
+            startAgent() {
+                if (!this.selectedAgentId || this.ws.readyState !== WebSocket.OPEN) return;
+                this.ws.send(JSON.stringify({
+                    type: 'agent_action',
+                    agentId: this.selectedAgentId,
+                    action: 'start'
+                }));
+            }
+
+            pauseAgent() {
+                if (!this.selectedAgentId || this.ws.readyState !== WebSocket.OPEN) return;
+                this.ws.send(JSON.stringify({
+                    type: 'agent_action',
+                    agentId: this.selectedAgentId,
+                    action: 'pause'
+                }));
+            }
+
+            stopAgent() {
+                if (!this.selectedAgentId || this.ws.readyState !== WebSocket.OPEN) return;
+                this.ws.send(JSON.stringify({
+                    type: 'agent_action',
+                    agentId: this.selectedAgentId,
+                    action: 'stop'
+                }));
+            }
+
+            upgradeToDual() {
+                if (!this.selectedAgentId || this.ws.readyState !== WebSocket.OPEN) return;
+                this.ws.send(JSON.stringify({
+                    type: 'upgrade_to_dual',
+                    agentId: this.selectedAgentId
+                }));
+            }
+        }
+
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new AgentDashboard();
+        });
+    </script>
+</body>
+</html>

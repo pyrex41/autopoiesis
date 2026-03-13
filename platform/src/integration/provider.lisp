@@ -170,6 +170,14 @@ its specific tool."))
            :message (format nil "Provider ~a does not support streaming sessions"
                             (provider-name provider)))))
 
+(defgeneric provider-send-streaming (provider message on-text-delta)
+  (:documentation "Send a message with streaming output. ON-TEXT-DELTA is called
+   with each text fragment as it arrives. Returns the full provider-result.
+   Default falls back to non-streaming provider-send.")
+  (:method ((provider provider) message on-text-delta)
+    (declare (ignore on-text-delta))
+    (provider-send provider message)))
+
 (defgeneric provider-stop-session (provider)
   (:documentation "Stop the provider's streaming session.")
   (:method ((provider provider))
@@ -314,4 +322,81 @@ its specific tool."))
         ;; Get exit code
         (let ((exit-code (sb-ext:process-exit-code process)))
           (sb-ext:process-close process)
+          (values stdout-result stderr-result (or exit-code -1)))))))
+
+(defun run-provider-subprocess-streaming (command args &key working-directory env timeout
+                                                          on-stdout-line on-complete)
+  "Run a provider subprocess, calling ON-STDOUT-LINE for each output line as it arrives.
+
+   COMMAND - The program to run
+   ARGS - List of string arguments
+   WORKING-DIRECTORY - Working directory for the process
+   ENV - Alist of (name . value) environment variables
+   TIMEOUT - Timeout in seconds (default 300)
+   ON-STDOUT-LINE - (lambda (line)) called for each stdout line in real-time
+   ON-COMPLETE - (lambda (exit-code)) called when process finishes
+
+   Returns (values full-stdout stderr exit-code)."
+  (let* ((timeout (or timeout 300))
+         (env-list (when env
+                     (append (loop for (k . v) in env
+                                   collect (format nil "~a=~a" k v))
+                             (sb-ext:posix-environ))))
+         (process (sb-ext:run-program command args
+                                      :input nil
+                                      :output :stream
+                                      :error :stream
+                                      :wait nil
+                                      :search t
+                                      :directory working-directory
+                                      :environment (or env-list
+                                                       (sb-ext:posix-environ)))))
+    (unless process
+      (error 'autopoiesis.core:autopoiesis-error
+             :message (format nil "Failed to start streaming provider process: ~a" command)))
+
+    (let ((stdout-result "")
+          (stderr-result "")
+          (stdout-stream (sb-ext:process-output process))
+          (stderr-stream (sb-ext:process-error process))
+          (deadline (+ (get-internal-real-time)
+                       (* timeout internal-time-units-per-second))))
+      ;; Stdout reader: calls on-stdout-line per line AND accumulates
+      (let ((stdout-thread
+              (bt:make-thread
+               (lambda ()
+                 (with-output-to-string (s)
+                   (loop for line = (read-line stdout-stream nil nil)
+                         while line
+                         do (write-line line s)
+                            (when on-stdout-line
+                              (ignore-errors (funcall on-stdout-line line))))))
+               :name "provider-stdout-streaming"))
+            (stderr-thread
+              (bt:make-thread
+               (lambda ()
+                 (with-output-to-string (s)
+                   (loop for line = (read-line stderr-stream nil nil)
+                         while line
+                         do (write-line line s))))
+               :name "provider-stderr-streaming")))
+        ;; Wait for completion or timeout
+        (loop
+          (when (not (sb-ext:process-alive-p process))
+            (return))
+          (when (> (get-internal-real-time) deadline)
+            (ignore-errors (sb-ext:process-kill process sb-unix:sigterm))
+            (sleep 5)
+            (when (sb-ext:process-alive-p process)
+              (ignore-errors (sb-ext:process-kill process sb-unix:sigkill)))
+            (return))
+          (sleep 0.1))
+
+        (setf stdout-result (bt:join-thread stdout-thread))
+        (setf stderr-result (bt:join-thread stderr-thread))
+
+        (let ((exit-code (sb-ext:process-exit-code process)))
+          (sb-ext:process-close process)
+          (when on-complete
+            (ignore-errors (funcall on-complete (or exit-code -1))))
           (values stdout-result stderr-result (or exit-code -1)))))))

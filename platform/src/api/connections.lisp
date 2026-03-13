@@ -194,6 +194,8 @@ DATA is a hash-table or plist to be encoded per-connection."
       (unregister-connection conn))))
 
 (defun broadcast-to-agent-subscribers (agent-id data)
-  "Send a data stream to all connections subscribed to a specific agent's updates."
-  (let ((sub-type (format nil "thoughts:~a" agent-id)))
-    (broadcast-stream-data data :subscription-type sub-type)))
+  "Send a data stream to all connections subscribed to a specific agent's updates.
+   Broadcasts to both 'thoughts:ID' and 'agent:ID' subscription types
+   for compatibility with different frontend subscription patterns."
+  (broadcast-stream-data data :subscription-type (format nil "thoughts:~a" agent-id))
+  (broadcast-stream-data data :subscription-type (format nil "agent:~a" agent-id)))

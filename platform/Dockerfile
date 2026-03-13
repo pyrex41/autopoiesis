@@ -29,6 +29,14 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Install rho-cli (Jarvis LLM provider)
+ARG TARGETARCH
+ARG RHO_VERSION=v0.4.0
+RUN ARCH=$(case "$TARGETARCH" in arm64) echo "arm64" ;; *) echo "x64" ;; esac) && \
+    curl -fsSL "https://github.com/pyrex41/rho/releases/download/${RHO_VERSION}/rho-cli-linux-${ARCH}" \
+      -o /usr/local/bin/rho-cli && \
+    chmod +x /usr/local/bin/rho-cli
+
 # Setup Quicklisp
 RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
     && echo | sbcl --noinform --non-interactive \

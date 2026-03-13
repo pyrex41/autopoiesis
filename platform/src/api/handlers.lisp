@@ -136,6 +136,8 @@
                                caps-list))
          (agent (make-agent :name name :capabilities capabilities)))
     (register-agent agent)
+    ;; Auto-snapshot agent creation
+    (ignore-errors (auto-snapshot-agent agent "created"))
     ;; Broadcast to agent subscribers (binary stream)
     (broadcast-stream-data (ok-response "agent_created"
                                    "agent" (agent-to-json-plist agent))
@@ -159,10 +161,10 @@
           (error-response "not_found"
                           (format nil "Agent not found: ~a" agent-id))))
       (let ((result (cond
-                      ((equal action "start") (start-agent agent))
-                      ((equal action "stop") (stop-agent agent))
-                      ((equal action "pause") (pause-agent agent))
-                      ((equal action "resume") (resume-agent agent))
+                      ((equal action "start") (runtime-start-agent agent))
+                      ((equal action "stop") (runtime-stop-agent agent))
+                      ((equal action "pause") (runtime-pause-agent agent))
+                      ((equal action "resume") (runtime-resume-agent agent))
                       (t (return-from handle-agent-action
                            (error-response "invalid_action"
                                            (format nil "Unknown action: ~a" action)))))))
@@ -575,6 +577,12 @@ for data stream messages. Control messages are always JSON."
   (declare (ignore msg))
   (subscribe-connection conn "conductor")
   (ok-response "subscribed" "channel" "conductor"))
+
+(define-handler handle-subscribe-snapshots "subscribe_snapshots" (msg conn)
+  "Subscribe to snapshot creation events for DAG updates."
+  (declare (ignore msg))
+  (subscribe-connection conn "snapshots")
+  (ok-response "subscribed" "channel" "snapshots"))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Holodeck Handlers

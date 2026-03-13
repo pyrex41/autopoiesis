@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% block title %}HTTP/2 Demo - Woo{% endblock %}
+
+{% block content %}
+<section class="http2-page">
+  <h1>HTTP/2 Multiplexing Demo</h1>
+  <p class="subtitle">See how HTTP/2 loads multiple resources in parallel over a single connection</p>
+
+  <div class="demo-container">
+    <div class="controls">
+      <label>
+        Number of resources:
+        <input type="number" id="resourceCount" value="10" min="1" max="50">
+      </label>
+      <label>
+        Simulated delay (ms):
+        <input type="number" id="delayMs" value="100" min="0" max="1000">
+      </label>
+      <button id="runTest" class="btn btn-primary">Run Comparison</button>
+    </div>
+
+    <div class="comparison">
+      <div class="protocol-panel">
+        <h3>HTTP/1.1 (Sequential)</h3>
+        <div class="waterfall" id="http1Waterfall"></div>
+        <div class="total-time">
+          Total: <span id="http1Time">--</span>
+        </div>
+      </div>
+
+      <div class="protocol-panel">
+        <h3>HTTP/2 (Multiplexed)</h3>
+        <div class="waterfall" id="http2Waterfall"></div>
+        <div class="total-time">
+          Total: <span id="http2Time">--</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="explanation">
+      <h3>How It Works</h3>
+      <ul>
+        <li><strong>HTTP/1.1:</strong> Browsers limit concurrent connections (typically 6). Resources load sequentially within each connection.</li>
+        <li><strong>HTTP/2:</strong> Single connection multiplexes all requests. All resources can load in parallel.</li>
+        <li><strong>Woo's HTTP/2:</strong> Full stream multiplexing with HPACK header compression.</li>
+      </ul>
+      <p class="note">Note: This demo simulates the difference. For true HTTP/2, enable SSL with ALPN.</p>
+    </div>
+  </div>
+</section>
+
+<script src="/static/js/http2-demo.js"></script>
+{% endblock %}

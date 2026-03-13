@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Woo{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <nav>
+    <a href="/" class="nav-brand">Woo</a>
+    <ul>
+      <li><a href="/">Home</a></li>
+      <li><a href="/benchmarks">Benchmarks</a></li>
+      <li><a href="/websocket">WebSocket</a></li>
+      <li><a href="/http2">HTTP/2</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <p>Powered by Woo | Common Lisp</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,47 @@
+language: common-lisp
+sudo: required
+
+os:
+  - linux
+  - osx
+
+env:
+  global:
+    - PATH=~/.roswell/bin:$PATH
+    - ROSWELL_BRANCH=release
+    - ROSWELL_INSTALL_DIR=$HOME/.roswell
+    - WRK_VERSION=4.0.2
+  matrix:
+    - LISP=sbcl
+
+addons:
+  apt:
+    packages:
+      - libev-dev
+
+install:
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install libev; fi
+  - curl -L https://raw.githubusercontent.com/snmsts/roswell/$ROSWELL_BRANCH/scripts/install-for-ci.sh | sh
+
+  # wrk, go for benchmarking
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then
+      curl -L "https://github.com/wg/wrk/archive/$WRK_VERSION.tar.gz" | tar xzf -;
+      mkdir -p "$ROSWELL_INSTALL_DIR/bin";
+      (cd "wrk-$WRK_VERSION/" && make && cp wrk "$ROSWELL_INSTALL_DIR/bin");
+      sudo apt-get install golang;
+    fi
+
+  - ros install rove
+  - ros install cffi-grovel
+  - ros install fukamachi/fast-http
+  - ros install fukamachi/clack
+  - ros install fukamachi/dexador
+
+before_script:
+  - ros run -- --version
+
+script:
+  - ros -s woo-test
+  - rove woo-test.asd
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then benchmark/run-benchmark benchmark/woo/run; fi
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then benchmark/run-benchmark benchmark/go/run; fi

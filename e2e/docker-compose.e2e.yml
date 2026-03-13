@@ -10,6 +10,8 @@ services:
       - AUTOPOIESIS_LOG_LEVEL=info
       - AUTOPOIESIS_HOST=0.0.0.0
       - AUTOPOIESIS_PORT=8080
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - XAI_API_KEY=${XAI_API_KEY:-}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 5s

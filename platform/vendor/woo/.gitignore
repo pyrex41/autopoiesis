@@ -1,0 +1,28 @@
+*.fasl
+*.dx32fsl
+*.dx64fsl
+*.lx32fsl
+*.lx64fsl
+*.x86f
+*~
+.#*
+roswell/woo
+benchmark/go/hello
+benchmark/benchmark.log
+.qlot/
+qlfile
+qlfile.lock
+t/certs/
+
+# SCUD
+.scud/
+
+# Compiled core images
+*.core
+
+# Claude Code
+.claude/
+
+# Working notes
+thoughts/
+dump.md

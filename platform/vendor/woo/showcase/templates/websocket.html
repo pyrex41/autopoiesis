@@ -1,0 +1,55 @@
+{% extends "layout.html" %}
+{% block title %}WebSocket Demo - Woo{% endblock %}
+
+{% block content %}
+<section class="websocket-page">
+  <h1>WebSocket Echo Demo</h1>
+  <p class="subtitle">Test Woo's WebSocket performance with real-time latency measurement</p>
+
+  <div class="demo-container">
+    <div class="connection-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Disconnected</span>
+    </div>
+
+    <div class="controls">
+      <button id="connectBtn" class="btn btn-primary">Connect</button>
+      <button id="disconnectBtn" class="btn" disabled>Disconnect</button>
+    </div>
+
+    <div class="message-input">
+      <input type="text" id="messageInput" placeholder="Type a message..." disabled>
+      <button id="sendBtn" class="btn" disabled>Send</button>
+    </div>
+
+    <div class="stats-panel">
+      <div class="stat">
+        <span class="stat-value" id="latency">--</span>
+        <span class="stat-label">Round-trip (ms)</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="messageCount">0</span>
+        <span class="stat-label">Messages sent</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="avgLatency">--</span>
+        <span class="stat-label">Avg latency (ms)</span>
+      </div>
+    </div>
+
+    <div class="message-log">
+      <h3>Message Log</h3>
+      <div id="log"></div>
+    </div>
+
+    <div class="ping-test">
+      <h3>Latency Test</h3>
+      <p>Send 100 rapid messages to measure consistent performance:</p>
+      <button id="pingTestBtn" class="btn" disabled>Run Latency Test</button>
+      <div id="pingResults"></div>
+    </div>
+  </div>
+</section>
+
+<script src="/static/js/websocket-demo.js"></script>
+{% endblock %}

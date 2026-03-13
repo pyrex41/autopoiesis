@@ -280,11 +280,12 @@ If NIL, no static files are served.")
       (when asd-path
         (setf *api-static-path* (merge-pathnames "static/" asd-path)))))
 
-  ;; Start event bridge, blocking notifier, activity tracker, and holodeck bridge
+  ;; Start event bridge, blocking notifier, activity tracker, holodeck bridge, and holodeck sync
   (start-event-bridge)
   (start-blocking-notifier)
   (start-activity-tracker)
   (start-holodeck-bridge)
+  (start-holodeck-sync)
 
   ;; Initialize web console
   (init-web-console)
@@ -306,6 +307,7 @@ If NIL, no static files are served.")
 
 (defun stop-api-server ()
   "Stop the API server and clean up."
+  (stop-holodeck-sync)
   (stop-holodeck-bridge)
   (stop-event-bridge)
   (stop-blocking-notifier)

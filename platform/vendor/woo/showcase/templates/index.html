@@ -1,0 +1,74 @@
+{% extends "layout.html" %}
+{% block title %}Woo - High Performance Common Lisp Web Server{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Woo</h1>
+  <p class="tagline">The fastest web server written in any programming language</p>
+  <div class="hero-stats">
+    <div class="stat">
+      <span class="stat-value">110,528</span>
+      <span class="stat-label">requests/sec</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">1.12ms</span>
+      <span class="stat-label">avg latency</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">4</span>
+      <span class="stat-label">workers</span>
+    </div>
+  </div>
+  <div class="hero-cta">
+    <a href="/benchmarks" class="btn btn-primary">View Benchmarks</a>
+    <a href="/websocket" class="btn">Try WebSocket Demo</a>
+  </div>
+</section>
+
+<section class="features">
+  <h2>Why Woo?</h2>
+  <div class="feature-grid">
+    <div class="feature">
+      <h3>Non-blocking I/O</h3>
+      <p>Built on libev for maximum concurrency. Handle thousands of connections with minimal memory.</p>
+    </div>
+    <div class="feature">
+      <h3>Multi-core Scaling</h3>
+      <p>Fork worker processes to utilize all CPU cores. Near-linear scaling.</p>
+    </div>
+    <div class="feature">
+      <h3>WebSocket Support</h3>
+      <p>Full RFC 6455 implementation for real-time applications.</p>
+    </div>
+    <div class="feature">
+      <h3>HTTP/2 Ready</h3>
+      <p>ALPN negotiation, HPACK compression, stream multiplexing.</p>
+    </div>
+  </div>
+</section>
+
+<section class="architecture">
+  <h2>Architecture</h2>
+  <div class="arch-diagram">
+    <div class="arch-layer">
+      <div class="arch-box">Your Application</div>
+    </div>
+    <div class="arch-arrow">&#8595;</div>
+    <div class="arch-layer">
+      <div class="arch-box">Lack Middleware</div>
+    </div>
+    <div class="arch-arrow">&#8595;</div>
+    <div class="arch-layer">
+      <div class="arch-box">Clack Interface</div>
+    </div>
+    <div class="arch-arrow">&#8595;</div>
+    <div class="arch-layer">
+      <div class="arch-box highlight">Woo Server</div>
+    </div>
+    <div class="arch-arrow">&#8595;</div>
+    <div class="arch-layer">
+      <div class="arch-box">libev (event loop)</div>
+    </div>
+  </div>
+</section>
+{% endblock %}

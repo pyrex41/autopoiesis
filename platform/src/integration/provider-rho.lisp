@@ -144,6 +144,72 @@ Multi-turn sessions use --resume with rho's SQLite session persistence.")
         (setf (provider-result-exit-code result) exit-code)
         (setf (provider-result-raw-output result) stdout)
         (setf (provider-result-provider-name result) (provider-name provider))
+        ;; Signal error if subprocess failed with empty output
+        (when (and (not (eql exit-code 0))
+                   (or (null (provider-result-text result))
+                       (string= "" (provider-result-text result))))
+          (error "rho-cli failed (exit ~d): ~a"
+                 exit-code (string-trim '(#\Space #\Newline) stderr)))
+        result))))
+
+(defmethod provider-send-streaming ((provider rho-provider) message on-text-delta)
+  "Send a message to rho with streaming output.
+   ON-TEXT-DELTA is called with each text fragment as it arrives.
+   Returns the full provider-result when complete."
+  (let* ((session-id (provider-session-id provider))
+         (args (list message "--output-format" "stream-json")))
+    ;; Build args (same as provider-send)
+    (when (provider-default-model provider)
+      (setf args (append (list "--model" (provider-default-model provider)) args)))
+    (when (rho-thinking provider)
+      (setf args (append (list "--thinking"
+                               (string-downcase (princ-to-string (rho-thinking provider))))
+                         args)))
+    (when (rho-system-append provider)
+      (setf args (append (list "--system-append" (rho-system-append provider)) args)))
+    (when (provider-working-directory provider)
+      (setf args (append (list "--directory"
+                               (namestring (provider-working-directory provider)))
+                         args)))
+    (when (and session-id (not (search "rho-" session-id)))
+      (setf args (append (list "--resume" session-id) args)))
+    (when (provider-extra-args provider)
+      (setf args (append args (provider-extra-args provider))))
+    ;; Run with streaming callback
+    (multiple-value-bind (stdout stderr exit-code)
+        (run-provider-subprocess-streaming
+         (provider-command provider) args
+         :timeout (provider-timeout provider)
+         :working-directory (provider-working-directory provider)
+         :env (provider-env provider)
+         :on-stdout-line
+         (lambda (line)
+           (when (and (> (length line) 0) (char= (char line 0) #\{))
+             (ignore-errors
+               (let* ((json (cl-json:decode-json-from-string line))
+                      (event-type (or (cdr (assoc :type json)) "")))
+                 (cond
+                   ((string= event-type "text_delta")
+                    (let ((text (cdr (assoc :text json))))
+                      (when (and text on-text-delta)
+                        (funcall on-text-delta text))))
+                   ((string= event-type "session")
+                    (let ((sid (cdr (assoc :session--id json))))
+                      (when sid (setf (provider-session-id provider) sid))))
+                   ((string= event-type "complete")
+                    (let ((sid (cdr (assoc :session--id json))))
+                      (when sid (setf (provider-session-id provider) sid))))))))))
+      (declare (ignore stderr))
+      (let ((result (provider-parse-output provider stdout)))
+        (setf (provider-result-exit-code result) exit-code)
+        (setf (provider-result-raw-output result) stdout)
+        (setf (provider-result-provider-name result) (provider-name provider))
+        ;; Signal error if subprocess failed with empty output
+        (when (and (not (eql exit-code 0))
+                   (or (null (provider-result-text result))
+                       (string= "" (provider-result-text result))))
+          (error "rho-cli streaming failed (exit ~d): ~a"
+                 exit-code (string-trim '(#\Space #\Newline) stderr)))
         result))))
 
 (defmethod provider-stop-session ((provider rho-provider))
