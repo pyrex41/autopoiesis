@@ -8,7 +8,6 @@ import type {
   SelectionState,
 } from "../api/types";
 import { computeLayout, findAncestors, findDescendants, findPath } from "../graph/layout";
-import { generateMockDAG } from "../api/mock";
 import * as api from "../api/client";
 
 // ── Raw data signals ──────────────────────────────────────────────
@@ -17,7 +16,7 @@ const [snapshots, setSnapshots] = createSignal<Snapshot[]>([]);
 const [branches, setBranches] = createSignal<Branch[]>([]);
 const [loading, setLoading] = createSignal(false);
 const [error, setError] = createSignal<string | null>(null);
-const [dataSource, setDataSource] = createSignal<"mock" | "live">("live");
+const [dataSource, setDataSource] = createSignal<"live">("live");
 
 // ── UI state signals ──────────────────────────────────────────────
 
@@ -106,21 +105,9 @@ async function loadFromAPI() {
     });
   } catch (e) {
     setError(e instanceof Error ? e.message : String(e));
-    // Fall back to mock
-    loadMockData();
   } finally {
     setLoading(false);
   }
-}
-
-function loadMockData() {
-  setDataSource("mock");
-  const { snapshots: snaps, branches: br } = generateMockDAG();
-  batch(() => {
-    setSnapshots(snaps);
-    setBranches(br);
-    setError(null);
-  });
 }
 
 function selectNode(id: string | null, secondary = false) {
@@ -152,14 +139,6 @@ function clearSelection() {
 async function computeDiff() {
   const sel = selection();
   if (!sel.primary || !sel.secondary) return;
-  if (dataSource() === "mock") {
-    setDiffResult(
-      `--- ${sel.primary}\n+++ ${sel.secondary}\n@@ mock diff @@\n` +
-        `- (agent-state :id "${sel.primary}" ...)\n` +
-        `+ (agent-state :id "${sel.secondary}" ...)`
-    );
-    return;
-  }
   try {
     const result = await api.diffSnapshots(sel.primary, sel.secondary);
     setDiffResult(result.diff);
@@ -238,7 +217,6 @@ export const dagStore = {
 
   // Actions
   loadFromAPI,
-  loadMockData,
   selectNode,
   toggleCollapse,
   clearSelection,

@@ -13,14 +13,6 @@ const Toolbar: Component = () => {
 
         <button
           class="btn-toolbar"
-          classList={{ active: dagStore.dataSource() === "mock" }}
-          onClick={() => dagStore.loadMockData()}
-          title="Load mock data"
-        >
-          Mock
-        </button>
-        <button
-          class="btn-toolbar"
           classList={{ active: dagStore.dataSource() === "live" }}
           onClick={() => dagStore.loadFromAPI()}
           title="Connect to live API"

@@ -17,7 +17,7 @@ const JarvisBar: Component = () => {
     "agent.step": "/step", "agent.fork": "/fork", "agent.upgrade": "/upgrade",
     "view.dashboard": "/dashboard", "view.dag": "/dag", "view.timeline": "/timeline",
     "view.tasks": "/tasks", "view.holodeck": "/holodeck",
-    "system.connect": "/connect", "system.mock": "/mock", "system.refresh": "/refresh",
+    "system.connect": "/connect", "system.refresh": "/refresh",
   };
 
   const cliMode = createMemo(() => {

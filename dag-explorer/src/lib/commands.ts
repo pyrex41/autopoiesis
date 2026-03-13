@@ -259,14 +259,6 @@ export const commands: Command[] = [
     handler: () => dagStore.loadFromAPI(),
   },
   {
-    id: "system.mock",
-    name: "Load Mock Data",
-    description: "Load generated test data",
-    category: "system",
-    icon: "◈",
-    handler: () => dagStore.loadMockData(),
-  },
-  {
     id: "system.refresh",
     name: "Refresh Agents",
     description: "Reload agent list from server",
