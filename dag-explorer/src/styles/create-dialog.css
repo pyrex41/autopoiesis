@@ -25,12 +25,12 @@
 }
 
 .create-field label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .create-name-input {
@@ -58,13 +58,13 @@
 }
 
 .create-cap-btn {
-  padding: 5px 10px;
+  padding: 6px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   transition: all var(--transition);
 }

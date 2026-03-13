@@ -5,19 +5,19 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .thought-stream-empty {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: 12px;
   font-style: italic;
-  padding: 8px 0;
+  padding: 10px 0;
 }
 
 .thought-card {
   border-left: 2px solid var(--border);
-  padding: 6px 8px;
+  padding: 8px 10px;
   animation: fadeSlideUp 0.2s ease;
 }
 
@@ -25,26 +25,26 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .thought-type-badge {
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 2px;
+  padding: 2px 6px;
+  border-radius: 3px;
   letter-spacing: 0.5px;
 }
 
 .thought-time {
-  font-size: 8px;
+  font-size: 10px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
 
 .thought-content {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: 1.6;
   word-break: break-word;
 }

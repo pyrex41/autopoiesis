@@ -23,7 +23,7 @@
   min-width: 280px;
   max-width: 420px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
   pointer-events: auto;
   animation: toastEnter 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;

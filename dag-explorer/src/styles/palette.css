@@ -14,7 +14,7 @@
 }
 
 .palette {
-  width: 480px;
+  width: 520px;
   background: var(--mid);
   border: 1px solid var(--border-hi);
   border-radius: var(--radius-lg);
@@ -31,8 +31,8 @@
   color: var(--text);
   border: none;
   border-bottom: 1px solid var(--border);
-  padding: 16px 20px;
-  font-size: 14px;
+  padding: 18px 22px;
+  font-size: 15px;
   font-family: var(--font-mono);
   font-weight: 400;
   outline: none;
@@ -43,9 +43,9 @@
 }
 
 .palette-list {
-  max-height: 360px;
+  max-height: 380px;
   overflow-y: auto;
-  padding: 6px;
+  padding: 8px;
 }
 
 .palette-item {
@@ -55,11 +55,11 @@
   width: 100%;
   background: transparent;
   border: none;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: var(--radius);
   cursor: pointer;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--font-mono);
   text-align: left;
   transition: all 0.1s ease;
@@ -79,26 +79,26 @@
   background: var(--void);
   border: 1px solid var(--border);
   border-radius: 3px;
-  padding: 2px 8px;
+  padding: 3px 9px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
-  margin-left: 12px;
+  margin-left: 14px;
 }
 
 .palette-category {
   font-family: var(--font-display);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  padding: 10px 14px 4px;
+  padding: 12px 16px 6px;
 }
 
 .palette-icon {
-  font-size: 14px;
-  width: 22px;
+  font-size: 16px;
+  width: 24px;
   text-align: center;
   flex-shrink: 0;
   color: var(--text-dim);
@@ -108,11 +108,11 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .palette-desc {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-dim);
 }
 

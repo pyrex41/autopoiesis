@@ -2,7 +2,7 @@
 
 .team-panel {
   border-top: 1px solid var(--border);
-  padding: 8px 0;
+  padding: 10px 0;
   flex-shrink: 0;
 }
 
@@ -10,12 +10,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px 6px;
+  padding: 0 16px 8px;
 }
 
 .team-panel-title {
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -23,8 +23,8 @@
 }
 
 .team-panel-create-btn {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,7 +32,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--signal);
-  font-size: 14px;
+  font-size: 16px;
   cursor: pointer;
   transition: all var(--transition);
 }
@@ -45,30 +45,30 @@
 .team-panel-list {
   max-height: 200px;
   overflow-y: auto;
-  padding: 0 8px;
+  padding: 0 10px;
 }
 
 .team-panel-empty {
-  padding: 12px;
+  padding: 14px;
   text-align: center;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .team-card {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
+  padding: 10px 12px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text);
   transition: all var(--transition);
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .team-card:hover {
@@ -84,19 +84,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
 }
 
 .team-card-name-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
 .team-status-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -117,20 +117,20 @@
 .team-card-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .team-strategy-badge {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--purple);
   background: rgba(179, 136, 255, 0.1);
-  padding: 1px 5px;
-  border-radius: 2px;
+  padding: 2px 6px;
+  border-radius: 3px;
   white-space: nowrap;
 }
 
-.team-status-label { font-size: 10px; }
+.team-status-label { font-size: 12px; }
 .team-status-label-active { color: var(--emerge); }
 .team-status-label-created { color: var(--signal); }
 .team-status-label-paused { color: var(--warm); }
@@ -138,34 +138,34 @@
 .team-status-label-failed { color: var(--danger); }
 
 .team-members {
-  margin-top: 6px;
-  padding-left: 12px;
+  margin-top: 8px;
+  padding-left: 15px;
 }
 
 .team-member-row {
   display: flex;
   align-items: center;
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 .team-member-prefix {
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 13px;
   white-space: pre;
 }
 
 .team-member-name {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .team-leader-tag {
   color: var(--warm);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .team-member-count {
-  margin-top: 3px;
-  font-size: 10px;
+  margin-top: 4px;
+  font-size: 12px;
   color: var(--text-dim);
 }

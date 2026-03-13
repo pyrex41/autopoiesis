@@ -1,15 +1,15 @@
 /* ── Dashboard ───────────────────────────────────────────────── */
 
 .dashboard {
-  padding: 20px;
+  padding: 28px;
   overflow-y: auto;
   height: 100%;
 }
 
 .dashboard-stats {
   display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 16px;
+  margin-bottom: 28px;
 }
 
 .stat-card {
@@ -17,60 +17,60 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 14px 16px;
+  padding: 20px 24px;
   text-align: center;
 }
 
 .stat-card-value {
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 36px;
   font-weight: 700;
   line-height: 1;
 }
 
 .stat-card-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 6px;
+  letter-spacing: 1.2px;
+  margin-top: 8px;
 }
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 20px;
 }
 
 .dashboard-section {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 20px;
   overflow: hidden;
 }
 
 .dashboard-section-title {
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .dashboard-agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
 }
 
 .dashboard-agent-card {
   background: var(--mid);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px;
+  padding: 14px;
   cursor: pointer;
   transition: all var(--transition);
   text-align: left;
@@ -87,26 +87,26 @@
 .dashboard-agent-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .dashboard-agent-name {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .dashboard-agent-state {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
 
 .dashboard-agent-caps {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-dim);
-  margin-top: 4px;
+  margin-top: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -115,8 +115,8 @@
 .dashboard-empty {
   text-align: center;
   color: var(--text-dim);
-  font-size: 11px;
-  padding: 20px;
+  font-size: 13px;
+  padding: 24px;
 }
 
 /* Event feed */
@@ -128,9 +128,9 @@
 .event-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 10px;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12px;
   border-bottom: 1px solid rgba(30, 45, 74, 0.3);
 }
 
@@ -138,7 +138,7 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
-  width: 60px;
+  width: 68px;
 }
 
 .event-type {
@@ -160,12 +160,12 @@
 }
 
 .dashboard-section-full {
-  margin-top: 16px;
+  margin-top: 20px;
 }
 
 @media (min-width: 1600px) {
   .dashboard-grid {
-    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
   }
 }
 
