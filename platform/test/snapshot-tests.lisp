@@ -1641,3 +1641,63 @@
       (is (getf plist :passed-p))
       (is (= 0 (getf plist :total-errors)))
       (is (= 1 (getf plist :total-warnings))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Periodic Consistency Check Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test periodic-check-runs-when-due
+  "Consistency check runs when interval has elapsed"
+  (let ((autopoiesis.snapshot:*consistency-check-interval* 1)
+        (autopoiesis.snapshot:*last-consistency-check* 0)
+        (autopoiesis.snapshot:*last-consistency-report* nil))
+    ;; With no store, should still handle gracefully
+    (let ((autopoiesis.snapshot:*snapshot-store* nil))
+      (is (null (autopoiesis.snapshot:maybe-run-consistency-check)))
+      (is (null autopoiesis.snapshot:*last-consistency-report*)))
+    ;; With a temp store
+    (let* ((dir (merge-pathnames
+                 (format nil "con-test-~a/" (autopoiesis.core:make-uuid))
+                 (uiop:temporary-directory)))
+           (store (autopoiesis.snapshot:make-snapshot-store dir)))
+      (unwind-protect
+           (let ((autopoiesis.snapshot:*snapshot-store* store))
+             (let ((report (autopoiesis.snapshot:maybe-run-consistency-check :store store)))
+               (is (not (null report)))
+               (is (not (null autopoiesis.snapshot:*last-consistency-report*)))
+               ;; last-check should have been updated
+               (is (> autopoiesis.snapshot:*last-consistency-check* 0))))
+        (uiop:delete-directory-tree dir :validate t :if-does-not-exist :ignore)))))
+
+(test periodic-check-skips-when-recent
+  "Consistency check skips when last run was recent"
+  (let ((autopoiesis.snapshot:*consistency-check-interval* 3600)
+        (autopoiesis.snapshot:*last-consistency-check* (get-universal-time))
+        (autopoiesis.snapshot:*last-consistency-report* nil))
+    ;; Should skip — interval hasn't elapsed
+    (is (null (autopoiesis.snapshot:maybe-run-consistency-check)))
+    (is (null autopoiesis.snapshot:*last-consistency-report*))))
+
+(test periodic-check-disabled-when-nil
+  "Consistency check does nothing when interval is nil"
+  (let ((autopoiesis.snapshot:*consistency-check-interval* nil)
+        (autopoiesis.snapshot:*last-consistency-check* 0)
+        (autopoiesis.snapshot:*last-consistency-report* nil))
+    (is (null (autopoiesis.snapshot:maybe-run-consistency-check)))
+    (is (null autopoiesis.snapshot:*last-consistency-report*))))
+
+(test periodic-check-stores-report
+  "Report is accessible via *last-consistency-report*"
+  (let ((autopoiesis.snapshot:*consistency-check-interval* 1)
+        (autopoiesis.snapshot:*last-consistency-check* 0)
+        (autopoiesis.snapshot:*last-consistency-report* nil))
+    (let* ((dir (merge-pathnames
+                 (format nil "rep-test-~a/" (autopoiesis.core:make-uuid))
+                 (uiop:temporary-directory)))
+           (store (autopoiesis.snapshot:make-snapshot-store dir)))
+      (unwind-protect
+           (progn
+             (autopoiesis.snapshot:maybe-run-consistency-check :store store)
+             (is (typep autopoiesis.snapshot:*last-consistency-report*
+                        'autopoiesis.snapshot:consistency-report)))
+        (uiop:delete-directory-tree dir :validate t :if-does-not-exist :ignore)))))

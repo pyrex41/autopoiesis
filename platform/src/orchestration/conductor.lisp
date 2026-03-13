@@ -279,6 +279,18 @@
 ;;; Tick loop
 ;;; ===================================================================
 
+(defun check-periodic-consistency (conductor)
+  "Run periodic consistency checks if snapshot layer is loaded.
+   Uses the same dynamic resolution pattern as check-crystallization-triggers."
+  (declare (ignore conductor))
+  (when (find-package :autopoiesis.snapshot)
+    (let ((fn (find-symbol "MAYBE-RUN-CONSISTENCY-CHECK" :autopoiesis.snapshot)))
+      (when (and fn (fboundp fn))
+        (handler-case
+            (funcall fn)
+          (error (e)
+            (format *error-output* "~&Consistency check error in conductor: ~A~%" e)))))))
+
 (defun conductor-tick-loop (conductor)
   "Main tick loop. Runs every 100ms while conductor is running."
   (loop while (conductor-running-p conductor)
@@ -287,6 +299,7 @@
                   (process-due-timers conductor)
                   (process-events conductor)
                   (check-crystallization-triggers conductor)
+                  (check-periodic-consistency conductor)
                   (increment-metric conductor :tick-count))
               (error (e)
                 (format *error-output* "~&Conductor tick error: ~A~%" e)

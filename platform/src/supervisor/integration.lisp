@@ -23,7 +23,27 @@
 ;;; Extension Invocation Hook
 ;;; ═══════════════════════════════════════════════════════════════════
 
+(defvar *current-agent-for-checkpoint* nil
+  "When bound to an agent, extension invocations via *checkpoint-on-invoke*
+   will automatically checkpoint before and promote/revert after execution.")
+
 ;; Set the checkpoint hook on the extension compiler so that
 ;; invoke-extension wraps execution with checkpoint when available.
 (when (boundp 'autopoiesis.core::*checkpoint-on-invoke*)
-  (setf autopoiesis.core::*checkpoint-on-invoke* nil))
+  (setf autopoiesis.core::*checkpoint-on-invoke*
+        (lambda (thunk)
+          (if *current-agent-for-checkpoint*
+              ;; Agent is bound — wrap with checkpoint/revert
+              (let ((agent *current-agent-for-checkpoint*))
+                (checkpoint-agent agent :operation :extension-invoke)
+                (handler-case
+                    (let ((result (funcall thunk)))
+                      (ignore-errors (promote-checkpoint))
+                      result)
+                  (error (e)
+                    (ignore-errors
+                      (pop *checkpoint-stack*)
+                      (revert-to-stable agent))
+                    (error e))))
+              ;; No agent bound — direct invocation
+              (funcall thunk)))))

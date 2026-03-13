@@ -16,6 +16,8 @@
    #:revert-to-stable
    #:promote-checkpoint
    #:supervisor-status
+   ;; Extension checkpoint context
+   #:*current-agent-for-checkpoint*
    ;; Persistent agent bridge
    #:checkpoint-dual-agent
    #:revert-dual-agent))

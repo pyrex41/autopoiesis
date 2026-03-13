@@ -1716,3 +1716,82 @@
     (autopoiesis.agent:update-heuristic-confidence heur :unknown)
     ;; Confidence should be unchanged
     (is (= 0.7 (autopoiesis.agent:heuristic-confidence heur)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Capability Promotion Approval Gate Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test promote-without-approval-gate
+  "With *require-human-approval-for-promotion* nil, promotion works unchanged"
+  (let ((autopoiesis.agent:*require-human-approval-for-promotion* nil)
+        (agent (autopoiesis.agent:make-agent :name "gate-test")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability agent
+          :test-cap "test" '((x number)) '((* x x)))
+      (declare (ignore errors))
+      (when cap
+        ;; Test and promote
+        (autopoiesis.agent:test-agent-capability cap '(((3) 9) ((4) 16)))
+        (is-true (autopoiesis.agent:promote-capability cap))
+        (is (eq :promoted (autopoiesis.agent:cap-promotion-status cap)))))))
+
+(test promote-with-approval-approve
+  "Gate enabled, :approve response leads to successful promotion"
+  (let ((autopoiesis.agent:*require-human-approval-for-promotion* t)
+        (autopoiesis.agent:*promotion-approval-timeout* 5)
+        (agent (autopoiesis.agent:make-agent :name "approve-test")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability agent
+          :approve-cap "test" '((x number)) '((+ x 1)))
+      (declare (ignore errors))
+      (when cap
+        (autopoiesis.agent:test-agent-capability cap '(((1) 2) ((9) 10)))
+        ;; Spawn thread to provide approval
+        (let ((request-provided nil))
+          (bt:make-thread
+           (lambda ()
+             (sleep 0.1)
+             (let ((pending (autopoiesis.interface:list-pending-blocking-requests)))
+               (when pending
+                 (setf request-provided t)
+                 (autopoiesis.interface:provide-response (first pending) :approve)))))
+          ;; This should block briefly then succeed
+          (is-true (autopoiesis.agent:promote-capability cap))
+          (is (eq :promoted (autopoiesis.agent:cap-promotion-status cap))))))))
+
+(test promote-with-approval-reject
+  "Gate enabled, :reject response leads to rejection"
+  (let ((autopoiesis.agent:*require-human-approval-for-promotion* t)
+        (autopoiesis.agent:*promotion-approval-timeout* 5)
+        (agent (autopoiesis.agent:make-agent :name "reject-test")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability agent
+          :reject-cap "test" '((x number)) '((+ x 1)))
+      (declare (ignore errors))
+      (when cap
+        (autopoiesis.agent:test-agent-capability cap '(((1) 2)))
+        ;; Spawn thread to reject
+        (bt:make-thread
+         (lambda ()
+           (sleep 0.1)
+           (let ((pending (autopoiesis.interface:list-pending-blocking-requests)))
+             (when pending
+               (autopoiesis.interface:provide-response (first pending) :reject)))))
+        ;; This should block briefly then fail
+        (is (null (autopoiesis.agent:promote-capability cap)))
+        (is (eq :rejected (autopoiesis.agent:cap-promotion-status cap)))))))
+
+(test promote-with-approval-timeout
+  "Gate enabled, no response leads to rejection after timeout"
+  (let ((autopoiesis.agent:*require-human-approval-for-promotion* t)
+        (autopoiesis.agent:*promotion-approval-timeout* 1)
+        (agent (autopoiesis.agent:make-agent :name "timeout-test")))
+    (multiple-value-bind (cap errors)
+        (autopoiesis.agent:agent-define-capability agent
+          :timeout-cap "test" '((x number)) '((+ x 1)))
+      (declare (ignore errors))
+      (when cap
+        (autopoiesis.agent:test-agent-capability cap '(((1) 2)))
+        ;; No response thread — should timeout
+        (is (null (autopoiesis.agent:promote-capability cap)))
+        (is (eq :rejected (autopoiesis.agent:cap-promotion-status cap)))))))

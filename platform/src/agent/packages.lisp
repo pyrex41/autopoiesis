@@ -124,6 +124,8 @@
    #:running-agents
 
    ;; Agent-defined capabilities
+   #:*require-human-approval-for-promotion*
+   #:*promotion-approval-timeout*
    #:agent-capability
    #:make-agent-capability
    #:cap-source-agent

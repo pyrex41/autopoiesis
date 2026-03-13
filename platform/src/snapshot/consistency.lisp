@@ -668,3 +668,42 @@
                           :details ,(result-details r)
                           :timestamp ,(result-timestamp r)))
                       (report-results report))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Periodic Consistency Checks
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *consistency-check-interval* 3600
+  "Interval in seconds between automatic consistency checks.
+   Set to NIL to disable periodic checks.")
+
+(defvar *last-consistency-check* 0
+  "Universal time of the last consistency check.")
+
+(defvar *last-consistency-report* nil
+  "Most recent consistency report from periodic checks.")
+
+(defun maybe-run-consistency-check (&key (store *snapshot-store*))
+  "Run a consistency check if the interval has elapsed.
+   Called from the conductor tick loop. Uses a lightweight subset of checks
+   with sampling to minimize overhead."
+  (when (and *consistency-check-interval*
+             store
+             (>= (- (get-universal-time) *last-consistency-check*)
+                  *consistency-check-interval*))
+    (setf *last-consistency-check* (get-universal-time))
+    (handler-case
+        (let ((report (run-consistency-checks
+                       :store store
+                       :checks '(:dag :index :hashes)
+                       :sample-size 50)))
+          (setf *last-consistency-report* report)
+          (unless (report-passed-p report)
+            (format *error-output*
+                    "~&Consistency check FAILED: ~D errors, ~D warnings~%"
+                    (report-total-errors report)
+                    (report-total-warnings report)))
+          report)
+      (error (e)
+        (format *error-output* "~&Consistency check error: ~A~%" e)
+        nil))))

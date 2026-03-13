@@ -998,6 +998,40 @@
           (is (not (autopoiesis.snapshot:is-ancestor-p branch-id child-id store))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Self-Modification Safety Chain Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test e2e-self-modification-approval-gate
+  "E2E: Self-modification requires human approval before promotion"
+  (with-clean-blocking-requests
+    (let ((autopoiesis.agent:*require-human-approval-for-promotion* t)
+          (autopoiesis.agent:*promotion-approval-timeout* 5)
+          (agent (autopoiesis.agent:make-agent :name "approval-e2e")))
+      ;; Define capability
+      (multiple-value-bind (cap errors)
+          (autopoiesis.agent:agent-define-capability agent
+            :e2e-cap "e2e test cap" '((x number)) '((+ x 10)))
+        (declare (ignore errors))
+        (when cap
+          ;; Test it
+          (autopoiesis.agent:test-agent-capability cap '(((5) 15) ((0) 10)))
+
+          ;; Spawn approval thread
+          (bt:make-thread
+           (lambda ()
+             (sleep 0.2)
+             (let ((pending (autopoiesis.interface:list-pending-blocking-requests)))
+               (when pending
+                 (autopoiesis.interface:provide-response (first pending) :approve)))))
+
+          ;; Promote should block then succeed
+          (is-true (autopoiesis.agent:promote-capability cap))
+          (is (eq :promoted (autopoiesis.agent:cap-promotion-status cap)))
+
+          ;; Capability should be globally registered
+          (is (not (null (autopoiesis.agent:find-capability :e2e-cap)))))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Test Runner Entry Point
 ;;; ═══════════════════════════════════════════════════════════════════
 

@@ -86,5 +86,14 @@
                   (when revert-fn
                     (funcall revert-fn agent)))
                 (format nil "Error in ~a: ~a" tool-name e))))
-          ;; No supervisor - direct invocation
-          (invoke-tool capability arguments)))))
+          ;; No supervisor - direct invocation with checkpoint context
+          (let ((sup-pkg (find-package :autopoiesis.supervisor)))
+            (if (and sup-pkg agent)
+                (progn
+                  (setf (symbol-value (find-symbol "*CURRENT-AGENT-FOR-CHECKPOINT*" sup-pkg))
+                        agent)
+                  (unwind-protect
+                       (invoke-tool capability arguments)
+                    (setf (symbol-value (find-symbol "*CURRENT-AGENT-FOR-CHECKPOINT*" sup-pkg))
+                          nil)))
+                (invoke-tool capability arguments))))))

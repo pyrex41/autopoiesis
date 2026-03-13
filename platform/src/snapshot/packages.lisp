@@ -185,6 +185,11 @@
    ;; Repair functions
    #:repair-index
    #:repair-orphaned-snapshots
+   ;; Periodic consistency checks
+   #:*consistency-check-interval*
+   #:*last-consistency-check*
+   #:*last-consistency-report*
+   #:maybe-run-consistency-check
    ;; Reporting
    #:print-consistency-report
    #:consistency-report-to-sexpr

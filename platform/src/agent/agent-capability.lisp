@@ -65,6 +65,14 @@
                  :extension-id extension-id
                  :promotion-status :draft))
 
+(defvar *require-human-approval-for-promotion* nil
+  "When non-nil, promote-capability will block waiting for human approval
+   via the blocking request infrastructure before promoting a capability.")
+
+(defvar *promotion-approval-timeout* 300
+  "Timeout in seconds for human approval of capability promotion.
+   If the human does not respond within this time, promotion is rejected.")
+
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Capability Definition by Agents
 ;;; ═══════════════════════════════════════════════════════════════════
@@ -225,7 +233,30 @@
       (setf (cap-promotion-status capability) :rejected)
       (return-from promote-capability nil))
     
-    ;; All tests passed - promote
+    ;; All tests passed - check human approval gate
+    (when *require-human-approval-for-promotion*
+      (let ((iface-pkg (find-package :autopoiesis.interface)))
+        (when iface-pkg
+          (let ((make-req-fn (find-symbol "MAKE-BLOCKING-REQUEST" iface-pkg))
+                (wait-fn (find-symbol "WAIT-FOR-RESPONSE" iface-pkg)))
+            (when (and make-req-fn (fboundp make-req-fn)
+                       wait-fn (fboundp wait-fn))
+              (let* ((prompt (format nil "Approve promotion of capability ~A from agent ~A? (~D tests passed)"
+                                    (capability-name capability)
+                                    (cap-source-agent capability)
+                                    (length test-results)))
+                     (request (funcall make-req-fn prompt
+                                       :options '(:approve :reject))))
+                (multiple-value-bind (response status)
+                    (funcall wait-fn request :timeout *promotion-approval-timeout*)
+                  (unless (eq response :approve)
+                    (reject-capability capability
+                                       (format nil "Human ~A: ~A"
+                                               (if (eq status :timeout) "timeout" "rejected")
+                                               response))
+                    (return-from promote-capability nil)))))))))
+
+    ;; Promote
     (setf (cap-promotion-status capability) :promoted)
 
     ;; Register in global capability registry

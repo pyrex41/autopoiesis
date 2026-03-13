@@ -437,3 +437,116 @@
       (setf (autopoiesis.agent:agent-name agent) "temp")
       (let ((result (autopoiesis.supervisor:revert-to-stable agent)))
         (is (eq agent result))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Checkpoint-on-Invoke Hook Activation Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test checkpoint-on-invoke-is-set
+  "After loading supervisor, *checkpoint-on-invoke* is non-nil"
+  (is-true (functionp autopoiesis.core::*checkpoint-on-invoke*)))
+
+(test extension-invoke-checkpoints-with-agent
+  "With *current-agent-for-checkpoint* bound, successful extension creates+promotes checkpoint"
+  (with-supervisor-env
+    (let* ((agent (make-test-agent-with-state :name "hook-agent"))
+           (autopoiesis.supervisor:*current-agent-for-checkpoint* agent)
+           (registry (make-hash-table :test 'equal)))
+      ;; Register a simple extension
+      (multiple-value-bind (ext errors)
+          (autopoiesis.core:register-extension "test-agent" '(+ 1 2) :name "cp-test"
+                                               :registry registry)
+        (declare (ignore errors))
+        (when ext
+          (let ((ext-id (autopoiesis.core::extension-id ext)))
+            ;; Invoke — should checkpoint, run, promote
+            (let ((result (autopoiesis.core:invoke-extension ext-id :registry registry)))
+              (is (= 3 result))
+              ;; Checkpoint stack should be empty after promote
+              (is (= 0 (length autopoiesis.supervisor:*checkpoint-stack*))))))))))
+
+(test extension-invoke-reverts-on-failure
+  "Failing extension reverts agent state via checkpoint hook"
+  (with-supervisor-env
+    (let* ((agent (make-test-agent-with-state :name "revert-agent" :state :running))
+           (autopoiesis.supervisor:*current-agent-for-checkpoint* agent)
+           (registry (make-hash-table :test 'equal)))
+      ;; Directly create a failing extension, bypassing sandbox validation
+      (let* ((ext-id (autopoiesis.core:make-uuid))
+             (ext (make-instance 'autopoiesis.core::extension
+                                 :name "fail-test"
+                                 :id ext-id
+                                 :source '(error "deliberate failure")
+                                 :compiled (lambda () (error "deliberate failure"))
+                                 :author "test-agent"
+                                 :status :validated
+                                 :sandbox-level :strict)))
+        (setf (gethash ext-id registry) ext)
+        ;; Invoke — should checkpoint, run, fail, revert
+        (signals autopoiesis.core:autopoiesis-error
+          (autopoiesis.core:invoke-extension ext-id :registry registry))
+        ;; Agent should still have original name (revert restored state)
+        (is (string= "revert-agent" (autopoiesis.agent:agent-name agent)))
+        ;; Checkpoint stack should be empty after revert
+        (is (= 0 (length autopoiesis.supervisor:*checkpoint-stack*)))))))
+
+(test extension-invoke-passthrough-without-agent
+  "With nil agent, direct invocation without checkpoint overhead"
+  (with-supervisor-env
+    (let ((autopoiesis.supervisor:*current-agent-for-checkpoint* nil)
+          (registry (make-hash-table :test 'equal)))
+      (multiple-value-bind (ext errors)
+          (autopoiesis.core:register-extension "test-agent" '(* 6 7) :name "pass-test"
+                                               :registry registry)
+        (declare (ignore errors))
+        (when ext
+          (let ((ext-id (autopoiesis.core::extension-id ext)))
+            (let ((result (autopoiesis.core:invoke-extension ext-id :registry registry)))
+              (is (= 42 result))
+              ;; No checkpoints should have been created
+              (is (= 0 (length autopoiesis.supervisor:*checkpoint-stack*))))))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; E2E Self-Modification Failure Rollback
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test e2e-self-modification-failure-rollback
+  "Full safety chain: define → invoke → fail → revert → auto-disable"
+  (with-supervisor-env
+    (let* ((agent (make-test-agent-with-state :name "safety-test"
+                                               :capabilities '(:read)))
+           (registry (make-hash-table :test 'equal)))
+      ;; Establish stable root
+      (autopoiesis.supervisor:checkpoint-agent agent :operation :establish-root)
+      (autopoiesis.supervisor:promote-checkpoint)
+
+      ;; Directly create a failing extension, bypassing sandbox validation
+      (let* ((ext-id (autopoiesis.core:make-uuid))
+             (ext (make-instance 'autopoiesis.core::extension
+                                 :name "bad-ext"
+                                 :id ext-id
+                                 :source '(error "simulated production failure")
+                                 :compiled (lambda () (error "simulated production failure"))
+                                 :author "safety-agent"
+                                 :status :validated
+                                 :sandbox-level :strict)))
+        (setf (gethash ext-id registry) ext)
+
+        ;; Bind agent for checkpoint hook, invoke — should fail and revert
+        (let ((autopoiesis.supervisor:*current-agent-for-checkpoint* agent))
+          (signals autopoiesis.core:autopoiesis-error
+            (autopoiesis.core:invoke-extension ext-id :registry registry)))
+
+        ;; Agent state should be intact
+        (is (string= "safety-test" (autopoiesis.agent:agent-name agent)))
+        (is (equal '(:read) (autopoiesis.agent:agent-capabilities agent)))
+
+        ;; Invoke multiple times to trigger auto-disable (>3 errors)
+        (let ((autopoiesis.supervisor:*current-agent-for-checkpoint* agent))
+          (dotimes (i 3)
+            (handler-case
+                (autopoiesis.core:invoke-extension ext-id :registry registry)
+              (autopoiesis.core:autopoiesis-error () nil))))
+
+        ;; Extension should be auto-disabled after >3 errors (already had 1 from above)
+        (is (eq :rejected (autopoiesis.core::extension-status ext)))))))
