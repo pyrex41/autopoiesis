@@ -332,27 +332,26 @@
 (test recovery-restart-available
   "revert-to-checkpoint restart is available in recovery context"
   (let ((restart-found nil))
-    (handler-bind
-        ((error (lambda (c)
-                  (declare (ignore c))
-                  (let ((restart (find-restart 'autopoiesis.core::revert-to-checkpoint)))
-                    (setf restart-found (not (null restart)))
-                    ;; Use a different restart to continue
-                    (invoke-restart 'autopoiesis.core::abort-operation)))))
-      (handler-case
-          (autopoiesis.core:establish-recovery-restarts
-           (lambda () (error "test"))
-           :operation :test)
-        (error () nil)))
+    (autopoiesis.core:establish-recovery-restarts
+     (lambda ()
+       (handler-bind
+           ((error (lambda (c)
+                     (declare (ignore c))
+                     (let ((restart (find-restart 'autopoiesis.core::revert-to-checkpoint)))
+                       (setf restart-found (not (null restart))))
+                     (invoke-restart 'autopoiesis.core::continue-with-default))))
+         (error "test")))
+     :operation :test)
     (is-true restart-found)))
 
 (test recovery-strategy-registered
   "revert-on-inconsistency strategy is registered for state-inconsistency-error"
-  (let ((strategies (autopoiesis.core:find-recovery-strategies
-                     (make-condition 'autopoiesis.core:state-inconsistency-error
-                                     :message "test"
-                                     :expected-state :a
-                                     :actual-state :b))))
+  (let* ((autopoiesis.supervisor:*checkpoint-stack* '(("fake" . :test)))
+         (strategies (autopoiesis.core:find-recovery-strategies
+                      (make-condition 'autopoiesis.core:state-inconsistency-error
+                                      :message "test"
+                                      :expected-state :a
+                                      :actual-state :b))))
     ;; Should find at least one strategy
     (is (not (null strategies)))
     ;; Should include the revert-on-inconsistency strategy
@@ -370,21 +369,26 @@
 
 (test extension-invoke-uses-hook
   "invoke-extension uses checkpoint hook when set"
-  (let ((hook-called nil)
-        (autopoiesis.core::*checkpoint-on-invoke*
-          (lambda (thunk)
-            (setf hook-called t)
-            (funcall thunk)))
-        (registry (make-hash-table :test 'equal)))
-    ;; Register a simple extension
-    (multiple-value-bind (ext errors)
-        (autopoiesis.core:register-extension "test-agent" '(+ 1 2) :name "hook-test"
-                                             :registry registry)
-      (declare (ignore errors))
-      (when ext
-        (let ((ext-id (autopoiesis.core::extension-id ext)))
-          (autopoiesis.core:invoke-extension ext-id :registry registry)
-          (is-true hook-called))))))
+  (let* ((hook-called nil)
+         (autopoiesis.core::*checkpoint-on-invoke*
+           (lambda (thunk)
+             (setf hook-called t)
+             (funcall thunk)))
+         (registry (make-hash-table :test 'equal)))
+    ;; Directly create an extension, bypassing sandbox validation
+    (let* ((ext-id (autopoiesis.core:make-uuid))
+           (ext (make-instance 'autopoiesis.core::extension
+                               :name "hook-test"
+                               :id ext-id
+                               :source '(+ 1 2)
+                               :compiled (lambda () (+ 1 2))
+                               :author "test-agent"
+                               :status :validated
+                               :sandbox-level :strict)))
+      (setf (gethash ext-id registry) ext)
+      (is-true ext)
+      (autopoiesis.core:invoke-extension ext-id :registry registry)
+      (is-true hook-called))))
 
 (test extension-invoke-works-without-hook
   "invoke-extension works normally when hook is nil"
