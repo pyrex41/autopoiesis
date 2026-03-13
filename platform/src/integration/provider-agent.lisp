@@ -21,7 +21,11 @@
    (invocation-mode :initarg :invocation-mode
                     :accessor agent-invocation-mode
                     :initform :one-shot
-                    :documentation "How to invoke the provider (:one-shot or :streaming)"))
+                    :documentation "How to invoke the provider (:one-shot or :streaming)")
+   (streaming-callbacks :initarg :streaming-callbacks
+                        :accessor agent-streaming-callbacks
+                        :initform nil
+                        :documentation "Plist (:on-start fn :on-delta fn :on-end fn :on-complete fn)"))
   (:documentation "An agent that delegates cognition to an external CLI provider.
 
 The provider (Claude Code, Codex, etc.) runs its own agentic loop.
@@ -56,12 +60,24 @@ time-travel debugging."))
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defmethod autopoiesis.agent:perceive ((agent provider-backed-agent) environment)
-  "Coerce environment to a prompt string."
-  (etypecase environment
-    (string environment)
-    (list (or (getf environment :prompt)
-              (format nil "~{~a~^ ~}" environment)))
-    (null "")))
+  "Coerce environment to a prompt string and fire :on-start callback."
+  (let ((prompt (etypecase environment
+                  (string environment)
+                  (list (or (getf environment :prompt)
+                            (format nil "~{~a~^ ~}" environment)))
+                  (null ""))))
+    ;; Record observation
+    (autopoiesis.core:stream-append
+     (autopoiesis.agent:agent-thought-stream agent)
+     (autopoiesis.core:make-observation
+      (if (> (length prompt) 100)
+          (format nil "Received: ~a..." (subseq prompt 0 100))
+          (format nil "Received: ~a" prompt))
+      :source "input"))
+    ;; Fire streaming start callback
+    (let ((on-start (getf (agent-streaming-callbacks agent) :on-start)))
+      (when on-start (funcall on-start)))
+    prompt))
 
 (defmethod autopoiesis.agent:reason ((agent provider-backed-agent) observations)
   "Build the full prompt with system prompt, and gather tool specs."
@@ -92,15 +108,42 @@ time-travel debugging."))
     (list :prompt prompt :tools tools)))
 
 (defmethod autopoiesis.agent:act ((agent provider-backed-agent) decision)
-  "Invoke the provider and record the exchange."
+  "Invoke the provider and record the exchange.
+   Supports both one-shot and streaming modes."
   (let* ((provider (agent-provider agent))
          (prompt (getf decision :prompt))
          (tools (getf decision :tools))
-         (result (bt:with-lock-held ((provider-lock provider))
-                   (provider-invoke provider prompt
-                                    :tools tools
-                                    :mode (agent-invocation-mode agent)
-                                    :agent-id (autopoiesis.agent:agent-id agent)))))
+         (mode (agent-invocation-mode agent))
+         (callbacks (agent-streaming-callbacks agent))
+         (result
+           (if (eq mode :streaming)
+               ;; Streaming mode: use provider-send-streaming with delta callback
+               (let* ((full-text (make-array 0 :element-type 'character
+                                                :adjustable t :fill-pointer 0))
+                      (on-delta (getf callbacks :on-delta))
+                      (provider-result
+                        (bt:with-lock-held ((provider-lock provider))
+                          (provider-send-streaming
+                           provider prompt
+                           (lambda (delta)
+                             ;; Accumulate text
+                             (loop for c across delta
+                                   do (vector-push-extend c full-text))
+                             ;; Forward to callback
+                             (when on-delta (funcall on-delta delta)))))))
+                 ;; If provider-result has no text but we accumulated some, set it
+                 (when (and (> (length full-text) 0)
+                            (typep provider-result 'provider-result)
+                            (or (null (provider-result-text provider-result))
+                                (string= "" (provider-result-text provider-result))))
+                   (setf (provider-result-text provider-result) (coerce full-text 'string)))
+                 provider-result)
+               ;; One-shot mode: existing behavior
+               (bt:with-lock-held ((provider-lock provider))
+                 (provider-invoke provider prompt
+                                  :tools tools
+                                  :mode mode
+                                  :agent-id (autopoiesis.agent:agent-id agent))))))
     ;; Record the exchange in the thought stream
     (record-provider-exchange
      (autopoiesis.agent:agent-thought-stream agent)
@@ -110,18 +153,36 @@ time-travel debugging."))
     result))
 
 (defmethod autopoiesis.agent:reflect ((agent provider-backed-agent) action-result)
-  "Record success/failure reflection."
-  (when action-result
-    (let ((success (result-success-p action-result)))
-      (autopoiesis.core:stream-append
-       (autopoiesis.agent:agent-thought-stream agent)
-       (autopoiesis.core:make-reflection
-        (provider-name (agent-provider agent))
-        (if success
-            "Provider invocation completed successfully"
-            (format nil "Provider invocation failed: ~a"
-                    (or (provider-result-error-output action-result) "unknown error")))
-        :modification (unless success :retry-suggested))))))
+  "Record success/failure reflection and fire streaming lifecycle callbacks."
+  (let ((callbacks (agent-streaming-callbacks agent)))
+    ;; Fire :on-end callback (stream finished)
+    (let ((on-end (getf callbacks :on-end)))
+      (when on-end (funcall on-end)))
+    ;; Record reflection thought
+    (when action-result
+      (let* ((success (if (typep action-result 'provider-result)
+                          (result-success-p action-result)
+                          (and action-result (stringp action-result) (> (length action-result) 0))))
+             (text (cond
+                     ((typep action-result 'provider-result)
+                      (provider-result-text action-result))
+                     ((stringp action-result) action-result)
+                     (t nil))))
+        (autopoiesis.core:stream-append
+         (autopoiesis.agent:agent-thought-stream agent)
+         (autopoiesis.core:make-reflection
+          (provider-name (agent-provider agent))
+          (if success
+              "Provider invocation completed successfully"
+              (format nil "Provider invocation failed: ~a"
+                      (if (typep action-result 'provider-result)
+                          (or (provider-result-error-output action-result) "unknown error")
+                          "no result")))
+          :modification (unless success :retry-suggested)))
+        ;; Fire :on-complete callback with response text
+        (let ((on-complete (getf callbacks :on-complete)))
+          (when (and on-complete text)
+            (funcall on-complete text)))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Convenience API

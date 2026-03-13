@@ -497,3 +497,111 @@
       (is (typep p 'autopoiesis.integration:pi-provider))
       ;; Should be registered now
       (is (eq p (autopoiesis.integration:find-provider "pi"))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Streaming Mock Provider
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defclass streaming-mock-provider (mock-provider)
+  ((stream-chunks :initarg :stream-chunks
+                  :accessor mock-stream-chunks
+                  :initform '("Hello" " world" "!")
+                  :documentation "Chunks to deliver during streaming"))
+  (:default-initargs :name "stream-mock" :command "echo")
+  (:documentation "Mock provider that simulates streaming output."))
+
+(defun make-streaming-mock-provider (&key (name "stream-mock")
+                                       (stream-chunks '("Hello" " world" "!"))
+                                       (canned-exit-code 0))
+  (make-instance 'streaming-mock-provider
+                 :name name
+                 :command "echo"
+                 :stream-chunks stream-chunks
+                 :canned-output (format nil "~{~a~}" stream-chunks)
+                 :canned-exit-code canned-exit-code))
+
+(defmethod autopoiesis.integration:provider-send-streaming
+    ((provider streaming-mock-provider) message on-text-delta)
+  "Mock streaming — delivers canned chunks via callback."
+  (incf (mock-invoke-count provider))
+  (setf (mock-last-prompt provider) message)
+  (dolist (chunk (mock-stream-chunks provider))
+    (when on-text-delta (funcall on-text-delta chunk)))
+  (autopoiesis.integration:make-provider-result
+   :provider-name (autopoiesis.integration:provider-name provider)
+   :text (mock-canned-output provider)
+   :exit-code (mock-canned-exit-code provider)
+   :turns 1
+   :cost 0.0
+   :duration 0.1))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Streaming Cognitive Cycle Tests
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test streaming-callbacks-fire-in-order
+  "Test that streaming callbacks fire in order: start → delta* → end → complete"
+  (let ((autopoiesis.integration:*events-enabled* nil))
+    (let* ((p (make-streaming-mock-provider
+               :stream-chunks '("chunk1" " chunk2" " chunk3")))
+           (agent (autopoiesis.integration:make-provider-backed-agent
+                   p :name "stream-agent" :mode :streaming))
+           (event-log nil))
+      (autopoiesis.agent:start-agent agent)
+      ;; Wire callbacks that record event order
+      (setf (autopoiesis.integration:agent-streaming-callbacks agent)
+            (list :on-start (lambda () (push :start event-log))
+                  :on-delta (lambda (delta)
+                              (push (cons :delta delta) event-log))
+                  :on-end   (lambda () (push :end event-log))
+                  :on-complete (lambda (text)
+                                 (push (cons :complete text) event-log))))
+      (autopoiesis.agent:cognitive-cycle agent "test streaming")
+      ;; Reverse to get chronological order
+      (setf event-log (nreverse event-log))
+      ;; Verify order: start first
+      (is (eq :start (first event-log)))
+      ;; Deltas in the middle
+      (is (eq :delta (car (second event-log))))
+      (is (string= "chunk1" (cdr (second event-log))))
+      (is (eq :delta (car (third event-log))))
+      (is (eq :delta (car (fourth event-log))))
+      ;; End before complete
+      (is (eq :end (fifth event-log)))
+      ;; Complete last, with full text
+      (is (eq :complete (car (sixth event-log))))
+      (is (search "chunk1" (cdr (sixth event-log)))))))
+
+(test streaming-cognitive-cycle-returns-result
+  "Test that streaming cognitive-cycle returns provider-result"
+  (let ((autopoiesis.integration:*events-enabled* nil))
+    (let* ((p (make-streaming-mock-provider))
+           (agent (autopoiesis.integration:make-provider-backed-agent
+                   p :name "result-agent" :mode :streaming)))
+      (autopoiesis.agent:start-agent agent)
+      (let ((result (autopoiesis.agent:cognitive-cycle agent "hello")))
+        (is (typep result 'autopoiesis.integration:provider-result))
+        (is (string= "Hello world!" (autopoiesis.integration:provider-result-text result)))
+        (is (= 1 (mock-invoke-count p)))))))
+
+(test streaming-thought-stream-has-all-phases
+  "Test that streaming cognitive-cycle records all 5 phase types in thought stream"
+  (let ((autopoiesis.integration:*events-enabled* nil))
+    (let* ((p (make-streaming-mock-provider))
+           (agent (autopoiesis.integration:make-provider-backed-agent
+                   p :name "phases-agent" :mode :streaming)))
+      (autopoiesis.agent:start-agent agent)
+      (autopoiesis.agent:cognitive-cycle agent "phase test")
+      (let* ((stream (autopoiesis.agent:agent-thought-stream agent))
+             (thoughts (autopoiesis.core:stream-last stream
+                         (autopoiesis.core:stream-length stream)))
+             (types (mapcar (lambda (th)
+                              (autopoiesis.core:thought-type th))
+                            thoughts)))
+        ;; Should have observation (perceive), decision (decide),
+        ;; observation+action (act/record), reflection (reflect)
+        (is (member :observation types))
+        (is (member :decision types))
+        (is (member :reflection types))
+        ;; At least 4 thoughts total
+        (is (>= (length thoughts) 4))))))

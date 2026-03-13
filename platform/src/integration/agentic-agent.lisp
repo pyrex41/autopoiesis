@@ -3,6 +3,11 @@
 ;;;; Unlike provider-backed-agent which delegates to CLI tools,
 ;;;; agentic-agent runs the tool loop itself in CL, giving full
 ;;;; observability and control over each turn.
+;;;;
+;;;; NOTE: For new agents, prefer provider-backed-agent with rho-cli.
+;;;; agentic-agent is retained for direct API use cases where in-process
+;;;; tool loop control is needed. Dashboard agents now use
+;;;; provider-backed-agent via cognitive-cycle.
 
 (in-package #:autopoiesis.integration)
 

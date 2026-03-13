@@ -133,3 +133,8 @@
   (unless (find-package :autopoiesis.api.test)
     (asdf:load-system :autopoiesis/api))
   (run! (find-symbol "API-TESTS" :autopoiesis.api.test)))
+
+(defun test-live-llm ()
+  "Run live LLM tests (requires rho-cli + API credentials).
+   NOT included in run-all-tests — must be run explicitly."
+  (run! 'live-llm-tests))

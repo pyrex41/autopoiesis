@@ -163,85 +163,76 @@ You have access to these tool categories (depending on your capabilities):
               (agent-name agent) agent-id cycle-count)))
 
 (defun handle-agent-message (agent provider message)
-  "Handle an incoming message to the agent. If provider is available,
-   send the message content to the LLM with streaming output."
+  "Handle an incoming message to the agent.
+   Routes through cognitive-cycle when agent is a provider-backed-agent,
+   otherwise falls back to direct provider call."
   (let* ((agent-id (agent-id agent))
          (content (autopoiesis.agent:message-content message))
          (from (autopoiesis.agent:message-from message)))
-    ;; Record observation of incoming message
-    (let ((obs (make-observation
-                (format nil "Message from ~a: ~a" from content)
-                :source :human)))
-      (stream-append (agent-thought-stream agent) obs)
-      (broadcast-thought agent-id obs))
-    ;; Send to LLM if provider available
-    (when provider
-      (handler-case
-          (let ((stream-fn (find-symbol "PROVIDER-SEND-STREAMING" :autopoiesis.integration))
-                (send-fn (find-symbol "PROVIDER-SEND" :autopoiesis.integration)))
-            ;; Signal stream start
-            (broadcast-agent-stream-event agent-id "chat_stream_start")
-            (let* ((full-text (make-array 0 :element-type 'character
-                                            :adjustable t :fill-pointer 0))
-                   ;; Try streaming first, fall back to blocking
-                   (result
-                     (if stream-fn
-                         (funcall stream-fn provider content
-                                  (lambda (delta)
-                                    ;; Append to accumulator
-                                    (loop for c across delta
-                                          do (vector-push-extend c full-text))
-                                    ;; Broadcast delta to frontend
-                                    (broadcast-agent-stream-delta agent-id delta)))
-                         ;; Non-streaming fallback
-                         (when send-fn (funcall send-fn provider content))))
-                   (text (if (> (length full-text) 0)
-                             (coerce full-text 'string)
-                             (extract-provider-text result))))
-              ;; Signal stream end
-              (broadcast-agent-stream-event agent-id "chat_stream_end")
-              (if (and text (not (string= "" text)))
-                  (progn
-                    ;; Record as decision/reflection
-                    (let ((decision (make-decision
-                                     (list (cons text 1.0))
-                                     text
-                                     :rationale "LLM response"
-                                     :confidence 0.9)))
-                      (stream-append (agent-thought-stream agent) decision)
-                      (broadcast-thought agent-id decision))
-                    ;; Send complete response for clients that don't handle streaming
-                    (broadcast-agent-chat-response agent-id text from))
-                  ;; Empty response — surface as error
-                  (let ((err-text "Provider returned empty response. Check API credentials and provider configuration."))
-                    (broadcast-agent-chat-response agent-id err-text from)
-                    (let ((err-obs (make-observation err-text :source :system)))
-                      (stream-append (agent-thought-stream agent) err-obs)
-                      (broadcast-thought agent-id err-obs))))))
-        (error (e)
-          (log:error "LLM error for agent ~a: ~a" agent-id e)
-          (broadcast-agent-stream-event agent-id "chat_stream_end")
-          (let ((err-obs (make-observation
-                          (format nil "LLM error: ~a" e)
-                          :source :system)))
-            (stream-append (agent-thought-stream agent) err-obs)
-            (broadcast-thought agent-id err-obs)))))))
-
-(defun extract-provider-text (result)
-  "Extract text from a provider result."
-  (cond
-    ((null result) nil)
-    ((stringp result) result)
-    ((and (find-package :autopoiesis.integration)
-          (let ((result-class (find-symbol "PROVIDER-RESULT"
-                                           :autopoiesis.integration)))
-            (and result-class (typep result (find-class result-class)))))
-     (let ((text-fn (find-symbol "PROVIDER-RESULT-TEXT"
-                                 :autopoiesis.integration)))
-       (when text-fn (funcall text-fn result))))
-    ((and (listp result) (assoc :text result))
-     (cdr (assoc :text result)))
-    (t (format nil "~a" result))))
+    (if (typep agent 'autopoiesis.integration::provider-backed-agent)
+        ;; Unified path: wire streaming callbacks and run cognitive-cycle
+        (handler-case
+            (progn
+              (setf (autopoiesis.integration:agent-streaming-callbacks agent)
+                    (list :on-start (lambda ()
+                                      (broadcast-agent-stream-event agent-id "chat_stream_start"))
+                          :on-delta (lambda (delta)
+                                      (broadcast-agent-stream-delta agent-id delta))
+                          :on-end   (lambda ()
+                                      (broadcast-agent-stream-event agent-id "chat_stream_end"))
+                          :on-complete (lambda (text)
+                                         (broadcast-agent-chat-response agent-id text from))))
+              ;; Run through cognitive cycle — perceive/reason/decide/act/reflect
+              (let ((result (cognitive-cycle agent content)))
+                ;; Broadcast thoughts that were added during the cycle
+                (let* ((stream (agent-thought-stream agent))
+                       (len (stream-length stream)))
+                  (when (> len 0)
+                    ;; Broadcast the most recent thoughts (up to 5 from this cycle)
+                    (dolist (thought (stream-last stream (min 5 len)))
+                      (broadcast-thought agent-id thought))))
+                ;; Handle empty response
+                (let ((text (cond
+                              ((typep result 'autopoiesis.integration:provider-result)
+                               (autopoiesis.integration:provider-result-text result))
+                              ((stringp result) result)
+                              (t nil))))
+                  (when (or (null text) (string= "" text))
+                    (let ((err-text "Provider returned empty response. Check API credentials and provider configuration."))
+                      (broadcast-agent-chat-response agent-id err-text from)
+                      (let ((err-obs (make-observation err-text :source :system)))
+                        (stream-append (agent-thought-stream agent) err-obs)
+                        (broadcast-thought agent-id err-obs)))))))
+          (error (e)
+            (log:error "Cognitive cycle error for agent ~a: ~a" agent-id e)
+            ;; Ensure stream end is sent even on error
+            (broadcast-agent-stream-event agent-id "chat_stream_end")
+            (let ((err-obs (make-observation
+                            (format nil "LLM error: ~a" e)
+                            :source :system)))
+              (stream-append (agent-thought-stream agent) err-obs)
+              (broadcast-thought agent-id err-obs))))
+        ;; Fallback for non-upgraded agents: direct provider call
+        (when provider
+          (handler-case
+              (let ((obs (make-observation
+                          (format nil "Message from ~a: ~a" from content)
+                          :source :human)))
+                (stream-append (agent-thought-stream agent) obs)
+                (broadcast-thought agent-id obs)
+                (broadcast-agent-stream-event agent-id "chat_stream_start")
+                (let* ((result (autopoiesis.integration:provider-send-streaming
+                                provider content
+                                (lambda (delta)
+                                  (broadcast-agent-stream-delta agent-id delta))))
+                       (text (when (typep result 'autopoiesis.integration:provider-result)
+                               (autopoiesis.integration:provider-result-text result))))
+                  (broadcast-agent-stream-event agent-id "chat_stream_end")
+                  (when (and text (not (string= "" text)))
+                    (broadcast-agent-chat-response agent-id text from))))
+            (error (e)
+              (log:error "LLM error for agent ~a: ~a" agent-id e)
+              (broadcast-agent-stream-event agent-id "chat_stream_end")))))))
 
 ;;; ===================================================================
 ;;; Broadcasting
@@ -293,8 +284,8 @@ You have access to these tool categories (depending on your capabilities):
 ;;; ===================================================================
 
 (defun runtime-start-agent (agent)
-  "Start an agent's runtime: create provider, spawn cognitive loop thread.
-   Called when the user clicks 'start' in the UI."
+  "Start an agent's runtime: create provider, upgrade to provider-backed-agent,
+   spawn cognitive loop thread. Called when the user clicks 'start' in the UI."
   (let ((agent-id (agent-id agent)))
     ;; Don't double-start
     (when (get-agent-runtime agent-id)
@@ -303,6 +294,16 @@ You have access to these tool categories (depending on your capabilities):
     (setf (agent-state agent) :running)
     ;; Create provider
     (let ((provider (create-agent-provider agent)))
+      ;; Upgrade to provider-backed-agent via CLOS change-class
+      ;; This preserves agent identity (same object, same agent-id, same slot values)
+      ;; while gaining cognitive-cycle specializations
+      (when (and provider
+                 (not (typep agent 'autopoiesis.integration::provider-backed-agent)))
+        (let ((sys-prompt (agent-system-prompt agent)))
+          (change-class agent 'autopoiesis.integration::provider-backed-agent
+                        :provider provider
+                        :invocation-mode :streaming
+                        :system-prompt sys-prompt)))
       ;; Create runtime record
       (let ((runtime (list :provider provider
                            :running-p t
@@ -315,10 +316,8 @@ You have access to these tool categories (depending on your capabilities):
                            ;; Cleanup on exit
                            (remove-agent-runtime agent-id)
                            (when provider
-                             (let ((stop-fn (find-symbol "PROVIDER-STOP-SESSION"
-                                                         :autopoiesis.integration)))
-                               (when stop-fn
-                                 (ignore-errors (funcall stop-fn provider)))))))
+                             (ignore-errors
+                               (autopoiesis.integration:provider-stop-session provider)))))
                        :name (format nil "agent-loop-~a" (agent-name agent)))))
           (setf (getf runtime :thread) thread)
           (set-agent-runtime agent-id runtime))))

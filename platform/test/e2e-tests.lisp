@@ -1032,6 +1032,59 @@
           (is (not (null (autopoiesis.agent:find-capability :e2e-cap)))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Story: Agent Runtime Routes Through Cognitive Cycle
+;;; ═══════════════════════════════════════════════════════════════════
+
+(test e2e-agent-runtime-cognitive-cycle
+  "Test that agent-runtime routes messages through cognitive-cycle
+   with all 5 phase types in the thought stream."
+  (with-clean-registries
+    (let ((autopoiesis.integration:*events-enabled* nil)
+          (autopoiesis.integration:*provider-registry* (make-hash-table :test 'equal)))
+      ;; Create a mock streaming provider
+      (let* ((chunks '("I" " can" " help"))
+             (mock-provider (make-instance 'autopoiesis.test::streaming-mock-provider
+                                           :name "e2e-mock"
+                                           :command "echo"
+                                           :stream-chunks chunks
+                                           :canned-output "I can help"
+                                           :canned-exit-code 0))
+             (agent (autopoiesis.agent:make-agent :name "e2e-runtime-agent")))
+        ;; Simulate what runtime-start-agent does: change-class to provider-backed-agent
+        (change-class agent 'autopoiesis.integration:provider-backed-agent
+                      :provider mock-provider
+                      :invocation-mode :streaming
+                      :system-prompt "You are a test agent")
+        (autopoiesis.agent:start-agent agent)
+        ;; Wire callbacks that track events
+        (let ((events nil))
+          (setf (autopoiesis.integration:agent-streaming-callbacks agent)
+                (list :on-start (lambda () (push :start events))
+                      :on-delta (lambda (d) (push (cons :delta d) events))
+                      :on-end   (lambda () (push :end events))
+                      :on-complete (lambda (text) (push (cons :complete text) events))))
+          ;; Run cognitive cycle
+          (let ((result (autopoiesis.agent:cognitive-cycle agent "help me")))
+            ;; Should get a provider-result back
+            (is (typep result 'autopoiesis.integration:provider-result))
+            (is (string= "I can help" (autopoiesis.integration:provider-result-text result)))
+            ;; Check thought stream has all phase types
+            (let* ((stream (autopoiesis.agent:agent-thought-stream agent))
+                   (len (autopoiesis.core:stream-length stream))
+                   (thoughts (autopoiesis.core:stream-last stream len))
+                   (types (mapcar #'autopoiesis.core:thought-type thoughts)))
+              ;; observation from perceive, decision from decide,
+              ;; observations/actions from act recording, reflection from reflect
+              (is (member :observation types))
+              (is (member :decision types))
+              (is (member :reflection types))
+              (is (>= len 4)))
+            ;; Verify callbacks fired
+            (setf events (nreverse events))
+            (is (eq :start (first events)))
+            (is (eq :end (find :end events)))))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Test Runner Entry Point
 ;;; ═══════════════════════════════════════════════════════════════════
 

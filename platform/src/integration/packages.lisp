@@ -297,6 +297,7 @@
    #:agent-provider
    #:agent-system-prompt
    #:agent-invocation-mode
+   #:agent-streaming-callbacks
 
    ;; LLM client protocol
    #:llm-complete

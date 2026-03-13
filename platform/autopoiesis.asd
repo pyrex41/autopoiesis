@@ -451,6 +451,7 @@
      (:file "bridge-protocol-tests")
      (:file "meta-agent-tests")
      (:file "skel-tests")
+     (:file "live-llm-tests")
       ;; Optional extension tests moved to separate systems:
       ;; - autopoiesis/team-test (includes workspace-tests)
       ;; - autopoiesis/swarm-test (includes swarm-tests, swarm-integration-tests)

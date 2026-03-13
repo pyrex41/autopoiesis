@@ -33,4 +33,6 @@
    #:jarvis-tests
    #:team-tests
    #:persistent-agent-tests
-   #:swarm-integration-tests))
+   #:swarm-integration-tests
+   #:live-llm-tests
+   #:test-live-llm))
