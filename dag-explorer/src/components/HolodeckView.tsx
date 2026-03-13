@@ -1,4 +1,4 @@
-import { type Component, onMount, onCleanup, createEffect } from "solid-js";
+import { type Component, Show, onMount, onCleanup, createEffect, createMemo } from "solid-js";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
@@ -6,6 +6,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { holodeckStore, type EntityData, type ConnectionData, type EntityActivity, type CameraPreset } from "../stores/holodeck";
+import { wsStore } from "../stores/ws";
 import HolodeckHUD from "./HolodeckHUD";
 import { detachPanel } from "../lib/detach";
 
@@ -625,6 +626,9 @@ const HolodeckView: Component = () => {
     });
   });
 
+  const isEmpty = createMemo(() => holodeckStore.entities().size === 0);
+  const isConnected = () => wsStore.connected();
+
   return (
     <div class="holodeck-view" style={{ position: "relative", width: "100%", height: "100%" }}>
       <div
@@ -632,6 +636,19 @@ const HolodeckView: Component = () => {
         class="holodeck-canvas-container"
         style={{ position: "absolute", inset: "0", overflow: "hidden" }}
       />
+      <Show when={isEmpty()}>
+        <div class="holodeck-empty-overlay">
+          <div class="holodeck-empty-icon">&#x2B22;</div>
+          <div class="holodeck-empty-text">
+            {isConnected()
+              ? "No agents running. Start agents from the Dashboard."
+              : "Connect to platform backend to visualize agents in 3D"}
+          </div>
+          <div class="holodeck-empty-hint">
+            {isConnected() ? "Press 1 to go to Dashboard" : "Check connection status in the status bar"}
+          </div>
+        </div>
+      </Show>
       <HolodeckHUD />
       <button
         onClick={() => detachPanel("holodeck")}

@@ -11,9 +11,9 @@ import { detachPanel } from "../lib/detach";
 /** DAG Explorer view — wraps existing DAG components */
 const DAGView: Component = () => {
   onMount(() => {
-    // Load data if not already loaded
+    // Load data if not already loaded — try live API first, falls back to mock
     if (dagStore.snapshots().length === 0) {
-      dagStore.loadMockData();
+      dagStore.loadFromAPI();
     }
   });
 

@@ -3,6 +3,7 @@ import type { Agent, IntegrationEvent } from "../api/types";
 import * as api from "../api/client";
 import { wsStore, type ServerMessage } from "./ws";
 import { audioEngine } from "../lib/audio";
+import { toastStore } from "./toast";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -33,10 +34,21 @@ const [error, setError] = createSignal<string | null>(null);
 // Context window
 const [contextWindow, setContextWindow] = createSignal<{ used: number; total: number } | null>(null);
 
-// Jarvis chat
-const [chatMessages, setChatMessages] = createSignal<ChatMessage[]>([]);
+// Per-agent chat — separate history per agent/jarvis
+const [chatHistories, setChatHistories] = createSignal<Record<string, ChatMessage[]>>({});
 const [chatLoading, setChatLoading] = createSignal(false);
+const [streamingText, setStreamingText] = createSignal<string | null>(null);
 let activeChatAgentId: string | null = null;
+let streamingMessageId: string | null = null;
+
+// Derived: chat messages for the currently selected agent (or "jarvis")
+const chatMessages = () => {
+  const id = selectedId() ?? "jarvis";
+  return chatHistories()[id] ?? [];
+};
+
+// Action feedback
+const [pendingAction, setPendingAction] = createSignal<string | null>(null);
 
 // ── Derived ──────────────────────────────────────────────────────
 
@@ -114,6 +126,7 @@ const restPathMap: Record<string, string> = {
 async function agentAction(action: string, agentId?: string) {
   const id = agentId ?? selectedId();
   if (!id) return;
+  setPendingAction(action);
   try {
     // Fix 2: Use camelCase field names
     wsStore.send({ type: "agent_action", agentId: id, action });
@@ -123,8 +136,13 @@ async function agentAction(action: string, agentId?: string) {
       await fetch(`/api/agents/${id}/${restPath}`, { method: "POST" });
     }
     await loadAgents(); // Refresh
+    toastStore.addToast(`${action} sent`, "success", 2000);
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    toastStore.addToast(`${action} failed: ${msg}`, "error");
     console.error(`Agent action ${action} failed:`, e);
+  } finally {
+    setPendingAction(null);
   }
 }
 
@@ -156,9 +174,29 @@ async function stepAgent(id?: string) { return agentAction("step", id); }
 async function forkAgent(id?: string) { return agentAction("fork", id); }
 async function upgradeAgent(id?: string) { return agentAction("upgrade", id); }
 
+// Helper: add a message to a specific agent's chat history
+function addChatMessage(agentId: string, msg: ChatMessage) {
+  setChatHistories((prev) => ({
+    ...prev,
+    [agentId]: [...(prev[agentId] ?? []), msg],
+  }));
+}
+
 // Fix 5: Jarvis chat with proper protocol
 function sendChatMessage(content: string) {
   const agentId = selectedId() ?? "jarvis";
+
+  // Check connection before sending
+  if (!wsStore.connected()) {
+    const sysMsg: ChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      sender: "jarvis",
+      content: "Not connected to backend. Type `/` for offline CLI commands.",
+      timestamp: Date.now(),
+    };
+    addChatMessage(agentId, sysMsg);
+    return;
+  }
 
   // Start chat session if not active for this agent
   if (activeChatAgentId !== agentId) {
@@ -172,11 +210,26 @@ function sendChatMessage(content: string) {
     content,
     timestamp: Date.now(),
   };
-  setChatMessages((prev) => [...prev, msg]);
+  addChatMessage(agentId, msg);
   setChatLoading(true);
 
   // Fix 5: Send with correct field names (text, not content; include agentId)
   wsStore.send({ type: "chat_prompt", agentId, text: content });
+
+  // Timeout: clear loading after 120s if no response (rho-cli may use tools)
+  const timeoutAgentId = agentId;
+  setTimeout(() => {
+    if (chatLoading()) {
+      setChatLoading(false);
+      const errMsg: ChatMessage = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        sender: "jarvis",
+        content: "Response timed out. The backend may be busy or unreachable.",
+        timestamp: Date.now(),
+      };
+      addChatMessage(timeoutAgentId, errMsg);
+    }
+  }, 120000);
 }
 
 // Handle incoming WS messages
@@ -231,16 +284,88 @@ function handleWSMessage(msg: ServerMessage) {
       break;
     }
 
-    case "chat_response": {
-      const text = msg.text as string;
-      const reply: ChatMessage = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    case "chat_stream_start": {
+      // Begin streaming — create a placeholder message that we'll update
+      const startAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
+      streamingMessageId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setStreamingText("");
+      const placeholder: ChatMessage = {
+        id: streamingMessageId,
         sender: "jarvis",
-        content: text ?? "",
+        content: "",
         timestamp: Date.now(),
       };
-      setChatMessages((prev) => [...prev, reply]);
+      addChatMessage(startAgentId, placeholder);
+      break;
+    }
+
+    case "chat_stream_delta": {
+      const delta = msg.delta as string;
+      const deltaAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
+      if (delta && streamingMessageId) {
+        const msgId = streamingMessageId;
+        // Update streaming text and chat history atomically
+        batch(() => {
+          setStreamingText((prev) => (prev ?? "") + delta);
+          setChatHistories((prev) => {
+            const history = prev[deltaAgentId] ?? [];
+            return {
+              ...prev,
+              [deltaAgentId]: history.map((m) =>
+                m.id === msgId ? { ...m, content: m.content + delta } : m
+              ),
+            };
+          });
+        });
+      }
+      break;
+    }
+
+    case "chat_stream_end": {
+      streamingMessageId = null;
+      setStreamingText(null);
       setChatLoading(false);
+      break;
+    }
+
+    case "chat_response": {
+      const text = msg.text as string;
+      const respAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
+      if (streamingMessageId) {
+        // We were streaming — update the final message with complete text
+        setChatHistories((prev) => {
+          const history = prev[respAgentId] ?? [];
+          return {
+            ...prev,
+            [respAgentId]: history.map((m) =>
+              m.id === streamingMessageId ? { ...m, content: text ?? "" } : m
+            ),
+          };
+        });
+        streamingMessageId = null;
+        setStreamingText(null);
+      } else {
+        // Non-streaming response — add as new message
+        const reply: ChatMessage = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          sender: "jarvis",
+          content: text ?? "",
+          timestamp: Date.now(),
+        };
+        addChatMessage(respAgentId, reply);
+      }
+      setChatLoading(false);
+      break;
+    }
+
+    case "chat_prompt_accepted": {
+      // Agent-routed chat — response will come via thought broadcast
+      // Keep loading state, response arrives as thought_added + chat_response
+      break;
+    }
+
+    case "snapshot_created": {
+      // DAG live update — could trigger DAG refresh
       break;
     }
   }
@@ -251,6 +376,7 @@ function init() {
   wsStore.connect();
   wsStore.subscribe("agents");
   wsStore.subscribe("events");
+  wsStore.subscribe("snapshots");
   // Fix 7: Don't subscribe to global "thoughts" — per-agent subscriptions
   // happen in selectAgent()
   loadAgents();
@@ -278,7 +404,11 @@ export const agentStore = {
   // Chat
   chatMessages,
   chatLoading,
+  streamingText,
   sendChatMessage,
+
+  // Action feedback
+  pendingAction,
 
   // Actions
   init,

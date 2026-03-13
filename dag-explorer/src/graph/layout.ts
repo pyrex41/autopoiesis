@@ -8,8 +8,8 @@ import type {
   LayoutDirection,
 } from "../api/types";
 
-const NODE_W = 180;
-const NODE_H = 56;
+const NODE_W = 220;
+const NODE_H = 68;
 
 /**
  * Compute a dagre layout for the snapshot DAG.
@@ -35,7 +35,7 @@ export function computeLayout(
   g.setGraph({
     rankdir: dir,
     ranksep: opts?.ranksep ?? 70,
-    nodesep: opts?.nodesep ?? 30,
+    nodesep: opts?.nodesep ?? 40,
     marginx: 40,
     marginy: 40,
   });

@@ -232,6 +232,16 @@
   overflow: hidden;
 }
 
+.left-sidebar {
+  width: 270px;
+  min-width: 270px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--mid) 0%, var(--deep) 100%);
+  border-right: 1px solid var(--border);
+}
+
 .app-content {
   flex: 1;
   min-width: 0;

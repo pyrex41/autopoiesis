@@ -434,10 +434,10 @@ const DAGCanvas: Component = () => {
 
       // ID
       ctx.fillStyle = C.text;
-      ctx.font = `600 11px ${F}`;
+      ctx.font = `600 13px ${F}`;
       ctx.fillText(
-        node.id.length > 14 ? node.id.slice(0, 14) + "\u2026" : node.id,
-        x + 11, y + 17
+        node.id.length > 20 ? node.id.slice(0, 20) + "\u2026" : node.id,
+        x + 11, y + 21
       );
 
       // Metadata
@@ -445,20 +445,20 @@ const DAGCanvas: Component = () => {
       const label = (typeof meta?.label === "string" ? meta.label : "") ||
                     (typeof meta?.agent === "string" ? meta.agent : "");
       if (label) {
-        ctx.font = `11px ${F}`;
+        ctx.font = `12px ${F}`;
         ctx.fillStyle = C.textMuted;
-        ctx.fillText(label.length > 22 ? label.slice(0, 22) + "\u2026" : label, x + 11, y + 32);
+        ctx.fillText(label.length > 28 ? label.slice(0, 28) + "\u2026" : label, x + 11, y + 38);
       }
 
       // Branch badge
       if (node.isBranchHead) {
         const bn = node.branchNames[0] ?? "";
         const sh = bn.length > 12 ? "\u2026" + bn.slice(-10) : bn;
-        ctx.font = `600 9px ${F}`;
+        ctx.font = `600 11px ${F}`;
         const tw = ctx.measureText(sh).width;
         const bx = x + node.width - tw - 12;
-        const by = y + node.height - 11;
-        rr(ctx, bx - 4, by - 9, tw + 8, 13, 3);
+        const by = y + node.height - 13;
+        rr(ctx, bx - 4, by - 10, tw + 8, 15, 3);
         ctx.fillStyle = rgba(accent.startsWith("#") ? accent : C.signal, 0.18);
         ctx.fill();
         ctx.fillStyle = accent;
@@ -468,13 +468,13 @@ const DAGCanvas: Component = () => {
       // Collapse indicator
       if (node.collapsed) {
         ctx.fillStyle = C.warm;
-        ctx.font = `600 10px ${F}`;
-        ctx.fillText(`+${node.childCount}`, x + node.width - 34, y + 17);
+        ctx.font = `600 11px ${F}`;
+        ctx.fillText(`+${node.childCount}`, x + node.width - 38, y + 21);
       }
 
       // Root: glowing dot
       if (node.isRoot) {
-        const dx = x + 11, dy = y + node.height - 10;
+        const dx = x + 11, dy = y + node.height - 12;
         const gp = 0.6 + 0.4 * Math.sin(t * 1.5);
         ctx.beginPath();
         ctx.arc(dx, dy, 3, 0, Math.PI * 2);
@@ -484,15 +484,15 @@ const DAGCanvas: Component = () => {
         ctx.arc(dx, dy, 6, 0, Math.PI * 2);
         ctx.fillStyle = rgba(C.emerge, 0.12 * gp);
         ctx.fill();
-        ctx.font = `8px ${F}`;
+        ctx.font = `10px ${F}`;
         ctx.fillStyle = C.textDim;
         ctx.fillText("GENESIS", dx + 8, dy + 3);
       }
 
       // Depth
       ctx.fillStyle = C.textDim;
-      ctx.font = `8px ${F}`;
-      ctx.fillText(`\u2022${node.depth}`, x + node.width - 20, y + 15);
+      ctx.font = `10px ${F}`;
+      ctx.fillText(`\u2022${node.depth}`, x + node.width - 24, y + 19);
 
       ctx.restore();
     }

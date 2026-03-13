@@ -194,6 +194,12 @@
   color: var(--text);
 }
 
+.action-btn[disabled] {
+  opacity: 0.5;
+  cursor: wait;
+  pointer-events: none;
+}
+
 .action-start:hover { border-color: var(--emerge); color: var(--emerge); }
 .action-stop:hover { border-color: var(--danger); color: var(--danger); }
 .action-pause:hover { border-color: var(--warm); color: var(--warm); }

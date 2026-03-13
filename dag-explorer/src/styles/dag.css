@@ -133,6 +133,7 @@
 
 .dag-canvas-wrap {
   flex: 1;
+  min-width: 0;
   position: relative;
   overflow: hidden;
 }

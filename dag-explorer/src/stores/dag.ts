@@ -17,7 +17,7 @@ const [snapshots, setSnapshots] = createSignal<Snapshot[]>([]);
 const [branches, setBranches] = createSignal<Branch[]>([]);
 const [loading, setLoading] = createSignal(false);
 const [error, setError] = createSignal<string | null>(null);
-const [dataSource, setDataSource] = createSignal<"mock" | "live">("mock");
+const [dataSource, setDataSource] = createSignal<"mock" | "live">("live");
 
 // ── UI state signals ──────────────────────────────────────────────
 

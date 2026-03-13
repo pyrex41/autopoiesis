@@ -133,9 +133,11 @@ const AppShell: Component = () => {
       <Breadcrumb />
 
       <div class="app-body">
-        {/* Left panel — Agent list + Teams */}
-        <AgentList />
-        <TeamPanel />
+        {/* Left sidebar — Agent list + Teams */}
+        <div class="left-sidebar">
+          <AgentList />
+          <TeamPanel />
+        </div>
 
         {/* Main content */}
         <div class="app-content" classList={{ transitioning: transitioning() }}>

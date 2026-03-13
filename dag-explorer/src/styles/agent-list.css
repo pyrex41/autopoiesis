@@ -1,10 +1,8 @@
 /* ── Agent List Panel ────────────────────────────────────────── */
 
 .agent-list-panel {
-  width: 270px;
-  min-width: 270px;
-  background: linear-gradient(180deg, var(--mid) 0%, var(--deep) 100%);
-  border-right: 1px solid var(--border);
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -1,5 +1,6 @@
 import { type Component, Show, For, createSignal, createEffect, createMemo, onMount, onCleanup } from "solid-js";
 import { agentStore, type ChatMessage } from "../stores/agents";
+import { wsStore } from "../stores/ws";
 import { renderMarkdown } from "../lib/markdown";
 import { commands, type Command } from "../lib/commands";
 
@@ -123,6 +124,13 @@ const JarvisBar: Component = () => {
     }
   });
 
+  // Determine chat target name
+  const chatTarget = createMemo(() => {
+    const agent = agentStore.selectedAgent();
+    if (agent) return agent.name;
+    return "Jarvis";
+  });
+
   return (
     <div class="jarvis-bar" classList={{ "jarvis-expanded": expanded(), "jarvis-cli-mode": cliMode() }}>
       {/* CLI autocomplete dropdown */}
@@ -147,6 +155,15 @@ const JarvisBar: Component = () => {
           </For>
         </div>
       </Show>
+      {/* Connection hint when expanded with no messages */}
+      <Show when={expanded() && agentStore.chatMessages().length === 0 && !wsStore.connected()}>
+        <div class="jarvis-history">
+          <div class="jarvis-msg jarvis-msg-jarvis">
+            <span class="jarvis-msg-sender">Jarvis</span>
+            <span class="jarvis-msg-content">Jarvis requires a running backend. Type <code>/</code> for local CLI commands.</span>
+          </div>
+        </div>
+      </Show>
       {/* Chat history (expanded) */}
       <Show when={expanded() && agentStore.chatMessages().length > 0}>
         <div class="jarvis-history" ref={historyRef!}>
@@ -154,7 +171,7 @@ const JarvisBar: Component = () => {
             {(msg) => (
               <div class={`jarvis-msg jarvis-msg-${msg.sender}`}>
                 <span class="jarvis-msg-sender">
-                  {msg.sender === "user" ? "You" : "Jarvis"}
+                  {msg.sender === "user" ? "You" : chatTarget()}
                 </span>
                 {msg.sender === "jarvis" ? (
                   <span class="jarvis-msg-content jarvis-markdown" innerHTML={renderMarkdown(msg.content)} />
@@ -164,9 +181,9 @@ const JarvisBar: Component = () => {
               </div>
             )}
           </For>
-          <Show when={agentStore.chatLoading()}>
+          <Show when={agentStore.chatLoading() && !agentStore.streamingText()}>
             <div class="jarvis-msg jarvis-msg-jarvis">
-              <span class="jarvis-msg-sender">Jarvis</span>
+              <span class="jarvis-msg-sender">{chatTarget()}</span>
               <span class="jarvis-msg-content jarvis-typing-wave">
                 <span /><span /><span /><span /><span />
               </span>
@@ -185,12 +202,12 @@ const JarvisBar: Component = () => {
           {expanded() ? "▾" : "▴"}
         </button>
         <div class="jarvis-input-wrap">
-          <span class="jarvis-prompt-icon">{cliMode() ? ">" : "J"}</span>
+          <span class="jarvis-prompt-icon">{cliMode() ? ">" : chatTarget()[0]}</span>
           <input
             ref={inputRef!}
             type="text"
             class="jarvis-input"
-            placeholder='Ask Jarvis anything... (press / to focus)'
+            placeholder={`Ask ${chatTarget()} anything... (press / to focus)`}
             value={input()}
             onInput={(e) => setInput(e.currentTarget.value)}
             onKeyDown={handleKeyDown}
