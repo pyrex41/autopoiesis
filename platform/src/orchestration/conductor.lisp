@@ -105,6 +105,24 @@
               :on-error (lambda (reason)
                           (handle-task-result conductor task-id :failure
                                              (format nil "~A" reason))))))))
+      (:agent-wakeup
+       ;; Send a scheduled message to an agent's mailbox
+       (let ((agent-id (getf action-plist :agent-id))
+             (message (getf action-plist :message))
+             (recurring-p (getf action-plist :recurring))
+             (interval (getf action-plist :interval)))
+         (when agent-id
+           (ignore-errors
+             (let ((agent-pkg (find-package :autopoiesis.agent)))
+               (when agent-pkg
+                 (let ((send-fn (find-symbol "SEND-MESSAGE" agent-pkg))
+                       (typed-fn (find-symbol "MAKE-TYPED-MESSAGE" agent-pkg)))
+                   (when (and send-fn typed-fn (fboundp send-fn) (fboundp typed-fn))
+                     (funcall send-fn "conductor" agent-id
+                              (funcall typed-fn :scheduled message)))))))
+           ;; Re-schedule if recurring
+           (when (and recurring-p interval (> interval 0))
+             (schedule-action conductor interval action-plist)))))
       (otherwise
        ;; Default: queue as event for processing
        (queue-event action-type action-plist)))))
@@ -250,9 +268,10 @@
 
 (defun check-crystallization-triggers (conductor)
   "Check crystallization triggers periodically. Called every tick."
-  (when (and (find-package :autopoiesis.crystallize)
-             (>= (incf (conductor-tick-counter conductor)) *trigger-check-interval*))
+  (when (>= (incf (conductor-tick-counter conductor)) *trigger-check-interval*)
     (setf (conductor-tick-counter conductor) 0)
+    (when (not (find-package :autopoiesis.crystallize))
+      (return-from check-crystallization-triggers nil))
     (handler-case
         (let* ((list-agents-fn (find-symbol "LIST-AGENTS" :autopoiesis.agent))
                (agent-running-p-fn (find-symbol "AGENT-RUNNING-P" :autopoiesis.agent))

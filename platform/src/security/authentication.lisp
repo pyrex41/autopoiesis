@@ -127,12 +127,13 @@
              (password-hash (hash-password password))
              (user-roles (or roles (list :user)))
              (datoms (list
-                      (make-datom :entity user-id :attribute :user/username :value username)
-                      (make-datom :entity user-id :attribute :user/email :value email)
-                      (make-datom :entity user-id :attribute :user/password-hash :value password-hash)
-                      (make-datom :entity user-id :attribute :user/created-at :value now)
-                      (make-datom :entity user-id :attribute :user/active :value active)
-                      (make-datom :entity user-id :attribute :user/roles :value user-roles))))
+                      (make-datom user-id :entity/type :user)
+                      (make-datom user-id :user/username username)
+                      (make-datom user-id :user/email email)
+                      (make-datom user-id :user/password-hash password-hash)
+                      (make-datom user-id :user/created-at now)
+                      (make-datom user-id :user/active active)
+                      (make-datom user-id :user/roles user-roles))))
         
         (transact! datoms)
         
@@ -166,21 +167,24 @@
 
 (defun make-user-from-entity (user-id)
   "Create a user object from entity ID.
-  
+
   Arguments:
     user-id - User entity ID
-    
+
   Returns: user object"
-  (let ((state (entity-state user-id)))
-    (make-instance 'user
-                   :id user-id
-                   :username (getf state :user/username)
-                   :email (getf state :user/email)
-                   :password-hash (getf state :user/password-hash)
-                   :created-at (getf state :user/created-at)
-                   :last-login (getf state :user/last-login)
-                   :active (getf state :user/active t)
-                   :roles (getf state :user/roles (list :user)))))
+  ;; Use entity-attr for each field individually to avoid entity-state
+  ;; plist corruption from entity/attribute ID resolve table collisions.
+  (make-instance 'user
+                 :id user-id
+                 :username (entity-attr user-id :user/username)
+                 :email (entity-attr user-id :user/email)
+                 :password-hash (entity-attr user-id :user/password-hash)
+                 :created-at (entity-attr user-id :user/created-at)
+                 :last-login (entity-attr user-id :user/last-login)
+                 :active (multiple-value-bind (val found-p)
+                           (entity-attr user-id :user/active)
+                           (if found-p val t))
+                 :roles (or (entity-attr user-id :user/roles) (list :user))))
 
 (defun update-user-last-login (user)
   "Update the last login timestamp for a user.
@@ -190,9 +194,7 @@
     
   Returns: updated user object"
   (let* ((now (get-universal-time))
-         (datoms (list (make-datom :entity (user-id user)
-                                   :attribute :user/last-login
-                                   :value now))))
+         (datoms (list (make-datom (user-id user) :user/last-login now))))
     (transact! datoms)
     (setf (user-last-login user) now)
     user))
@@ -281,13 +283,14 @@
          (expires-at (+ now lifetime))
          (session-id (intern-id (format nil "session:~a" token)))
          (datoms (list
-                  (make-datom :entity session-id :attribute :session/token :value token)
-                  (make-datom :entity session-id :attribute :session/user-id :value (user-id user))
-                  (make-datom :entity session-id :attribute :session/created-at :value now)
-                  (make-datom :entity session-id :attribute :session/expires-at :value expires-at)
-                  (make-datom :entity session-id :attribute :session/active :value t)
-                  (make-datom :entity session-id :attribute :session/ip-address :value ip-address)
-                  (make-datom :entity session-id :attribute :session/user-agent :value user-agent))))
+                  (make-datom session-id :entity/type :session)
+                  (make-datom session-id :session/token token)
+                  (make-datom session-id :session/user-id (user-id user))
+                  (make-datom session-id :session/created-at now)
+                  (make-datom session-id :session/expires-at expires-at)
+                  (make-datom session-id :session/active t)
+                  (make-datom session-id :session/ip-address ip-address)
+                  (make-datom session-id :session/user-agent user-agent))))
     
     (transact! datoms)
     
@@ -315,21 +318,24 @@
 
 (defun make-session-from-entity (session-id)
   "Create a session object from entity ID.
-  
+
   Arguments:
     session-id - Session entity ID
-    
+
   Returns: session object"
-  (let ((state (entity-state session-id)))
-    (make-instance 'session
-                   :id session-id
-                   :token (getf state :session/token)
-                   :user-id (getf state :session/user-id)
-                   :created-at (getf state :session/created-at)
-                   :expires-at (getf state :session/expires-at)
-                   :active (getf state :session/active t)
-                   :ip-address (getf state :session/ip-address)
-                   :user-agent (getf state :session/user-agent))))
+  ;; Use entity-attr for each field individually to avoid entity-state
+  ;; plist corruption from entity/attribute ID resolve table collisions.
+  (make-instance 'session
+                 :id session-id
+                 :token (entity-attr session-id :session/token)
+                 :user-id (entity-attr session-id :session/user-id)
+                 :created-at (entity-attr session-id :session/created-at)
+                 :expires-at (entity-attr session-id :session/expires-at)
+                 :active (multiple-value-bind (val found-p)
+                           (entity-attr session-id :session/active)
+                           (if found-p val t))
+                 :ip-address (entity-attr session-id :session/ip-address)
+                 :user-agent (entity-attr session-id :session/user-agent)))
 
 (defun invalidate-session (session)
   "Invalidate a session.
@@ -338,9 +344,7 @@
     session - session object
     
   Returns: T if invalidated successfully"
-  (let ((datoms (list (make-datom :entity (session-id session)
-                                  :attribute :session/active
-                                  :value nil))))
+  (let ((datoms (list (make-datom (session-id session) :session/active nil))))
     (transact! datoms)
     (setf (session-active-p session) nil)
     
@@ -354,18 +358,18 @@
   
   Returns: Number of sessions cleaned up"
   (let* ((now (get-universal-time))
+         (all-session-ids (find-entities :entity/type :session))
          (expired-session-ids
-          (find-entities-by-type :session
-            (lambda (entity-id)
-              (let ((state (entity-state entity-id)))
-                (or (not (getf state :session/active t))
-                    (<= (getf state :session/expires-at) now)))))))
+          (remove-if-not
+           (lambda (entity-id)
+             (let ((state (entity-state entity-id)))
+               (or (not (getf state :session/active t))
+                   (<= (getf state :session/expires-at 0) now))))
+           all-session-ids)))
     
     ;; Mark expired sessions as inactive
     (dolist (session-id expired-session-ids)
-      (transact! (list (make-datom :entity session-id
-                                   :attribute :session/active
-                                   :value nil))))
+      (transact! (list (make-datom session-id :session/active nil))))
     
     (length expired-session-ids)))
 
@@ -490,14 +494,17 @@
     
     permissions))
 
-(defun get-user-permissions (user)
+(defun get-user-permissions (user-or-username)
   "Get permissions for a user.
-  
+
   Arguments:
-    user - user object
-    
+    user-or-username - user object or username string
+
   Returns: list of permissions"
-  (get-agent-permissions (user-username user)))
+  (let ((username (if (stringp user-or-username)
+                      user-or-username
+                      (user-username user-or-username))))
+    (get-agent-permissions username)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Initialization
@@ -529,11 +536,12 @@
     active-only - If T, only return active users (default: T)
     
   Returns: list of user objects"
-  (let ((user-ids (find-entities-by-type :user
-                    (lambda (entity-id)
-                      (let ((state (entity-state entity-id)))
-                        (or (not active-only)
-                            (getf state :user/active t)))))))
+  (let* ((all-user-ids (find-entities :entity/type :user))
+         (user-ids (if active-only
+                       (remove-if-not (lambda (eid)
+                                        (entity-attr eid :user/active))
+                                      all-user-ids)
+                       all-user-ids)))
     (mapcar #'make-user-from-entity user-ids)))
 
 (defun change-user-password (username old-password new-password)
@@ -553,9 +561,7 @@
   (with-validated-input (new-password new-password '(:string :min-length 8 :max-length 128))
     (let* ((user (find-user-by-username username))
            (new-hash (hash-password new-password))
-           (datoms (list (make-datom :entity (user-id user)
-                                     :attribute :user/password-hash
-                                     :value new-hash))))
+           (datoms (list (make-datom (user-id user) :user/password-hash new-hash))))
       
       (transact! datoms)
       (setf (user-password-hash user) new-hash)

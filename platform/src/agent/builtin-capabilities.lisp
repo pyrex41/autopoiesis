@@ -121,6 +121,17 @@
     (deliver-message message)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Typed Messages
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun make-typed-message (type content &rest extra-keys)
+  "Create a typed message plist.
+   TYPE is a keyword like :chat, :continuation, :scheduled, :system.
+   CONTENT is the message payload (string or structured data).
+   EXTRA-KEYS are additional plist key-value pairs."
+  (list* :type type :content content extra-keys))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Introspect Capability
 ;;; ═══════════════════════════════════════════════════════════════════
 

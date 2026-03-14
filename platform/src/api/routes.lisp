@@ -115,10 +115,12 @@
     (json-ok (or (mapcar #'agent-to-json-alist agents) #()))))
 
 (defun rest-create-agent ()
-  "POST /api/agents - Create a new agent."
+  "POST /api/agents - Create a new agent.
+   If 'task' is provided, auto-starts the agent and sends the task."
   (require-permission :write)
   (let* ((body (parse-json-body))
          (name (or (cdr (assoc :name body)) "unnamed"))
+         (task (cdr (assoc :task body)))
          (raw-caps (cdr (assoc :capabilities body)))
          (capabilities (when raw-caps
                          (mapcar (lambda (c)
@@ -129,6 +131,15 @@
                                  (coerce raw-caps 'list))))
          (agent (autopoiesis.agent:make-agent :name name :capabilities capabilities)))
     (autopoiesis.agent:register-agent agent)
+    ;; If task provided, auto-start and send task
+    (when (and task (stringp task) (> (length task) 0))
+      (runtime-start-agent agent)
+      (let ((agent-id (autopoiesis.agent:agent-id agent)))
+        (bordeaux-threads:make-thread
+         (lambda ()
+           (sleep 0.5)
+           (ignore-errors (send-message-to-agent agent-id task :from "user")))
+         :name (format nil "task-sender-~a" name))))
     (sse-broadcast "agent_created" (agent-to-json-alist agent))
     (json-ok (agent-to-json-alist agent) :status 201)))
 
@@ -141,12 +152,12 @@
         (json-not-found "Agent" agent-id))))
 
 (defun rest-start-agent (agent-id)
-  "POST /api/agents/:id/start - Start an agent."
+  "POST /api/agents/:id/start - Start an agent with full runtime (provider + cognitive loop)."
   (require-permission :write)
   (let ((agent (autopoiesis.agent:find-agent agent-id)))
     (if agent
         (progn
-          (autopoiesis.agent:start-agent agent)
+          (runtime-start-agent agent)
           (sse-broadcast "agent_started" (agent-to-json-alist agent))
           (json-ok (agent-to-json-alist agent)))
         (json-not-found "Agent" agent-id))))
@@ -179,7 +190,7 @@
   (let ((agent (autopoiesis.agent:find-agent agent-id)))
     (if agent
         (progn
-          (autopoiesis.agent:stop-agent agent)
+          (runtime-stop-agent agent)
           (sse-broadcast "agent_stopped" (agent-to-json-alist agent))
           (json-ok (agent-to-json-alist agent)))
         (json-not-found "Agent" agent-id))))

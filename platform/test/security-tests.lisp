@@ -1035,7 +1035,7 @@
 (test validation-error-condition
   "Test validation-error condition"
   (signals autopoiesis.security:validation-error
-    (autopoiesis.security:with-validated-input (x 123 (:string))
+    (autopoiesis.security:with-validated-input (x 123 '(:string))
       x)))
 
 ;;; Sanitization Tests
@@ -1138,7 +1138,7 @@
 
 (test create-user-basic
   "Test basic user creation"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     ;; Create a user
     (let ((user (autopoiesis.security:create-user "test-user" "password123"
                                                   :email "test@example.com"
@@ -1157,7 +1157,7 @@
 
 (test create-user-validation
   "Test user creation validation"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     ;; Invalid username
     (signals autopoiesis.security:validation-error
       (autopoiesis.security:create-user "user with spaces" "password"))
@@ -1178,7 +1178,7 @@
 
 (test user-entity-persistence
   "Test user entity persistence in substrate"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (let* ((user (autopoiesis.security:create-user "persist-user" "password"))
            (user-id (autopoiesis.security:user-id user)))
 
@@ -1196,7 +1196,7 @@
 
 (test session-creation
   "Test session creation and properties"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (let* ((user (autopoiesis.security:create-user "session-user" "password"))
            (session (autopoiesis.security:create-session user
                                                          :ip-address "192.168.1.1"
@@ -1216,7 +1216,7 @@
 
 (test session-token-validation
   "Test session token validation"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (let* ((user (autopoiesis.security:create-user "token-user" "password"))
            (session (autopoiesis.security:create-session user))
            (token (autopoiesis.security:session-token session)))
@@ -1236,7 +1236,7 @@
 
 (test session-expiration
   "Test session expiration"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     ;; Create a session with very short lifetime
     (let* ((user (autopoiesis.security:create-user "expire-user" "password"))
            (session (autopoiesis.security:create-session user :lifetime 1)))  ; 1 second
@@ -1253,7 +1253,7 @@
 
 (test session-invalidation
   "Test session invalidation"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (let* ((user (autopoiesis.security:create-user "invalidate-user" "password"))
            (session (autopoiesis.security:create-session user))
            (token (autopoiesis.security:session-token session)))
@@ -1280,7 +1280,7 @@
 
 (test authenticate-user-success
   "Test successful user authentication"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.security:create-user "auth-user" "correct-password")
 
     ;; Successful authentication
@@ -1293,7 +1293,7 @@
 
 (test authenticate-user-failures
   "Test authentication failure cases"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.security:create-user "fail-user" "correct-password")
 
     ;; Wrong password
@@ -1311,7 +1311,7 @@
 
 (test user-logout
   "Test user logout functionality"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (let* ((user (autopoiesis.security:create-user "logout-user" "password"))
            (session (autopoiesis.security:authenticate-user "logout-user" "password"))
            (token (autopoiesis.security:session-token session)))
@@ -1333,7 +1333,7 @@
 
 (test change-user-password
   "Test password change functionality"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.security:create-user "change-pass-user" "old-password")
 
     ;; Change password
@@ -1351,7 +1351,7 @@
 
 (test setup-user-permissions-basic
   "Test setting up permissions for users based on roles"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (let ((user (autopoiesis.security:create-user "perm-user" "password" :roles '(:user))))
       ;; Setup permissions
       (let ((permissions (autopoiesis.security:setup-user-permissions user)))
@@ -1365,7 +1365,7 @@
 
 (test setup-user-permissions-admin
   "Test admin user gets admin permissions"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (let ((admin-user (autopoiesis.security:create-user "admin-user" "password" :roles '(:admin))))
       (autopoiesis.security:setup-user-permissions admin-user)
 
@@ -1381,7 +1381,7 @@
 
 (test list-users-basic
   "Test listing users"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     (autopoiesis.security:create-user "list-user1" "password" :active t)
     (autopoiesis.security:create-user "list-user2" "password" :active nil)
     (autopoiesis.security:create-user "list-user3" "password" :active t)
@@ -1407,7 +1407,7 @@
 
 (test session-cleanup
   "Test expired session cleanup"
-  (with-store ()
+  (autopoiesis.substrate:with-store ()
     ;; Create a session with very short lifetime
     (let ((user (autopoiesis.security:create-user "cleanup-user" "password"))
           (old-lifetime autopoiesis.security:*session-lifetime*))

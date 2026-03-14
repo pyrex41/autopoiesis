@@ -100,6 +100,9 @@
    #:capability-receive
    #:register-builtin-capabilities
 
+   ;; Typed messages
+   #:make-typed-message
+
    ;; Message system
    #:message
    #:make-message

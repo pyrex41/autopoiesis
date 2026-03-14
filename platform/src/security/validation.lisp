@@ -452,9 +452,12 @@
    
    Usage:
      (with-validated-input (name user-input '(:string :max-length 100))
+       (process-name name))
+     ;; With a variable spec:
+     (with-validated-input (name user-input *validation-spec-agent-id*)
        (process-name name))"
   (let ((result-var (gensym "RESULT")))
-    `(let ((,result-var (validate-input ,input ',spec)))
+    `(let ((,result-var (validate-input ,input ,spec)))
        (if (validation-result-valid-p ,result-var)
            (let ((,var (validation-result-value ,result-var)))
              ,@body)
@@ -462,7 +465,7 @@
               (:signal
                `(error 'validation-error
                        :input ,input
-                       :spec ',spec
+                       :spec ,spec
                        :errors (validation-result-errors ,result-var)))
               (:nil
                `nil)
@@ -471,7 +474,7 @@
               (t
                `(error 'validation-error
                        :input ,input
-                       :spec ',spec
+                       :spec ,spec
                        :errors (validation-result-errors ,result-var))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════

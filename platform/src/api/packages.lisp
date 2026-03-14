@@ -44,12 +44,17 @@
    #:connection-ws
    #:connection-subscriptions
    #:connection-stream-format
+   #:register-connection
+   #:unregister-connection
    #:list-connections
    #:find-connection
    #:broadcast-message
    #:broadcast-stream-data
    #:send-to-connection
    #:send-stream-to-connection
+   #:subscribe-connection
+   #:unsubscribe-connection
+   #:connection-subscribed-p
 
    ;; Message protocol
    #:handle-message

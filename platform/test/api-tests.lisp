@@ -69,7 +69,7 @@
           (gethash "name" h) "stream-data")
     (let* ((encoded (encode-msgpack h))
            (decoded (decode-msgpack encoded)))
-      (is (typep encoded '(simple-array (unsigned-byte 8) (*)))
+      (is (typep encoded '(vector (unsigned-byte 8)))
           "MessagePack should encode to byte vector")
       ;; decoded is alist from cl-messagepack
       (is (equal (cdr (assoc "type" decoded :test #'equal)) "event"))
@@ -100,7 +100,7 @@
   "encode-stream always produces a byte vector (MessagePack binary frame)."
   (let ((h (make-hash-table :test 'equal)))
     (setf (gethash "type" h) "event")
-    (is (typep (encode-stream h) '(simple-array (unsigned-byte 8) (*))))))
+    (is (typep (encode-stream h) '(vector (unsigned-byte 8))))))
 
 (test stream-message-classification
   "Stream message types are correctly classified."
@@ -120,7 +120,7 @@
 
     (multiple-value-bind (data frame-type) (encode-auto stream-msg)
       (is (eq frame-type :binary))
-      (is (typep data '(simple-array (unsigned-byte 8) (*)))))
+      (is (typep data '(vector (unsigned-byte 8)))))
 
     (multiple-value-bind (data frame-type) (encode-auto control-msg)
       (is (eq frame-type :text))
@@ -271,8 +271,9 @@
                      conn)))
         (is (equal (gethash "type" result) "agent_created"))
         (let ((agent-data (gethash "agent" result)))
-          (is (stringp (second (member "id" agent-data :test #'equal))))
-          (is (equal (second (member "name" agent-data :test #'equal)) "test-bot"))))
+          (is (hash-table-p agent-data))
+          (is (stringp (gethash "id" agent-data)))
+          (is (equal (gethash "name" agent-data) "test-bot"))))
 
       ;; List
       (let ((result (autopoiesis.api::handle-list-agents (make-msg "type" "list_agents") conn)))

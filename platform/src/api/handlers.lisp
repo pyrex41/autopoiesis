@@ -124,8 +124,8 @@
                           (format nil "Agent not found: ~a" agent-id))))))
 
 (define-handler handle-create-agent "create_agent" (msg conn)
-  (declare (ignore conn))
   (let* ((name (or (gethash "name" msg) "unnamed"))
+         (task (gethash "task" msg))
          (raw-caps (gethash "capabilities" msg))
          (caps-list (etypecase raw-caps
                       (null nil)
@@ -138,6 +138,18 @@
     (register-agent agent)
     ;; Auto-snapshot agent creation
     (ignore-errors (auto-snapshot-agent agent "created"))
+    ;; If task provided, auto-start the agent and send the task
+    (when (and task (stringp task) (> (length task) 0))
+      (runtime-start-agent agent)
+      ;; Subscribe the creating connection to this agent's updates
+      (subscribe-connection conn (format nil "agent:~a" (agent-id agent)))
+      ;; Send task to agent's mailbox after a brief delay for runtime init
+      (let ((agent-id (agent-id agent)))
+        (bordeaux-threads:make-thread
+         (lambda ()
+           (sleep 0.5)  ; Allow runtime thread to start
+           (ignore-errors (send-message-to-agent agent-id task :from "user")))
+         :name (format nil "task-sender-~a" name))))
     ;; Broadcast to agent subscribers (binary stream)
     (broadcast-stream-data (ok-response "agent_created"
                                    "agent" (agent-to-json-plist agent))
@@ -249,6 +261,60 @@
             (ok-response "agent_upgraded"
                          "agentId" agent-id
                          "type" "dual-agent"))))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Agent Scheduling Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(define-handler handle-schedule-agent-task "schedule_agent_task" (msg conn)
+  "Schedule a one-shot or recurring task for an agent.
+   msg: { agentId, message, delaySeconds, recurring, intervalSeconds }"
+  (declare (ignore conn))
+  (let ((agent-id (gethash "agentId" msg))
+        (message (gethash "message" msg))
+        (delay (or (gethash "delaySeconds" msg) 0))
+        (recurring (gethash "recurring" msg))
+        (interval (gethash "intervalSeconds" msg)))
+    (unless agent-id
+      (return-from handle-schedule-agent-task
+        (error-response "missing_field" "schedule_agent_task requires 'agentId'")))
+    (unless message
+      (return-from handle-schedule-agent-task
+        (error-response "missing_field" "schedule_agent_task requires 'message'")))
+    (let ((agent (find-agent agent-id)))
+      (unless agent
+        (return-from handle-schedule-agent-task
+          (error-response "not_found"
+                          (format nil "Agent not found: ~a" agent-id)))))
+    (let ((conductor autopoiesis.orchestration:*conductor*))
+      (unless conductor
+        (return-from handle-schedule-agent-task
+          (error-response "conductor_unavailable" "Conductor is not running")))
+      (autopoiesis.orchestration:schedule-action conductor delay
+        (list :action-type :agent-wakeup
+              :agent-id agent-id
+              :message message
+              :recurring (and recurring (not (eq recurring :false)))
+              :interval (when (and recurring (not (eq recurring :false)))
+                          (or interval 30))))
+      (ok-response "task_scheduled"
+                   "agentId" agent-id
+                   "message" message
+                   "delaySeconds" delay
+                   "recurring" (if (and recurring (not (eq recurring :false))) t :false)
+                   "intervalSeconds" (when (and recurring (not (eq recurring :false)))
+                                      (or interval 30))))))
+
+(define-handler handle-agent-continuation "agent_request_continuation" (msg conn)
+  "Request a continuation for an agent (agent does another cycle)."
+  (declare (ignore conn))
+  (let ((agent-id (gethash "agentId" msg))
+        (message (or (gethash "message" msg) "Continue working")))
+    (unless agent-id
+      (return-from handle-agent-continuation
+        (error-response "missing_field" "agent_request_continuation requires 'agentId'")))
+    (agent-request-continuation agent-id message)
+    (ok-response "continuation_queued" "agentId" agent-id)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Thought Handlers

@@ -87,6 +87,7 @@
    #:blocking-request-default
    #:blocking-request-response
    #:blocking-request-status
+   #:blocking-request-created
    #:make-blocking-request
    #:wait-for-response
    #:provide-response

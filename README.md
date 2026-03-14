@@ -17,7 +17,7 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 
 ## Status
 
-**All phases (0-11) complete.** 4,300+ assertions across 28 test suites + 109 browser E2E assertions across 14 suites, all passing.
+**All phases (0-11) complete.** 4,095+ assertions across 28 test suites + 109 browser E2E assertions across 14 suites, all passing.
 
 ---
 
@@ -473,6 +473,37 @@ Agents spawn specialized children with parent-child lineage, inter-agent messagi
   (autopoiesis.agent:capability-receive :clear t))
 ```
 
+### Flexible Agent Work Modes
+
+Agents don't just respond to chat — they can self-continue, run on schedules, and work autonomously. Everything is a message to the mailbox:
+
+```lisp
+;; Agent requests another cognitive cycle after completing a step
+(autopoiesis.api:agent-request-continuation agent-id
+  "Completed step 1 of 3, continuing with step 2")
+
+;; Schedule a recurring check every 30 seconds via the conductor
+(autopoiesis.orchestration:schedule-action *conductor* 0
+  '(:action-type :agent-wakeup
+    :agent-id "agent-123"
+    :message "Check endpoint health"
+    :recurring t
+    :interval 30))
+
+;; Or via WebSocket:
+;; { "type": "schedule_agent_task", "agentId": "agent-123",
+;;   "message": "Poll for updates", "recurring": true, "intervalSeconds": 60 }
+```
+
+| Pattern | How It Works |
+|---------|-------------|
+| **One-shot task** | User sends chat → agent processes → done (default) |
+| **Multi-step autonomous** | Agent finishes step, requests continuation → immediately processes next |
+| **Scheduled polling** | Conductor sends `:scheduled` message every N seconds |
+| **Delayed task** | Schedule with delay, no recurrence → agent wakes once |
+
+Message types (`:chat`, `:continuation`, `:scheduled`, `:system`) all flow through the same mailbox and cognitive cycle — the agent loop doesn't need to know the difference.
+
 ### Team Coordination
 
 Create teams of agents that work together using configurable strategies. Five coordination patterns are built in:
@@ -680,7 +711,7 @@ Multi-provider agentic loops: direct API (Anthropic, OpenAI, Ollama) and CLI sub
 
 ### Orchestration Layer (`platform/src/orchestration/`)
 
-Conductor tick loop (100ms heartbeat) with substrate-backed event queue. Linda `take!` for atomic event claiming. Timer heap for scheduled actions. Worker management as substrate entities. Claude CLI subprocess spawning with streaming JSON, timeout handling, and exponential backoff. HTTP webhook endpoint.
+Conductor tick loop (100ms heartbeat) with substrate-backed event queue. Linda `take!` for atomic event claiming. Timer heap for scheduled actions including `:agent-wakeup` (one-shot and recurring agent task scheduling). Worker management as substrate entities. Claude CLI subprocess spawning with streaming JSON, timeout handling, and exponential backoff. HTTP webhook endpoint.
 
 ### Team Layer (`platform/src/team/`)
 
@@ -748,19 +779,19 @@ ap/
 
 ```
 Substrate tests:      112 assertions    Datom store, interning, transact!, hooks, take!, entity types
-Orchestration tests:   91 assertions    Conductor, timer heap, event queue, workers, Claude CLI
+Orchestration tests:   99 assertions    Conductor, timer heap, event queue, workers, Claude CLI
 Core tests:           470 assertions    S-expression ops, cognitive primitives, compiler, recovery
 Agent tests:          363 assertions    Lifecycle, capabilities, context window, learning, spawning
 Snapshot tests:       267 assertions    Persistence, DAG traversal, compaction, branches
 Conversation tests:    45 assertions    Turn creation, context management, forking, history
-Interface tests:       40 assertions    Blocking requests, sessions, viewport
+Interface tests:       43 assertions    Blocking requests, sessions, viewport
 Viz tests:             92 assertions    Timeline rendering, navigation, filters, help
 Integration tests:    649 assertions    Claude API, MCP, tools, events, agentic loops
 Agentic tests:        195 assertions    Agentic loop, tool dispatch, provider integration
 Provider tests:        70 assertions    Multi-provider subprocess management
 Prompt registry:       71 assertions    Prompt templates, registration, retrieval
 Skel tests:           523 assertions    Typed LLM functions, BAML parser, SAP, JSON schema
-REST API tests:        73 assertions    REST API serialization and dispatch
+API tests:            159 assertions    WS handlers, REST serialization, connections, wire format
 Swarm tests:          110 assertions    Genome evolution, crossover, mutation, selection
 Supervisor tests:      63 assertions    Checkpoint/revert, stable state, promotion
 Crystallize tests:     60 assertions    Emit capabilities/heuristics/genomes to source
@@ -772,12 +803,12 @@ Persistent agent:      80 assertions    Persistent structs, cognition, fork, lin
 Swarm integration:     23 assertions    Genome bridge, persistent evolution, fitness
 Bridge protocol:       14 assertions    Claude bridge protocol, message format
 Meta-agent tests:      36 assertions    Meta-agent capabilities, self-inspection
-Security tests:       322 assertions    Permissions, audit, validation, 65 sandbox escape tests
+Security tests:       386 assertions    Permissions, audit, validation, authentication, sessions
 Monitoring tests:      48 assertions    Metrics, health checks, HTTP endpoints
 E2E tests:            134 assertions    All 15 user stories end-to-end
 Holodeck tests:     1,193 assertions    ECS, shaders, meshes, camera, HUD (separate system)
 ───────────────────────────────────
-Total:              4,300+ assertions   All passing
+Total:              4,095+ assertions   All passing
 ```
 
 ## Dependencies
