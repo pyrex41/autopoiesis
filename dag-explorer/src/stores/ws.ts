@@ -34,7 +34,8 @@ export type ClientMessage =
   | { type: "disband_team"; teamId: string }
   | { type: "add_team_member"; teamId: string; agentName: string }
   | { type: "remove_team_member"; teamId: string; agentName: string }
-  | { type: "query_team"; teamId: string };
+  | { type: "query_team"; teamId: string }
+  | { type: "set_stream_format"; format: "json" | "msgpack" };
 
 type MessageHandler = (msg: ServerMessage) => void;
 
@@ -68,6 +69,9 @@ function connect() {
     setReconnecting(false);
     reconnectDelay = RECONNECT_DELAY_MS;
 
+    // Request JSON text frames for data streams (server defaults to binary MessagePack)
+    send({ type: "set_stream_format", format: "json" });
+
     // Re-subscribe to channels
     for (const channel of pendingSubscriptions) {
       send({ type: "subscribe", channel });
@@ -75,6 +79,7 @@ function connect() {
   };
 
   socket.onmessage = (event) => {
+    if (typeof event.data !== "string") return; // skip binary frames
     try {
       const msg: ServerMessage = JSON.parse(event.data);
       for (const handler of handlers) {

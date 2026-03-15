@@ -340,14 +340,12 @@ You have access to these tool categories (depending on your capabilities):
   (let ((msg (ok-response "chat_stream_delta"
                           "agentId" agent-id
                           "delta" delta)))
-    (broadcast-to-agent-subscribers agent-id msg)
-    (broadcast-stream-data msg :subscription-type "agents")))
+    (broadcast-to-agent-subscribers agent-id msg)))
 
 (defun broadcast-agent-stream-event (agent-id event-type)
   "Send a stream lifecycle event (chat_stream_start or chat_stream_end)."
   (let ((msg (ok-response event-type "agentId" agent-id)))
-    (broadcast-to-agent-subscribers agent-id msg)
-    (broadcast-stream-data msg :subscription-type "agents")))
+    (broadcast-to-agent-subscribers agent-id msg)))
 
 (defun broadcast-agent-chat-response (agent-id text from-id)
   "Send a chat_response for an agent's LLM reply to the right connections."
@@ -355,10 +353,9 @@ You have access to these tool categories (depending on your capabilities):
                                "agentId" agent-id
                                "text" text
                                "fromAgent" t)))
-    ;; Send to all connections subscribed to this agent
-    (broadcast-to-agent-subscribers agent-id response)
-    ;; Also broadcast on agents channel for any listeners
-    (broadcast-stream-data response :subscription-type "agents")))
+    ;; Send to all connections subscribed to this agent only
+    ;; (not the general agents channel — chat is per-conversation)
+    (broadcast-to-agent-subscribers agent-id response)))
 
 ;;; ===================================================================
 ;;; Public API — Called from handlers.lisp

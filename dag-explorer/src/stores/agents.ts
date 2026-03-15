@@ -420,6 +420,8 @@ function handleWSMessage(msg: ServerMessage) {
 
     case "chat_stream_start": {
       // Begin streaming — create a placeholder message that we'll update
+      // Ignore duplicate starts (can arrive via multiple subscription channels)
+      if (streamingMessageId) break;
       const startAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
       streamingMessageId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       setStreamingText("");
@@ -456,9 +458,10 @@ function handleWSMessage(msg: ServerMessage) {
     }
 
     case "chat_stream_end": {
-      streamingMessageId = null;
+      // Don't clear streamingMessageId here — chat_response needs it to
+      // replace the placeholder with the final complete text.
+      // streamingMessageId is cleared in the chat_response handler.
       setStreamingText(null);
-      setChatLoading(false);
       break;
     }
 

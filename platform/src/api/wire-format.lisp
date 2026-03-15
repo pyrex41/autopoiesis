@@ -152,7 +152,8 @@ Bypasses Woo's event loop — safe to call from any thread."
   (let ((fd (woo.ev.socket::socket-fd socket)))
     (cffi:with-pointer-to-vector-data (ptr frame)
       (let ((remaining (length frame))
-            (offset 0))
+            (offset 0)
+            (retry-count 0))
         (loop while (> remaining 0)
               do (let ((n (woo.syscall:write fd
                                             (cffi:inc-pointer ptr offset)
@@ -160,14 +161,18 @@ Bypasses Woo's event loop — safe to call from any thread."
                    (cond
                      ((> n 0)
                       (incf offset n)
-                      (decf remaining n))
+                      (decf remaining n)
+                      (setf retry-count 0))
                      ((= n -1)
                       (let ((errno (woo.syscall:errno)))
                         (cond
                           ((or (= errno woo.syscall:EWOULDBLOCK)
                                (= errno woo.syscall:EINTR))
-                           ;; Transient — retry
-                           )
+                           ;; Transient - brief sleep then retry (max ~2s total)
+                           (incf retry-count)
+                           (when (> retry-count 200)
+                             (error "WebSocket write timed out after ~2s of EWOULDBLOCK"))
+                           (sleep 0.01))
                           (t
                            (error "WebSocket write failed (errno ~D)" errno)))))
                      (t

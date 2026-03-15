@@ -196,11 +196,7 @@ time-travel debugging."))
           (ignore-errors
             (let ((check-fn (find-symbol "AUTO-CRYSTALLIZE-IF-TRIGGERED"
                                          :autopoiesis.crystallize)))
-              (when check-fn (funcall check-fn agent)))))
-        ;; Fire :on-complete callback with response text
-        (let ((on-complete (getf callbacks :on-complete)))
-          (when (and on-complete text)
-            (funcall on-complete text)))))))
+              (when check-fn (funcall check-fn agent)))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Convenience API

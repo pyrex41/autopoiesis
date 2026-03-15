@@ -169,6 +169,8 @@ DATA is a hash-table or plist to be encoded per-connection."
                                   (connection-subscribed-p conn subscription-type))
                            collect conn)))
         (dead nil))
+    (unless targets
+      (log:debug "broadcast-stream-data: no subscribers for ~a" subscription-type))
     (when targets
       ;; Pre-encode both formats lazily so we don't re-encode per connection
       (let ((msgpack-bytes nil)
