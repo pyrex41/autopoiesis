@@ -70,13 +70,15 @@
              (gethash "rationale" ht) (decision-rationale thought)))
       (action
        (setf (gethash "capability" ht) (when (action-capability thought)
-                                         (string-downcase
-                                          (symbol-name (action-capability thought))))
+                                         (let ((cap (action-capability thought)))
+                                           (string-downcase
+                                            (if (stringp cap) cap (symbol-name cap)))))
              (gethash "result" ht) (format nil "~S" (action-result thought))))
       (observation
        (setf (gethash "source" ht) (when (observation-source thought)
-                                     (string-downcase
-                                      (symbol-name (observation-source thought))))
+                                     (let ((src (observation-source thought)))
+                                       (string-downcase
+                                        (if (stringp src) src (symbol-name src)))))
              (gethash "raw" ht) (format nil "~S" (observation-raw thought))))
       (reflection
        (setf (gethash "target" ht) (when (reflection-target thought)
