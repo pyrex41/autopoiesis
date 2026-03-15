@@ -572,12 +572,16 @@ for data stream messages. Control messages are always JSON."
   (let ((activities (mapcar (lambda (agent)
                               (let* ((id (agent-id agent))
                                      (name (agent-name agent))
-                                     (activity-data (activity-to-json-alist id)))
-                                (append (list (cons "agentId" id)
-                                              (cons "agentName" name)
-                                              (cons "state" (string-downcase
-                                                              (symbol-name (agent-state agent)))))
-                                        activity-data)))
+                                     (ht (make-hash-table :test 'equal)))
+                                (setf (gethash "agentId" ht) id
+                                      (gethash "agentName" ht) name
+                                      (gethash "state" ht) (string-downcase
+                                                             (symbol-name (agent-state agent))))
+                                ;; Merge activity data
+                                (let ((plist (activity-to-json-plist id)))
+                                  (loop for (k v) on plist by #'cddr
+                                        do (setf (gethash k ht) v)))
+                                ht))
                             (list-agents))))
     (ok-response "activities" "activities" activities)))
 

@@ -96,4 +96,4 @@
                        (invoke-tool capability arguments)
                     (setf (symbol-value (find-symbol "*CURRENT-AGENT-FOR-CHECKPOINT*" sup-pkg))
                           nil)))
-                (invoke-tool capability arguments))))))
+                (invoke-tool capability arguments)))))))
