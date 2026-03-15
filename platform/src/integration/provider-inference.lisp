@@ -167,7 +167,8 @@ interface. Uses the agentic loop for multi-turn tool use."))
                                       (intern (string-upcase (provider-name provider)) :keyword)
                                       (list :turns turn-count
                                             :duration duration
-                                            :text-length (length (or text "")))
+                                            :text-length (length (or text ""))
+                                            :cost (provider-result-cost result))
                                       :agent-id agent-id)
               result)))
       (error (e)

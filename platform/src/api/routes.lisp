@@ -363,7 +363,11 @@
     (unless agent
       (return-from rest-take-snapshot (json-not-found "Agent" agent-id)))
     (let* ((body (parse-json-body))
-           (parent-id (cdr (assoc :parent body)))
+           (parent-id (or (cdr (assoc :parent body))
+                         (when autopoiesis.snapshot:*snapshot-store*
+                           (autopoiesis.snapshot:find-latest-snapshot-for-agent
+                            (agent-id agent)
+                            autopoiesis.snapshot:*snapshot-store*))))
            (metadata (cdr (assoc :metadata body)))
            ;; Serialize agent state as S-expression
            (agent-state `(:agent

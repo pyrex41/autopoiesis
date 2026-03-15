@@ -115,13 +115,26 @@ Dispatches on event kind to update the appropriate state tables."
 ;;; Broadcasting
 ;;; ═══════════════════════════════════════════════════════════════════
 
+(defun activity-to-json-alist (agent-id)
+  "Return activity + cost data for AGENT-ID as a JSON-friendly alist."
+  (bt:with-lock-held (*activity-lock*)
+    (let ((activity (gethash agent-id *activity-state*))
+          (cost (gethash agent-id *cost-state*)))
+      (list (cons "currentTool" (when activity (getf activity :current-tool)))
+            (cons "toolStartTime" (when activity (getf activity :tool-start)))
+            (cons "lastActive" (when activity (getf activity :last-active)))
+            (cons "callCount" (if activity (getf activity :total-calls) 0))
+            (cons "duration" (when activity (getf activity :last-tool-duration)))
+            (cons "totalCost" (if cost (getf cost :total-cost) 0))
+            (cons "tokens" (if cost (getf cost :total-tokens) 0))))))
+
 (defun broadcast-activity-update (agent-id)
   "Broadcast an activity update for AGENT-ID to subscribed WebSocket clients."
   (handler-case
       (broadcast-stream-data
        (ok-response "activity_update"
                     "agentId" agent-id
-                    "activity" (agent-activity agent-id))
+                    "activity" (activity-to-json-alist agent-id))
        :subscription-type "activity")
     (error (e)
       (log:warn "Activity broadcast error: ~a" e))))

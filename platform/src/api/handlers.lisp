@@ -430,8 +430,11 @@
                           :agent-state (agent-state agent)
                           :thought-count (stream-length (agent-thought-stream agent))
                           :capabilities (agent-capabilities agent)))
+             (parent-id (when *snapshot-store*
+                          (autopoiesis.snapshot:find-latest-snapshot-for-agent
+                           agent-id *snapshot-store*)))
              (metadata (when label (list :label label)))
-             (snapshot (make-snapshot state :metadata metadata)))
+             (snapshot (make-snapshot state :parent parent-id :metadata metadata)))
         (when *snapshot-store*
           (save-snapshot snapshot *snapshot-store*))
         (ok-response "snapshot_created"
@@ -569,18 +572,12 @@ for data stream messages. Control messages are always JSON."
   (let ((activities (mapcar (lambda (agent)
                               (let* ((id (agent-id agent))
                                      (name (agent-name agent))
-                                     (state (string-downcase
-                                              (symbol-name (agent-state agent)))))
-                                (list (cons "agentId" id)
-                                      (cons "agentName" name)
-                                      (cons "state" state)
-                                      (cons "currentTool" nil)
-                                      (cons "toolStartTime" nil)
-                                      (cons "duration" 0)
-                                      (cons "totalCost" 0)
-                                      (cons "tokens" 0)
-                                      (cons "callCount" 0)
-                                      (cons "lastActive" (get-universal-time)))))
+                                     (activity-data (activity-to-json-alist id)))
+                                (append (list (cons "agentId" id)
+                                              (cons "agentName" name)
+                                              (cons "state" (string-downcase
+                                                              (symbol-name (agent-state agent)))))
+                                        activity-data)))
                             (list-agents))))
     (ok-response "activities" "activities" activities)))
 

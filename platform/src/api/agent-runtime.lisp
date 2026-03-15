@@ -28,6 +28,9 @@
 
 (defvar *agent-runtimes-lock* (bordeaux-threads:make-lock "agent-runtimes"))
 
+(defvar *self-modification-initialized* nil
+  "Flag to ensure self-modification infrastructure is initialized only once.")
+
 (defun get-agent-runtime (agent-id)
   "Get runtime info for an agent."
   (bordeaux-threads:with-lock-held (*agent-runtimes-lock*)
@@ -92,7 +95,8 @@
       nil)))
 
 (defun generate-agent-system-prompt (agent)
-  "Generate a system prompt for an individual agent."
+  "Generate a system prompt for an individual agent.
+   Uses prompt registry templates when available, with hardcoded fallback."
   (let* ((caps (or (mapcar (lambda (c) (string-downcase (symbol-name c)))
                            (agent-capabilities agent))
                    '("none")))
@@ -101,8 +105,25 @@
                               :test #'equal))
          (peer-section (if peer-agents
                            (format nil "~%Peer agents you can communicate with: ~{~a~^, ~}" peer-agents)
-                           "")))
-    (format nil "You are ~a, an autonomous agent in the Autopoiesis platform.
+                           ""))
+         ;; Try prompt registry for base prompt
+         (base-prompt (handler-case
+                          (let ((tmpl (autopoiesis.integration:find-prompt "cognitive-base")))
+                            (when tmpl
+                              (autopoiesis.integration:render-prompt tmpl
+                                `(("agent-name" . ,(agent-name agent))
+                                  ("capabilities" . ,(format nil "~{~a~^, ~}" caps))))))
+                        (error () nil)))
+         ;; Self-extension section (if agent has self-modify capability)
+         (ext-section (when (member :self-modify (agent-capabilities agent))
+                        (handler-case
+                            (let ((tmpl (autopoiesis.integration:find-prompt "self-extension")))
+                              (when tmpl
+                                (format nil "~%~%# SELF-EXTENSION~%~a"
+                                        (autopoiesis.integration:render-prompt tmpl nil))))
+                          (error () nil))))
+         ;; Hardcoded fallback if registry unavailable
+         (fallback (format nil "You are ~a, an autonomous agent in the Autopoiesis platform.
 
 # IDENTITY
 - Agent ID: ~a
@@ -131,12 +152,18 @@ You have access to these tool categories (depending on your capabilities):
 - Use tools when you need information or need to take action
 - When modifying the system, explain what you're doing
 - Keep responses focused — you're in a chat panel, not writing a document"
-            (agent-name agent)
+                         (agent-name agent)
+                         (agent-id agent)
+                         (agent-name agent)
+                         caps
+                         (string-downcase (symbol-name (agent-state agent)))
+                         peer-section)))
+    (format nil "~a~%~%# DASHBOARD CONTEXT~%- Agent ID: ~a~%- State: ~a~a~a"
+            (or base-prompt fallback)
             (agent-id agent)
-            (agent-name agent)
-            caps
             (string-downcase (symbol-name (agent-state agent)))
-            peer-section)))
+            peer-section
+            (or ext-section ""))))
 
 ;;; ===================================================================
 ;;; Cognitive Loop Thread
@@ -334,9 +361,28 @@ You have access to these tool categories (depending on your capabilities):
 ;;; Public API — Called from handlers.lisp
 ;;; ===================================================================
 
+(defun initialize-self-modification ()
+  "One-time initialization of self-modification infrastructure.
+   Registers default crystallize triggers when the module is available."
+  (when *self-modification-initialized*
+    (return-from initialize-self-modification))
+  (setf *self-modification-initialized* t)
+  ;; Register daily crystallize trigger if crystallize module loaded
+  (when (find-package :autopoiesis.crystallize)
+    (ignore-errors
+      (let ((create-fn (find-symbol "CREATE-SCHEDULED-TRIGGER"
+                                    :autopoiesis.crystallize)))
+        (when create-fn
+          (funcall create-fn
+                   "daily-crystallize"
+                   "Daily crystallization of promoted capabilities"
+                   86400))))))
+
 (defun runtime-start-agent (agent)
   "Start an agent's runtime: create provider, upgrade to provider-backed-agent,
    spawn cognitive loop thread. Called when the user clicks 'start' in the UI."
+  ;; Ensure self-modification infrastructure is initialized
+  (initialize-self-modification)
   (let ((agent-id (agent-id agent)))
     ;; Don't double-start
     (when (get-agent-runtime agent-id)
@@ -414,7 +460,10 @@ You have access to these tool categories (depending on your capabilities):
 (defun auto-snapshot-agent (agent label)
   "Create a snapshot capturing the agent's current state."
   (when *snapshot-store*
-    (let* ((state (list :agent-id (agent-id agent)
+    (let* ((agent-id-val (agent-id agent))
+           (parent-id (autopoiesis.snapshot:find-latest-snapshot-for-agent
+                       agent-id-val *snapshot-store*))
+           (state (list :agent-id agent-id-val
                         :agent-name (agent-name agent)
                         :agent-state (agent-state agent)
                         :thought-count (stream-length (agent-thought-stream agent))
@@ -423,7 +472,7 @@ You have access to these tool categories (depending on your capabilities):
                         :timestamp (get-universal-time)))
            (metadata (list :label label
                            :agent-name (agent-name agent)))
-           (snapshot (make-snapshot state :metadata metadata)))
+           (snapshot (make-snapshot state :parent parent-id :metadata metadata)))
       (save-snapshot snapshot *snapshot-store*)
       ;; Broadcast snapshot creation to DAG subscribers
       (broadcast-stream-data

@@ -121,7 +121,8 @@ its specific tool."))
                                     (intern (string-upcase (provider-name provider)) :keyword)
                                     (list :exit-code exit-code
                                           :duration duration
-                                          :text-length (length (or (provider-result-text result) "")))
+                                          :text-length (length (or (provider-result-text result) ""))
+                                          :cost (provider-result-cost result))
                                     :agent-id agent-id)
             result))))))
 
