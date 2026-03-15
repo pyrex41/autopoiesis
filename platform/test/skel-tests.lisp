@@ -2440,11 +2440,11 @@ line2"))))
             (age :type integer :description "Age in years"))))
   (let ((hint (format-type-hint 'test-hint-class)))
     (is (not (null hint)))
-    (is (search "JSON object" hint))
+    (is (search "JSON Schema" hint))
     (is (search "name" hint))
     (is (search "age" hint))
-    (is (search "<string>" hint))
-    (is (search "<integer>" hint))))
+    (is (search "string" hint))
+    (is (search "integer" hint))))
 
 (test format-type-hint-non-skel-class-unchanged
   "Test type hint returns nil for unknown symbols"
@@ -2464,7 +2464,7 @@ line2"))))
   (let* ((func (get-skel-function 'test-class-build))
          (prompt (build-skel-prompt func '(:text "data"))))
     (is (search "Extract from: data" prompt))
-    (is (search "JSON object" prompt))
+    (is (search "JSON Schema" prompt))
     (is (search "title" prompt))
     (is (search "score" prompt))))
 
@@ -2578,3 +2578,53 @@ line2"))))
          (*current-llm-client* client))
     ;; Unknown named client falls back to *current-llm-client*
     (is (eq client (autopoiesis.skel::ensure-llm-client :unknown-client)))))
+
+;;; ============================================================================
+;;; Float Parser Safety Tests
+;;; ============================================================================
+
+(test parse-float-rejects-non-numeric
+  "Float parser must reject non-numeric strings"
+  (signals skel-type-error
+    (parse-llm-response "abc" :float))
+  (signals skel-type-error
+    (parse-llm-response "hello world" :float))
+  ;; Valid floats still work
+  (is (= 3.14 (parse-llm-response "3.14" :float)))
+  (is (= 42.0 (parse-llm-response "42" :float))))
+
+;;; ============================================================================
+;;; Fallback Client Config Guard Tests
+;;; ============================================================================
+
+(test apply-config-to-fallback-client
+  "apply-config-to-client passes fallback clients through unchanged"
+  (clear-skel-registry)
+  (let* ((c1 (make-skel-llm-client :model "model-a"))
+         (fb (make-instance 'autopoiesis.skel::fallback-skel-client
+                            :clients (list c1)))
+         (config (autopoiesis.skel::make-skel-config))
+         (result (autopoiesis.skel::apply-config-to-client fb config)))
+    (is (eq fb result))))
+
+;;; ============================================================================
+;;; Nested SKEL Class Extraction Tests
+;;; ============================================================================
+
+(test nested-skel-class-extraction
+  "Nested SKEL class types are recursively extracted"
+  (clear-skel-registry)
+  (eval '(define-skel-class test-address ()
+           ((city :type string :required t)
+            (zip :type string))))
+  (eval '(define-skel-class test-contact ()
+           ((name :type string :required t)
+            (address :type test-address))))
+  (let ((result (parse-llm-response
+                 "{\"name\": \"Bob\", \"address\": {\"city\": \"NYC\", \"zip\": \"10001\"}}"
+                 'test-contact)))
+    (is (string= "Bob" (getf result :name)))
+    (let ((addr (getf result :address)))
+      (is (listp addr))
+      (is (string= "NYC" (getf addr :city)))
+      (is (string= "10001" (getf addr :zip))))))

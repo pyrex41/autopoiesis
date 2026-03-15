@@ -204,8 +204,9 @@
      (format nil "Respond with a JSON array of ~A values."
              (string-downcase (symbol-name (cadr return-type)))))
     ((and (symbolp return-type) (get-skel-class return-type))
-     (format nil "Respond with a JSON object matching this schema:~%~A"
-             (format-class-schema return-type :style :json)))
+     (let ((schema (skel-class-to-json-schema return-type)))
+       (format nil "Respond with a JSON object matching this JSON Schema:~%~A"
+               (cl-json:encode-json-to-string schema))))
     (t nil)))
 
 (defun invoke-skel-function (name &rest args

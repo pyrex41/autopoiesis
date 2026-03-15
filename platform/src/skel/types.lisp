@@ -121,12 +121,20 @@ PARSER-BODY is code that takes a string INPUT and returns the parsed value."
 (define-skel-type :float (:description "A floating-point number")
   (let ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) input)))
     (handler-case
-        (read-from-string trimmed)
-      (error ()
-        (error 'skel-type-error
-               :type-name :float
-               :value input
-               :message (format nil "Cannot parse '~A' as float" trimmed))))))
+        (let ((result (read-from-string trimmed)))
+          (if (numberp result)
+              (float result)
+              (error 'skel-type-error
+                     :type-name :float
+                     :value input
+                     :message (format nil "Cannot parse '~A' as float" trimmed))))
+      (error (e)
+        (if (typep e 'skel-type-error)
+            (error e)
+            (error 'skel-type-error
+                   :type-name :float
+                   :value input
+                   :message (format nil "Cannot parse '~A' as float" trimmed)))))))
 
 (define-skel-type :boolean (:description "A boolean value (true/false)")
   (let ((trimmed (string-downcase

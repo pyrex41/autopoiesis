@@ -386,7 +386,9 @@
        (otherwise value)))
 
     ((and (symbolp expected-type) (skel-class-p expected-type))
-     value)
+     (if (listp value)
+         (sap-extract-with-schema value expected-type :strict strict)
+         value))
 
     (t value)))
 

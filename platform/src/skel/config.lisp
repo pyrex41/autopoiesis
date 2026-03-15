@@ -234,10 +234,13 @@
 ;;; ============================================================================
 
 (defun apply-config-to-client (client config)
-  "Apply a skel-config to an LLM client, returning a modified client."
-  (make-skel-llm-client
-   :api-key (skel-client-api-key client)
-   :model (or (config-model config) (skel-client-model client))
-   :max-tokens (or (config-max-tokens config) (skel-client-max-tokens client))
-   :temperature (or (config-temperature config) (skel-client-temperature client))
-   :timeout (or (config-timeout config) (skel-client-timeout client))))
+  "Apply a skel-config to an LLM client, returning a modified client.
+Fallback clients are returned unchanged — config applies to their inner clients."
+  (if (typep client 'fallback-skel-client)
+      client
+      (make-skel-llm-client
+       :api-key (skel-client-api-key client)
+       :model (or (config-model config) (skel-client-model client))
+       :max-tokens (or (config-max-tokens config) (skel-client-max-tokens client))
+       :temperature (or (config-temperature config) (skel-client-temperature client))
+       :timeout (or (config-timeout config) (skel-client-timeout client)))))
