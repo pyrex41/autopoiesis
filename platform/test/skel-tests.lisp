@@ -18,7 +18,8 @@
 
 (defun clear-skel-registry ()
   "Clear the SKEL class registry for test isolation."
-  (clrhash autopoiesis.skel::*skel-classes*))
+  (clrhash autopoiesis.skel::*skel-classes*)
+  (clrhash autopoiesis.skel::*skel-client-registry*))
 
 ;;; ============================================================================
 ;;; define-skel-class Macro Tests
@@ -2397,6 +2398,35 @@ line2"))))
   ;; Empty string should error for :json
   (signals skel-type-error
     (parse-llm-response "" :json)))
+
+(test parse-llm-response-skel-class
+  "Test parse-llm-response handles SKEL class return types"
+  (clear-skel-registry)
+  (eval '(define-skel-class test-parse-person ()
+           ((name :type string :required t)
+            (age :type integer))))
+  (let ((result (parse-llm-response
+                 "{\"name\": \"Alice\", \"age\": 30}"
+                 'test-parse-person)))
+    (is (listp result))
+    (is (string= "Alice" (getf result :name)))
+    (is (= 30 (getf result :age)))))
+
+(test parse-llm-response-skel-class-with-preamble
+  "Test parse-llm-response handles SKEL class with markdown fence"
+  (clear-skel-registry)
+  (eval '(define-skel-class test-parse-item ()
+           ((title :type string :required t)
+            (quantity :type integer))))
+  (let ((result (parse-llm-response
+                 "Here is the result:
+```json
+{\"title\": \"Widget\", \"quantity\": 5}
+```"
+                 'test-parse-item)))
+    (is (listp result))
+    (is (string= "Widget" (getf result :title)))
+    (is (= 5 (getf result :quantity)))))
 
 ;;; ============================================================================
 ;;; Phase 1: Class Schema Type Hints

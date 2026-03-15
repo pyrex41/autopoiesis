@@ -591,8 +591,9 @@
                          (or (find-symbol (string-upcase t-param) :keyword)
                              (return-from rest-event-history
                                (json-error (format nil "Unknown event type: ~a" t-param)))))))
+         (agent-id-param (hunchentoot:get-parameter "agent_id"))
          (events (autopoiesis.integration:get-event-history
-                  :limit limit :type event-type)))
+                  :limit limit :type event-type :agent-id agent-id-param)))
     (json-ok (mapcar #'event-to-json-alist events))))
 
 ;;; ===================================================================
@@ -832,6 +833,69 @@
       (json-ok (team-to-json-alist team)))))
 
 ;;; ===================================================================
+;;; Self-Extension Endpoints
+;;; ===================================================================
+
+(defun rest-handle-extensions (request)
+  "Dispatch /api/extensions requests.
+   POST /api/extensions/define — define a new capability
+   POST /api/extensions/test — test a defined capability
+   POST /api/extensions/promote — promote a tested capability
+   GET  /api/extensions — list agent-defined capabilities"
+  (let ((method (hunchentoot:request-method request))
+        (sub-path (let ((uri (hunchentoot:request-uri request)))
+                    (let ((qpos (position #\? uri)))
+                      (when qpos (setf uri (subseq uri 0 qpos))))
+                    (when (>= (length uri) 16)
+                      (subseq uri 16)))))
+    (cond
+      ;; GET /api/extensions — list capabilities
+      ((eq method :get)
+       (require-permission :read)
+       (let ((caps (autopoiesis.agent:list-capabilities)))
+         (json-ok (loop for cap in caps
+                        collect `((:name . ,(string-downcase
+                                             (symbol-name (autopoiesis.agent:capability-name cap))))
+                                  (:description . ,(autopoiesis.agent:capability-description cap))
+                                  (:type . ,(if (typep cap 'autopoiesis.agent:agent-capability)
+                                                "agent-defined" "builtin")))))))
+      ;; POST /api/extensions/define
+      ((and (eq method :post) (string= sub-path "define"))
+       (require-permission :write)
+       (let* ((body (parse-json-body))
+              (result (handler-case
+                          (autopoiesis.agent:invoke-capability
+                           :define-capability-tool
+                           :name (cdr (assoc :name body))
+                           :description (cdr (assoc :description body))
+                           :parameters (cdr (assoc :parameters body))
+                           :code (cdr (assoc :code body)))
+                        (error (e) (format nil "Error: ~a" e)))))
+         (json-ok `((:result . ,result)))))
+      ;; POST /api/extensions/test
+      ((and (eq method :post) (string= sub-path "test"))
+       (require-permission :write)
+       (let* ((body (parse-json-body))
+              (result (handler-case
+                          (autopoiesis.agent:invoke-capability
+                           :test-capability-tool
+                           :name (cdr (assoc :name body))
+                           :test-cases (cdr (assoc :test--cases body)))
+                        (error (e) (format nil "Error: ~a" e)))))
+         (json-ok `((:result . ,result)))))
+      ;; POST /api/extensions/promote
+      ((and (eq method :post) (string= sub-path "promote"))
+       (require-permission :write)
+       (let* ((body (parse-json-body))
+              (result (handler-case
+                          (autopoiesis.agent:invoke-capability
+                           :promote-capability-tool
+                           :name (cdr (assoc :name body)))
+                        (error (e) (format nil "Error: ~a" e)))))
+         (json-ok `((:result . ,result)))))
+      (t (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed")))))
+
+;;; ===================================================================
 ;;; Main Router
 ;;; ===================================================================
 
@@ -873,6 +937,11 @@
                (and (> (length uri) 11)
                     (string= "/api/teams/" (subseq uri 0 11))))
            (handle-teams request))
+          ;; /api/extensions or /api/extensions/...
+          ((or (string= uri "/api/extensions")
+               (and (> (length uri) 16)
+                    (string= "/api/extensions/" (subseq uri 0 16))))
+           (rest-handle-extensions request))
           ;; /api/events (exact match)
           ((string= uri "/api/events")
            (rest-handle-events request))

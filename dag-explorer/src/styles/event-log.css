@@ -1,0 +1,118 @@
+/* ══════════════════════════════════════════════════════════════════
+   EVENT LOG — Agent Event History
+   ══════════════════════════════════════════════════════════════════ */
+
+.event-log-filters {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.event-filter-pill {
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.event-filter-pill:hover {
+  border-color: var(--border-hi);
+  color: var(--text-muted);
+}
+
+.event-filter-active {
+  background: rgba(79, 195, 247, 0.1);
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.event-log-loading {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
+.event-log-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.event-log-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 12px 0;
+  text-align: center;
+}
+
+/* ── Event Rows ──────────────────────────────────────────────── */
+
+.event-row {
+  border-left: 2px solid var(--border);
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  transition: background var(--transition);
+}
+
+.event-row:hover {
+  background: rgba(79, 195, 247, 0.03);
+}
+
+.event-row-expanded {
+  background: rgba(79, 195, 247, 0.04);
+}
+
+.event-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.event-type-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.event-summary {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-time {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.event-data {
+  margin: 6px 0 2px;
+  padding: 6px 8px;
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

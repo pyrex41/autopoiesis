@@ -1,4 +1,4 @@
-import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent, Task, TaskUpdate, ContextWindow } from "./types";
+import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent, Task, TaskUpdate, ContextWindow, CapabilityDetail, CapabilityInvocationResult } from "./types";
 
 const BASE = "/api";
 
@@ -148,4 +148,33 @@ export async function getAgentContext(id: string): Promise<ContextWindow | null>
   } catch {
     return null;
   }
+}
+
+// ── Agent introspection endpoints ────────────────────────────────
+
+export async function getAgentEvents(agentId: string, opts?: {
+  limit?: number;
+  type?: string;
+}): Promise<IntegrationEvent[]> {
+  const params = new URLSearchParams();
+  params.set("agent_id", agentId);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.type) params.set("type", opts.type);
+  return get<IntegrationEvent[]>(`/events?${params.toString()}`);
+}
+
+export async function getAgentCapabilities(agentId: string): Promise<CapabilityDetail[]> {
+  return get<CapabilityDetail[]>(`/agents/${agentId}/capabilities`);
+}
+
+export async function invokeCapability(
+  agentId: string,
+  capability: string,
+  args?: Record<string, unknown>
+): Promise<CapabilityInvocationResult> {
+  return post<CapabilityInvocationResult>(`/agents/${agentId}/invoke`, { capability, args });
+}
+
+export async function takeAgentSnapshot(agentId: string): Promise<Snapshot> {
+  return post<Snapshot>(`/agents/${agentId}/snapshot`);
 }

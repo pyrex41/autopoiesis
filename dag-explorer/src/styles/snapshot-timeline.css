@@ -1,0 +1,244 @@
+/* ══════════════════════════════════════════════════════════════════
+   SNAPSHOT TIMELINE — Agent Snapshot History
+   ══════════════════════════════════════════════════════════════════ */
+
+.snapshot-timeline-header {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.snap-take-btn {
+  padding: 3px 10px;
+  background: rgba(105, 240, 174, 0.08);
+  border: 1px solid rgba(105, 240, 174, 0.2);
+  border-radius: var(--radius);
+  color: var(--emerge);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.snap-take-btn:hover {
+  background: rgba(105, 240, 174, 0.15);
+  border-color: var(--emerge);
+}
+
+.snap-take-btn[disabled] {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.snap-diff-toggle {
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.snap-diff-toggle:hover {
+  border-color: var(--border-hi);
+  color: var(--text-muted);
+}
+
+.snap-diff-active {
+  background: rgba(179, 136, 255, 0.1);
+  border-color: var(--purple);
+  color: var(--purple);
+}
+
+.snap-loading,
+.snap-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 8px 0;
+  text-align: center;
+}
+
+/* ── Snapshot List ────────────────────────────────────────────── */
+
+.snap-list {
+  position: relative;
+  padding-left: 12px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+/* Vertical timeline line */
+.snap-list::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+.snap-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: background var(--transition);
+}
+
+.snap-node:hover {
+  background: rgba(79, 195, 247, 0.04);
+}
+
+.snap-node-selected {
+  background: rgba(79, 195, 247, 0.06);
+}
+
+.snap-node-diff-a {
+  background: rgba(105, 240, 174, 0.08);
+}
+
+.snap-node-diff-b {
+  background: rgba(179, 136, 255, 0.08);
+}
+
+.snap-node-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-hi);
+  border: 1.5px solid var(--mid);
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.snap-node-selected .snap-node-dot {
+  background: var(--signal);
+}
+
+.snap-node-diff-a .snap-node-dot {
+  background: var(--emerge);
+}
+
+.snap-node-diff-b .snap-node-dot {
+  background: var(--purple);
+}
+
+.snap-node-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.snap-node-hash {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.snap-node-time {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.snap-node-meta {
+  font-size: 9px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Compare Button ──────────────────────────────────────────── */
+
+.snap-compare-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px;
+  background: rgba(179, 136, 255, 0.08);
+  border: 1px solid rgba(179, 136, 255, 0.25);
+  border-radius: var(--radius);
+  color: var(--purple);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.snap-compare-btn:hover {
+  background: rgba(179, 136, 255, 0.15);
+}
+
+.snap-compare-btn[disabled] {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* ── Diff Output ─────────────────────────────────────────────── */
+
+.snap-diff-output {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Snapshot Content ────────────────────────────────────────── */
+
+.snap-content {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.snap-content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.snap-content-time {
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.snap-content-meta {
+  padding: 6px 8px;
+  background: var(--void);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin: 0;
+  overflow-x: auto;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

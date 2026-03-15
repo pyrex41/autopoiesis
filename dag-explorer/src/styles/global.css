@@ -20,4 +20,6 @@
 @import './empty-state.css';
 @import './activity.css';
 @import './create-dialog.css';
+@import './event-log.css';
+@import './snapshot-timeline.css';
 @import './utilities.css';

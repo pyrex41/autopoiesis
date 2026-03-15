@@ -6,34 +6,10 @@ import { setCurrentView } from "../lib/commands";
 import AgentActions from "./AgentActions";
 import ThoughtStream from "./ThoughtStream";
 import ContextGauge from "./ContextGauge";
+import CapabilityInspector from "./CapabilityInspector";
+import EventLog from "./EventLog";
+import SnapshotTimeline from "./SnapshotTimeline";
 
-const CAP_GROUPS: Record<string, { label: string; caps: string[] }> = {
-  cognitive: { label: "Cognitive", caps: ["observe", "reason", "decide", "reflect"] },
-  action: { label: "Action", caps: ["act", "learn", "tooluse", "selfmodify", "tool-use", "self-modify"] },
-  social: { label: "Social", caps: ["communicate", "collaborate"] },
-};
-
-function formatCap(cap: string): string {
-  // "selfmodify" -> "Self-Modify", "tooluse" -> "Tool Use"
-  const map: Record<string, string> = {
-    selfmodify: "Self-Modify", tooluse: "Tool Use",
-    "self-modify": "Self-Modify", "tool-use": "Tool Use",
-  };
-  return map[cap.toLowerCase()] ?? cap.charAt(0).toUpperCase() + cap.slice(1);
-}
-
-function groupCapabilities(caps: string[]): { group: string; items: string[] }[] {
-  const result: { group: string; items: string[] }[] = [];
-  for (const [key, def] of Object.entries(CAP_GROUPS)) {
-    const matched = caps.filter(c => def.caps.includes(c.toLowerCase()));
-    if (matched.length > 0) result.push({ group: def.label, items: matched });
-  }
-  // Uncategorized
-  const allGrouped = Object.values(CAP_GROUPS).flatMap(g => g.caps);
-  const remaining = caps.filter(c => !allGrouped.includes(c.toLowerCase()));
-  if (remaining.length > 0) result.push({ group: "Other", items: remaining });
-  return result;
-}
 
 const AgentDetail: Component = () => {
   const agent = () => agentStore.selectedAgent();
@@ -130,25 +106,10 @@ const AgentDetail: Component = () => {
               </Show>
 
               <div class="agent-detail-sections">
-                {/* Capabilities — grouped */}
+                {/* Capabilities — interactive inspector */}
                 <div class="agent-detail-section">
                   <h3 class="agent-section-title">Capabilities</h3>
-                  <Show when={a().capabilities.length > 0} fallback={
-                    <span class="text-dim" style={{ "font-size": "12px" }}>None assigned</span>
-                  }>
-                    <div class="agent-caps-grouped">
-                      {groupCapabilities(a().capabilities).map(({ group, items }) => (
-                        <div class="agent-cap-group">
-                          <span class="agent-cap-group-label">{group}</span>
-                          <div class="agent-cap-group-items">
-                            {items.map((cap) => (
-                              <span class="agent-cap-badge">{formatCap(cap)}</span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Show>
+                  <CapabilityInspector capabilities={a().capabilities} />
                 </div>
 
                 <Show when={a().parent}>
@@ -175,6 +136,16 @@ const AgentDetail: Component = () => {
                 <AgentActivitySection agentId={a().id} />
 
                 <PendingRequestsSection agentId={a().id} />
+
+                <div class="agent-detail-section">
+                  <h3 class="agent-section-title">Event Log</h3>
+                  <EventLog />
+                </div>
+
+                <div class="agent-detail-section">
+                  <h3 class="agent-section-title">Snapshots</h3>
+                  <SnapshotTimeline />
+                </div>
 
                 <div class="agent-detail-section">
                   <h3 class="agent-section-title">Thought Stream</h3>

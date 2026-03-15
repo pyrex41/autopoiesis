@@ -133,15 +133,20 @@
   "Parse RAW-RESPONSE from LLM according to RETURN-TYPE."
   (handler-case
       (let* ((preprocessed (sap-preprocess raw-response)))
-        (if (keywordp return-type)
-            (let ((skel-type (get-skel-type return-type)))
-              (if skel-type
-                  (funcall (type-parser skel-type) preprocessed)
-                  (error 'skel-type-error
-                         :type-name return-type
-                         :value nil
-                         :message "Unknown return type")))
-            (parse-typed-value return-type preprocessed)))
+        (cond
+          ((keywordp return-type)
+           (let ((skel-type (get-skel-type return-type)))
+             (if skel-type
+                 (funcall (type-parser skel-type) preprocessed)
+                 (error 'skel-type-error
+                        :type-name return-type
+                        :value nil
+                        :message "Unknown return type"))))
+          ;; Handle SKEL class return types via SAP extraction
+          ((and (symbolp return-type) (get-skel-class return-type))
+           (let ((parsed (sap-parse-json preprocessed)))
+             (sap-extract-with-schema parsed return-type :strict nil)))
+          (t (parse-typed-value return-type preprocessed))))
     (skel-type-error (e)
       (error e))
     (sap-error (e)

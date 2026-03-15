@@ -1,5 +1,5 @@
 import { createSignal, createMemo, batch } from "solid-js";
-import type { Agent, IntegrationEvent } from "../api/types";
+import type { Agent, IntegrationEvent, CapabilityDetail, Snapshot } from "../api/types";
 import * as api from "../api/client";
 import { wsStore, type ServerMessage } from "./ws";
 import { audioEngine } from "../lib/audio";
@@ -13,6 +13,14 @@ export interface Thought {
   type: "observation" | "decision" | "action" | "reflection";
   content: string;
   timestamp: number;
+  // Structured fields (optional, type-specific)
+  confidence?: number;
+  alternatives?: string[];
+  chosen?: string;
+  rationale?: string;
+  source?: string;
+  capability?: string;
+  result?: unknown;
 }
 
 export interface ChatMessage {
@@ -33,6 +41,14 @@ const [error, setError] = createSignal<string | null>(null);
 
 // Context window
 const [contextWindow, setContextWindow] = createSignal<{ used: number; total: number } | null>(null);
+
+// Agent introspection
+const [agentEvents, setAgentEvents] = createSignal<IntegrationEvent[]>([]);
+const [agentEventsLoading, setAgentEventsLoading] = createSignal(false);
+const [agentCapabilities, setAgentCapabilities] = createSignal<CapabilityDetail[]>([]);
+const [agentCapabilitiesLoading, setAgentCapabilitiesLoading] = createSignal(false);
+const [agentSnapshots, setAgentSnapshots] = createSignal<Snapshot[]>([]);
+const [agentSnapshotsLoading, setAgentSnapshotsLoading] = createSignal(false);
 
 // Per-agent chat — separate history per agent/jarvis
 const [chatHistories, setChatHistories] = createSignal<Record<string, ChatMessage[]>>({});
@@ -117,6 +133,50 @@ function selectAgent(id: string | null) {
     loadAgentThoughts(id);
     // Load context window
     loadAgentContext(id);
+    // Load agent events and capabilities
+    loadAgentEvents(id);
+    loadAgentCapabilities(id);
+  } else {
+    // Clear introspection data
+    setAgentEvents([]);
+    setAgentCapabilities([]);
+    setAgentSnapshots([]);
+  }
+}
+
+async function loadAgentEvents(agentId: string) {
+  setAgentEventsLoading(true);
+  try {
+    const list = await api.getAgentEvents(agentId, { limit: 100 });
+    setAgentEvents(list ?? []);
+  } catch {
+    // Non-critical
+  } finally {
+    setAgentEventsLoading(false);
+  }
+}
+
+async function loadAgentCapabilities(agentId: string) {
+  setAgentCapabilitiesLoading(true);
+  try {
+    const list = await api.getAgentCapabilities(agentId);
+    setAgentCapabilities(list ?? []);
+  } catch {
+    // Non-critical — will fall back to string badges
+  } finally {
+    setAgentCapabilitiesLoading(false);
+  }
+}
+
+async function loadAgentSnapshots(agentId: string) {
+  setAgentSnapshotsLoading(true);
+  try {
+    const list = await api.getAgentSnapshots(agentId);
+    setAgentSnapshots(list ?? []);
+  } catch {
+    // Non-critical
+  } finally {
+    setAgentSnapshotsLoading(false);
   }
 }
 
@@ -136,6 +196,13 @@ async function loadAgentThoughts(agentId: string) {
             type: t.type ?? "observation",
             content: t.content ?? (typeof t === "string" ? t : JSON.stringify(t)),
             timestamp: t.timestamp ?? Date.now(),
+            confidence: t.confidence,
+            alternatives: t.alternatives,
+            chosen: t.chosen,
+            rationale: t.rationale,
+            source: t.source,
+            capability: t.capability,
+            result: t.result,
           }));
         if (newThoughts.length > 0) {
           setThoughts(prev => [...newThoughts, ...prev].slice(-500));
@@ -337,6 +404,11 @@ function handleWSMessage(msg: ServerMessage) {
     case "event": {
       const event = msg as unknown as IntegrationEvent;
       setEvents((prev) => [...prev.slice(-199), event]);
+      // Also append to agent-specific events if it matches the selected agent
+      const selId = selectedId();
+      if (selId && (event.agentId === selId || event.source === selId)) {
+        setAgentEvents((prev) => [...prev.slice(-199), event]);
+      }
       break;
     }
 
@@ -462,6 +534,15 @@ export const agentStore = {
 
   // Context
   contextWindow,
+
+  // Introspection
+  agentEvents,
+  agentEventsLoading,
+  agentCapabilities,
+  agentCapabilitiesLoading,
+  agentSnapshots,
+  agentSnapshotsLoading,
+  loadAgentSnapshots,
 
   // Chat
   chatMessages,

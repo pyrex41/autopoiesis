@@ -124,3 +124,16 @@ export interface ContextWindow {
   total: number;
   model?: string;
 }
+
+/** Detailed capability info from backend */
+export interface CapabilityDetail {
+  name: string;
+  description: string;
+  parameters: { name: string; type: string }[];
+}
+
+/** Result of invoking a capability */
+export interface CapabilityInvocationResult {
+  result: unknown;
+  capability: string;
+}

@@ -55,6 +55,10 @@ const ThoughtStream: Component = () => {
   );
 };
 
+const hasStructured = (t: Thought) =>
+  t.confidence != null || t.alternatives != null || t.chosen != null ||
+  t.rationale != null || t.source != null || t.capability != null || t.result != null;
+
 const ThoughtCard: Component<{ thought: Thought }> = (props) => {
   const [expanded, setExpanded] = createSignal(false);
   const info = () => typeConfig[props.thought.type] ?? typeConfig.observation;
@@ -63,18 +67,18 @@ const ThoughtCard: Component<{ thought: Thought }> = (props) => {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   };
 
-  const isLong = () => props.thought.content.length > 120;
+  const isExpandable = () => props.thought.content.length > 120 || hasStructured(props.thought);
   const displayContent = () => {
-    if (expanded() || !isLong()) return props.thought.content;
+    if (expanded() || props.thought.content.length <= 120) return props.thought.content;
     return props.thought.content.slice(0, 120) + "...";
   };
 
   return (
     <div
       class="thought-card"
-      classList={{ "thought-card-expandable": isLong(), "thought-card-expanded": expanded() }}
+      classList={{ "thought-card-expandable": isExpandable(), "thought-card-expanded": expanded() }}
       style={{ "border-left-color": info().fg }}
-      onClick={() => isLong() && setExpanded(!expanded())}
+      onClick={() => isExpandable() && setExpanded(!expanded())}
     >
       <div class="thought-card-header">
         <span
@@ -83,10 +87,58 @@ const ThoughtCard: Component<{ thought: Thought }> = (props) => {
         >
           {info().label}
         </span>
+        <Show when={props.thought.confidence != null}>
+          <span class="thought-confidence" title={`Confidence: ${Math.round((props.thought.confidence ?? 0) * 100)}%`}>
+            <span class="thought-confidence-bar" style={{ width: `${(props.thought.confidence ?? 0) * 100}%` }} />
+          </span>
+        </Show>
         <span class="thought-time">{time()}</span>
       </div>
       <div class="thought-content">{displayContent()}</div>
-      <Show when={isLong()}>
+      <Show when={expanded() && hasStructured(props.thought)}>
+        <div class="thought-meta-grid">
+          <Show when={props.thought.type === "decision" && props.thought.alternatives}>
+            <div class="thought-meta-section">
+              <span class="thought-meta-label">Alternatives</span>
+              <ul class="thought-meta-list">
+                <For each={props.thought.alternatives}>
+                  {(alt) => (
+                    <li classList={{ "thought-meta-chosen": alt === props.thought.chosen }}>
+                      {alt}
+                      {alt === props.thought.chosen ? " \u2713" : ""}
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </div>
+          </Show>
+          <Show when={props.thought.rationale}>
+            <div class="thought-meta-section">
+              <span class="thought-meta-label">Rationale</span>
+              <span class="thought-meta-value">{props.thought.rationale}</span>
+            </div>
+          </Show>
+          <Show when={props.thought.capability}>
+            <div class="thought-meta-section">
+              <span class="thought-meta-label">Capability</span>
+              <span class="thought-meta-value thought-meta-cap">{props.thought.capability}</span>
+            </div>
+          </Show>
+          <Show when={props.thought.result != null}>
+            <div class="thought-meta-section">
+              <span class="thought-meta-label">Result</span>
+              <pre class="thought-meta-pre">{typeof props.thought.result === "string" ? props.thought.result : JSON.stringify(props.thought.result, null, 2)}</pre>
+            </div>
+          </Show>
+          <Show when={props.thought.source}>
+            <div class="thought-meta-section">
+              <span class="thought-meta-label">Source</span>
+              <span class="thought-meta-value">{props.thought.source}</span>
+            </div>
+          </Show>
+        </div>
+      </Show>
+      <Show when={isExpandable()}>
         <span class="thought-expand-hint">
           {expanded() ? "click to collapse" : "click to expand"}
         </span>

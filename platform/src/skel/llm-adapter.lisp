@@ -225,6 +225,29 @@ Default implementation: synchronous call delivered as single chunk."))
           (error e))
       :error)))
 
+(defmethod skel-stream-message ((client fallback-skel-client) prompt
+                                &key system on-chunk on-complete on-error)
+  "Try each client in order for streaming."
+  (let ((last-error nil))
+    (dolist (c (fallback-clients client))
+      (let ((actual (etypecase c
+                      (keyword (or (find-skel-client c)
+                                   (error 'skel-error
+                                          :message (format nil "Client ~A not found" c))))
+                      (skel-llm-client c))))
+        (handler-case
+            (return-from skel-stream-message
+              (skel-stream-message actual prompt
+                                   :system system
+                                   :on-chunk on-chunk
+                                   :on-complete on-complete
+                                   :on-error on-error))
+          (error (e)
+            (setf last-error e)))))
+    (if last-error
+        (error last-error)
+        (error 'skel-error :message "No clients configured in fallback chain"))))
+
 (defgeneric skel-stream-cancel-llm (stream)
   (:documentation "Cancel an in-progress LLM stream."))
 

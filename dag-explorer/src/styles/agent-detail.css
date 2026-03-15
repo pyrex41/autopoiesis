@@ -418,3 +418,133 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ── Capability Inspector ────────────────────────────────────── */
+
+.cap-inspector-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.cap-badge-clickable {
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.cap-badge-clickable:hover {
+  background: rgba(105, 240, 174, 0.12);
+  border-color: var(--emerge);
+}
+
+.cap-badge-expanded {
+  background: rgba(105, 240, 174, 0.15);
+  border-color: var(--emerge);
+}
+
+.cap-detail-panel {
+  margin-top: 4px;
+  margin-bottom: 4px;
+  padding: 8px;
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  animation: fadeSlideUp 0.15s ease;
+}
+
+.cap-detail-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+  line-height: 1.5;
+}
+
+.cap-params {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.cap-param-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cap-param-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cap-param-type {
+  font-size: 9px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  font-weight: 400;
+}
+
+.cap-param-input {
+  padding: 3px 6px;
+  background: var(--deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+}
+
+.cap-param-input:focus {
+  border-color: var(--signal);
+}
+
+.cap-invoke-btn {
+  padding: 4px 12px;
+  background: rgba(79, 195, 247, 0.08);
+  border: 1px solid rgba(79, 195, 247, 0.25);
+  border-radius: var(--radius);
+  color: var(--signal);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.cap-invoke-btn:hover {
+  background: rgba(79, 195, 247, 0.15);
+}
+
+.cap-invoke-btn[disabled] {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.cap-result {
+  margin: 6px 0 0;
+  padding: 6px;
+  background: rgba(105, 240, 174, 0.04);
+  border: 1px solid rgba(105, 240, 174, 0.15);
+  border-radius: var(--radius);
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow-x: auto;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.cap-error {
+  margin-top: 6px;
+  padding: 4px 6px;
+  background: rgba(255, 82, 82, 0.06);
+  border: 1px solid rgba(255, 82, 82, 0.2);
+  border-radius: var(--radius);
+  font-size: 10px;
+  color: var(--danger);
+}
