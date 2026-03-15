@@ -107,6 +107,40 @@
     :timeout (or timeout 60)))
 
 ;;; ============================================================================
+;;; Named Client Registry
+;;; ============================================================================
+
+(defvar *skel-client-registry* (make-hash-table :test 'eq)
+  "Named SKEL client registry. Maps keyword names to skel-llm-client instances.")
+
+(defun register-skel-client (name client)
+  "Register a named SKEL LLM client."
+  (setf (gethash name *skel-client-registry*) client))
+
+(defun find-skel-client (name)
+  "Look up a named SKEL LLM client. NAME can be a keyword or string."
+  (let ((key (etypecase name
+               (keyword name)
+               (string (intern (string-upcase name) :keyword))
+               (symbol (intern (symbol-name name) :keyword)))))
+    (gethash key *skel-client-registry*)))
+
+(defun list-skel-clients ()
+  "List all registered SKEL client names."
+  (loop for name being the hash-keys of *skel-client-registry*
+        collect name))
+
+;;; ============================================================================
+;;; Fallback Client
+;;; ============================================================================
+
+(defclass fallback-skel-client ()
+  ((clients :initarg :clients
+            :reader fallback-clients
+            :documentation "Ordered list of client names or client instances to try."))
+  (:documentation "A SKEL client that tries multiple backends in order."))
+
+;;; ============================================================================
 ;;; Send Message - Synchronous
 ;;; ============================================================================
 
@@ -145,6 +179,24 @@ Returns (values text input-tokens output-tokens)."
       (values (or text "")
               input-tokens
               output-tokens))))
+
+(defmethod skel-send-message ((client fallback-skel-client) prompt &key system)
+  "Try each client in order, returning the first successful result."
+  (let ((last-error nil))
+    (dolist (c (fallback-clients client))
+      (let ((actual (etypecase c
+                      (keyword (or (find-skel-client c)
+                                   (error 'skel-error
+                                          :message (format nil "Client ~A not found" c))))
+                      (skel-llm-client c))))
+        (handler-case
+            (return-from skel-send-message
+              (skel-send-message actual prompt :system system))
+          (error (e)
+            (setf last-error e)))))
+    (if last-error
+        (error last-error)
+        (error 'skel-error :message "No clients configured in fallback chain"))))
 
 ;;; ============================================================================
 ;;; Stream Message - Synchronous Fallback

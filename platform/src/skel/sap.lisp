@@ -440,7 +440,12 @@
                         (find-json-value alist (intern json-key :keyword))
                         (cdr (assoc (intern (string-upcase json-key) :keyword) alist)))))
     (if raw-value
-        (values (coerce-to-type raw-value slot-type :strict strict) t)
+        (let ((coerced (coerce-to-type raw-value slot-type :strict strict)))
+          (multiple-value-bind (val warnings)
+              (validate-slot-constraints coerced slot-def)
+            (dolist (w warnings)
+              (warn "~A" w))
+            (values val t)))
         (values default nil))))
 
 (defun sap-extract-with-schema (parsed-data class-name &key (strict nil) (validate-required t))

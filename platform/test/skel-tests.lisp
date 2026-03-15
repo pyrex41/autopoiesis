@@ -2397,3 +2397,154 @@ line2"))))
   ;; Empty string should error for :json
   (signals skel-type-error
     (parse-llm-response "" :json)))
+
+;;; ============================================================================
+;;; Phase 1: Class Schema Type Hints
+;;; ============================================================================
+
+(test format-type-hint-skel-class
+  "Test type hint for SKEL class return types"
+  (clear-skel-registry)
+  (eval '(define-skel-class test-hint-class ()
+           ((name :type string :required t :description "Person name")
+            (age :type integer :description "Age in years"))))
+  (let ((hint (format-type-hint 'test-hint-class)))
+    (is (not (null hint)))
+    (is (search "JSON object" hint))
+    (is (search "name" hint))
+    (is (search "age" hint))
+    (is (search "<string>" hint))
+    (is (search "<integer>" hint))))
+
+(test format-type-hint-non-skel-class-unchanged
+  "Test type hint returns nil for unknown symbols"
+  (is (null (format-type-hint 'not-a-skel-class-at-all))))
+
+(test build-skel-prompt-class-type
+  "Test building prompt with SKEL class return type"
+  (clear-skel-registry)
+  (clrhash autopoiesis.skel::*skel-functions*)
+  (eval '(define-skel-class test-prompt-result ()
+           ((title :type string :required t)
+            (score :type float))))
+  (eval '(define-skel-function test-class-build
+             ((text :string))
+           :prompt "Extract from: {{ text }}"
+           :return-type test-prompt-result))
+  (let* ((func (get-skel-function 'test-class-build))
+         (prompt (build-skel-prompt func '(:text "data"))))
+    (is (search "Extract from: data" prompt))
+    (is (search "JSON object" prompt))
+    (is (search "title" prompt))
+    (is (search "score" prompt))))
+
+;;; ============================================================================
+;;; Phase 2: Field-Level Constraints
+;;; ============================================================================
+
+(test define-skel-class-with-constraints
+  "Test defining a class with check and assert constraints"
+  (clear-skel-registry)
+  (eval `(define-skel-class test-constrained ()
+           ((age :type integer
+                 :check ("reasonable" ,(lambda (v) (and (> v 0) (< v 150))))
+                 :assert ("positive" ,(lambda (v) (> v 0)))
+                 :description "Age in years")
+            (name :type string :required t))))
+  (let* ((meta (get-skel-class 'test-constrained))
+         (age-slot (find 'age (skel-class-slots meta) :key #'skel-slot-name)))
+    (is (not (null (skel-slot-check age-slot))))
+    (is (not (null (skel-slot-assert-constraint age-slot))))))
+
+(test validate-slot-constraints-check
+  "Test non-blocking check constraint"
+  (clear-skel-registry)
+  (eval `(define-skel-class test-check ()
+           ((score :type integer
+                   :check ("in-range" ,(lambda (v) (<= 0 v 100)))))))
+  (let* ((meta (get-skel-class 'test-check))
+         (slot (first (skel-class-slots meta))))
+    ;; Valid value — no warnings
+    (multiple-value-bind (val warnings)
+        (validate-slot-constraints 50 slot)
+      (is (= val 50))
+      (is (null warnings)))
+    ;; Invalid value — warning but no error
+    (multiple-value-bind (val warnings)
+        (validate-slot-constraints 200 slot)
+      (is (= val 200))
+      (is (= 1 (length warnings))))))
+
+(test validate-slot-constraints-assert
+  "Test blocking assert constraint"
+  (clear-skel-registry)
+  (eval `(define-skel-class test-assert ()
+           ((quantity :type integer
+                      :assert ("positive" ,(lambda (v) (> v 0)))))))
+  (let* ((meta (get-skel-class 'test-assert))
+         (slot (first (skel-class-slots meta))))
+    ;; Valid — passes
+    (is (= 5 (validate-slot-constraints 5 slot)))
+    ;; Invalid — signals error
+    (signals skel-validation-error
+      (validate-slot-constraints -1 slot))))
+
+(test validate-slot-constraints-nil-skipped
+  "Test that constraints are skipped for nil values"
+  (clear-skel-registry)
+  (eval `(define-skel-class test-nil-constraint ()
+           ((value :type integer
+                   :assert ("positive" ,(lambda (v) (> v 0)))))))
+  (let* ((meta (get-skel-class 'test-nil-constraint))
+         (slot (first (skel-class-slots meta))))
+    ;; nil should pass through without triggering assert
+    (multiple-value-bind (val warnings)
+        (validate-slot-constraints nil slot)
+      (is (null val))
+      (is (null warnings)))))
+
+(test format-slot-for-prompt-with-constraints
+  "Test that constraint names appear in prompt formatting"
+  (clear-skel-registry)
+  (eval `(define-skel-class test-prompt-constraints ()
+           ((age :type integer
+                 :check ("reasonable" ,(lambda (v) (< v 150)))
+                 :assert ("positive" ,(lambda (v) (> v 0)))))))
+  (let* ((meta (get-skel-class 'test-prompt-constraints))
+         (slot (first (skel-class-slots meta)))
+         (formatted (format-slot-for-prompt slot)))
+    (is (search "check: reasonable" formatted))
+    (is (search "assert: positive" formatted))))
+
+;;; ============================================================================
+;;; Phase 3: Named Client Registry
+;;; ============================================================================
+
+(test skel-client-registry-basic
+  "Test client registration and lookup"
+  (clrhash autopoiesis.skel::*skel-client-registry*)
+  (let ((client (make-skel-llm-client :api-key "test" :model "test-model")))
+    (register-skel-client :test-client client)
+    (is (eq client (find-skel-client :test-client)))
+    (is (eq client (find-skel-client "test-client")))
+    (is (member :test-client (list-skel-clients)))))
+
+(test skel-client-registry-not-found
+  "Test client lookup returns nil for unknown names"
+  (clrhash autopoiesis.skel::*skel-client-registry*)
+  (is (null (find-skel-client :nonexistent))))
+
+(test ensure-llm-client-resolves-names
+  "Test that ensure-llm-client resolves named clients"
+  (clrhash autopoiesis.skel::*skel-client-registry*)
+  (let ((client (make-skel-llm-client :api-key "test" :model "test-model")))
+    (register-skel-client :named client)
+    (is (eq client (autopoiesis.skel::ensure-llm-client :named)))))
+
+(test ensure-llm-client-falls-back
+  "Test that ensure-llm-client falls back to *current-llm-client*"
+  (clrhash autopoiesis.skel::*skel-client-registry*)
+  (let* ((client (make-skel-llm-client :api-key "test" :model "test-model"))
+         (*current-llm-client* client))
+    ;; Unknown named client falls back to *current-llm-client*
+    (is (eq client (autopoiesis.skel::ensure-llm-client :unknown-client)))))

@@ -161,11 +161,16 @@
   "The LLM client to use for SKEL function calls.")
 
 (defun ensure-llm-client (client-arg)
-  "Ensure we have an LLM client, from argument or *current-llm-client*."
-  (or client-arg
-      *current-llm-client*
-      (error 'skel-error
-             :message "No LLM client available. Set *current-llm-client* or pass :client.")))
+  "Ensure we have an LLM client. Resolves named clients from registry."
+  (let ((resolved (etypecase client-arg
+                    (null nil)
+                    (keyword (find-skel-client client-arg))
+                    (string (find-skel-client client-arg))
+                    (t client-arg))))  ; already a client instance
+    (or resolved
+        *current-llm-client*
+        (error 'skel-error
+               :message "No LLM client available. Set *current-llm-client* or pass :client."))))
 
 (defun build-skel-prompt (func validated-args)
   "Build the complete prompt for a SKEL function call."
@@ -193,6 +198,9 @@
     ((and (listp return-type) (eq (car return-type) 'list-of))
      (format nil "Respond with a JSON array of ~A values."
              (string-downcase (symbol-name (cadr return-type)))))
+    ((and (symbolp return-type) (get-skel-class return-type))
+     (format nil "Respond with a JSON object matching this schema:~%~A"
+             (format-class-schema return-type :style :json)))
     (t nil)))
 
 (defun invoke-skel-function (name &rest args

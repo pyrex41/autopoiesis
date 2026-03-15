@@ -48,7 +48,17 @@
     :initarg :json-key
     :initform nil
     :reader skel-slot-json-key
-    :documentation "JSON key name for serialization (defaults to slot-name)."))
+    :documentation "JSON key name for serialization (defaults to slot-name).")
+   (check
+    :initarg :check
+    :initform nil
+    :accessor skel-slot-check
+    :documentation "Non-blocking constraint: (name predicate-fn). Logs warning on failure.")
+   (assert-constraint
+    :initarg :assert-constraint
+    :initform nil
+    :accessor skel-slot-assert-constraint
+    :documentation "Blocking constraint: (name predicate-fn). Signals error on failure."))
   (:documentation "Metadata for a SKEL class slot."))
 
 (defun skel-slot-effective-json-key (slot-def)
@@ -120,7 +130,8 @@
 
 (defun parse-slot-spec (slot-spec)
   "Parse a slot specification from define-skel-class syntax."
-  (destructuring-bind (slot-name &key (type t) description required default json-key)
+  (destructuring-bind (slot-name &key (type t) description required default json-key
+                                      check assert)
       slot-spec
     (make-instance 'skel-slot-definition
                    :slot-name slot-name
@@ -128,7 +139,9 @@
                    :description description
                    :required-p required
                    :default-value default
-                   :json-key json-key)))
+                   :json-key json-key
+                   :check check
+                   :assert-constraint assert)))
 
 (defun slot-def-to-defclass-slot (slot-def)
   "Convert a SKEL-SLOT-DEFINITION to a DEFCLASS slot specification."
@@ -142,6 +155,26 @@
 ;;; --------------------------------------------------------------------------
 ;;; The define-skel-class Macro
 ;;; --------------------------------------------------------------------------
+
+(defun set-slot-constraints (class-name slot-name &key check assert)
+  "Set check and/or assert constraints on a slot of a registered SKEL class."
+  (let ((slot-def (get-skel-slot class-name slot-name)))
+    (unless slot-def
+      (error 'skel-class-error
+             :class-name class-name
+             :message (format nil "Slot ~A not found in class ~A" slot-name class-name)))
+    (when check
+      (setf (skel-slot-check slot-def) check))
+    (when assert
+      (setf (skel-slot-assert-constraint slot-def) assert))
+    slot-def))
+
+(defun extract-slot-key (slot-spec key &optional default)
+  "Extract a keyword argument value from a raw slot spec list."
+  (let ((tail (member key (cdr slot-spec))))
+    (if tail
+        (cadr tail)
+        default)))
 
 (defmacro define-skel-class (name superclasses slot-specs &rest options)
   "Define a SKEL class - a CLOS class with metadata for LLM structured output."
@@ -158,15 +191,24 @@
                        :class-name ',name
                        :superclasses ',superclasses
                        :documentation ,doc
-                       :slots (list ,@(mapcar (lambda (slot)
-                                               `(make-instance 'skel-slot-definition
-                                                               :slot-name ',(skel-slot-name slot)
-                                                               :skel-type ',(skel-slot-type slot)
-                                                               :description ,(skel-slot-description slot)
-                                                               :required-p ,(skel-slot-required-p slot)
-                                                               :default-value ,(skel-slot-default-value slot)
-                                                               :json-key ,(skel-slot-json-key slot)))
-                                             parsed-slots))))
+                       :slots (list ,@(mapcar (lambda (slot raw-spec)
+                                               (let ((check (extract-slot-key raw-spec :check))
+                                                     (assert-val (extract-slot-key raw-spec :assert)))
+                                                 `(make-instance 'skel-slot-definition
+                                                                 :slot-name ',(skel-slot-name slot)
+                                                                 :skel-type ',(skel-slot-type slot)
+                                                                 :description ,(skel-slot-description slot)
+                                                                 :required-p ,(skel-slot-required-p slot)
+                                                                 :default-value ,(skel-slot-default-value slot)
+                                                                 :json-key ,(skel-slot-json-key slot)
+                                                                 ,@(when check
+                                                                     `(:check (list ,(first check)
+                                                                                    ,(second check))))
+                                                                 ,@(when assert-val
+                                                                     `(:assert-constraint
+                                                                       (list ,(first assert-val)
+                                                                             ,(second assert-val)))))))
+                                             parsed-slots slot-specs))))
 
        ',name)))
 
@@ -301,6 +343,31 @@
                 :message (format nil "Expected ~A, got ~A" type-spec (type-of value)))))
     (t t)))
 
+(defun validate-slot-constraints (value slot-def)
+  "Run check and assert constraints on VALUE for SLOT-DEF.
+   Returns (values value warnings) where warnings is a list of strings.
+   Signals skel-validation-error for failed assert constraints."
+  (let ((warnings nil))
+    ;; Non-blocking check
+    (let ((check (skel-slot-check slot-def)))
+      (when (and check value)
+        (destructuring-bind (name pred-fn) check
+          (unless (funcall pred-fn value)
+            (push (format nil "Check ~A failed for ~A: ~S"
+                          name (skel-slot-name slot-def) value)
+                  warnings)))))
+    ;; Blocking assert
+    (let ((assert-c (skel-slot-assert-constraint slot-def)))
+      (when (and assert-c value)
+        (destructuring-bind (name pred-fn) assert-c
+          (unless (funcall pred-fn value)
+            (error 'skel-validation-error
+                   :message (format nil "Assert ~A failed for ~A: ~S"
+                                    name (skel-slot-name slot-def) value)
+                   :value value
+                   :constraint (format nil "~A" name))))))
+    (values value warnings)))
+
 (defun coerce-slot-value (value type-spec)
   "Attempt to coerce VALUE to TYPE-SPEC."
   (cond
@@ -361,7 +428,11 @@
     (when (and include-required (skel-slot-required-p slot-def))
       (format s " [required]"))
     (when (skel-slot-description slot-def)
-      (format s ": ~A" (skel-slot-description slot-def)))))
+      (format s ": ~A" (skel-slot-description slot-def)))
+    (when (skel-slot-check slot-def)
+      (format s " [check: ~A]" (first (skel-slot-check slot-def))))
+    (when (skel-slot-assert-constraint slot-def)
+      (format s " [assert: ~A]" (first (skel-slot-assert-constraint slot-def))))))
 
 (defun format-class-schema (class-name &key (style :text) (include-docs t))
   "Generate a schema description for a SKEL class."

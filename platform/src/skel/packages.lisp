@@ -213,6 +213,12 @@
    #:parser-try-extract-partial
    #:fix-incomplete-json
 
+   ;; Slot constraints
+   #:skel-slot-check
+   #:skel-slot-assert-constraint
+   #:validate-slot-constraints
+   #:set-slot-constraints
+
    ;; LLM adapter
    #:skel-llm-rate-limit-error
    #:skel-llm-server-error
@@ -222,6 +228,13 @@
    #:skel-stream-message
    #:skel-stream-cancel-llm
    #:make-skel-llm-client
+
+   ;; Client registry
+   #:*skel-client-registry*
+   #:register-skel-client
+   #:find-skel-client
+   #:list-skel-clients
+   #:fallback-skel-client
 
    ;; Conditions
    #:skel-error
