@@ -322,18 +322,11 @@ You have access to these tool categories (depending on your capabilities):
 (defun broadcast-thought (agent-id thought)
   "Broadcast a thought update to all subscribers of this agent."
   (let ((thought-json (thought-to-json-plist thought)))
-    ;; Broadcast to agent-specific subscribers
     (broadcast-to-agent-subscribers
      agent-id
      (ok-response "thought_added"
                   "agentId" agent-id
-                  "thought" thought-json))
-    ;; Also broadcast to general agents channel
-    (broadcast-stream-data
-     (ok-response "thought_added"
-                  "agentId" agent-id
-                  "thought" thought-json)
-     :subscription-type "agents")))
+                  "thought" thought-json))))
 
 (defun broadcast-agent-stream-delta (agent-id delta)
   "Send a streaming text delta to subscribers."

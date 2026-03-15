@@ -384,7 +384,13 @@ function handleWSMessage(msg: ServerMessage) {
 
     case "thought_added": {
       const thought = msg.thought as Thought;
-      if (thought) setThoughts((prev) => [...prev.slice(-499), thought]);
+      if (thought) {
+        setThoughts((prev) => {
+          // Dedup by ID — same thought may arrive via multiple subscription channels
+          if (thought.id && prev.some((t) => t.id === thought.id)) return prev;
+          return [...prev.slice(-499), thought];
+        });
+      }
       break;
     }
 
