@@ -40,10 +40,10 @@ const [viewMode, setViewMode] = createSignal<"2d" | "3d">("2d");
 
 const layout = createMemo<LayoutGraph>(() => {
   const snaps = snapshots();
-  if (snaps.length === 0) {
+  if (!snaps || snaps.length === 0) {
     return { nodes: new Map(), edges: [], width: 0, height: 0 };
   }
-  return computeLayout(snaps, branches(), {
+  return computeLayout(snaps, branches() ?? [], {
     direction: direction(),
     collapsed: collapsed(),
   });

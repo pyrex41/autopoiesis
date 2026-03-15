@@ -1,43 +1,89 @@
-/* ── Thought Stream ──────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   THOUGHT STREAM — Agent Cognitive Output
+   ══════════════════════════════════════════════════════════════════ */
 
 .thought-stream {
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
-.thought-stream-empty {
+.thought-stream-count {
+  font-size: 10px;
   color: var(--text-dim);
-  font-size: 12px;
-  font-style: italic;
-  padding: 10px 0;
+  letter-spacing: 0.5px;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(30, 45, 74, 0.3);
 }
+
+/* ── Empty State ──────────────────────────────────────────────── */
+
+.thought-stream-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 10px;
+  text-align: center;
+}
+
+.thought-empty-icon {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+.thought-empty-text {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.thought-empty-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* ── Thought Cards ────────────────────────────────────────────── */
 
 .thought-card {
   border-left: 2px solid var(--border);
-  padding: 8px 10px;
+  padding: 6px 10px;
   animation: fadeSlideUp 0.2s ease;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  transition: background var(--transition);
+}
+
+.thought-card-expandable {
+  cursor: pointer;
+}
+
+.thought-card-expandable:hover {
+  background: rgba(79, 195, 247, 0.03);
+}
+
+.thought-card-expanded {
+  background: rgba(79, 195, 247, 0.04);
 }
 
 .thought-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .thought-type-badge {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 3px;
-  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  letter-spacing: 0.8px;
 }
 
 .thought-time {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -45,6 +91,20 @@
 .thought-content {
   font-size: 12px;
   color: var(--text-muted);
-  line-height: 1.6;
+  line-height: 1.5;
   word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.thought-expand-hint {
+  font-size: 9px;
+  color: var(--text-dim);
+  opacity: 0.5;
+  display: block;
+  margin-top: 4px;
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }

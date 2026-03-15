@@ -1,4 +1,4 @@
-import { type Component, Show, createMemo, createSignal, onMount, onCleanup } from "solid-js";
+import { type Component, Show, For, createMemo, createSignal, onMount, onCleanup } from "solid-js";
 import { agentStore } from "../stores/agents";
 import { activityStore } from "../stores/activity";
 import { holodeckStore } from "../stores/holodeck";
@@ -6,6 +6,34 @@ import { setCurrentView } from "../lib/commands";
 import AgentActions from "./AgentActions";
 import ThoughtStream from "./ThoughtStream";
 import ContextGauge from "./ContextGauge";
+
+const CAP_GROUPS: Record<string, { label: string; caps: string[] }> = {
+  cognitive: { label: "Cognitive", caps: ["observe", "reason", "decide", "reflect"] },
+  action: { label: "Action", caps: ["act", "learn", "tooluse", "selfmodify", "tool-use", "self-modify"] },
+  social: { label: "Social", caps: ["communicate", "collaborate"] },
+};
+
+function formatCap(cap: string): string {
+  // "selfmodify" -> "Self-Modify", "tooluse" -> "Tool Use"
+  const map: Record<string, string> = {
+    selfmodify: "Self-Modify", tooluse: "Tool Use",
+    "self-modify": "Self-Modify", "tool-use": "Tool Use",
+  };
+  return map[cap.toLowerCase()] ?? cap.charAt(0).toUpperCase() + cap.slice(1);
+}
+
+function groupCapabilities(caps: string[]): { group: string; items: string[] }[] {
+  const result: { group: string; items: string[] }[] = [];
+  for (const [key, def] of Object.entries(CAP_GROUPS)) {
+    const matched = caps.filter(c => def.caps.includes(c.toLowerCase()));
+    if (matched.length > 0) result.push({ group: def.label, items: matched });
+  }
+  // Uncategorized
+  const allGrouped = Object.values(CAP_GROUPS).flatMap(g => g.caps);
+  const remaining = caps.filter(c => !allGrouped.includes(c.toLowerCase()));
+  if (remaining.length > 0) result.push({ group: "Other", items: remaining });
+  return result;
+}
 
 const AgentDetail: Component = () => {
   const agent = () => agentStore.selectedAgent();
@@ -30,10 +58,16 @@ const AgentDetail: Component = () => {
           when={agent()}
           fallback={
             <div class="agent-detail-empty">
-              <div class="empty-icon">◇</div>
-              <p>Select an agent to inspect</p>
-              <p class="empty-hint">
-                Click an agent in the list, or press <kbd>n</kbd> to create one
+              <div class="agent-detail-empty-icon">
+                <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                  <rect x="8" y="8" width="24" height="24" rx="4" stroke="var(--border-hi)" stroke-width="1.5" stroke-dasharray="4 3"/>
+                  <circle cx="20" cy="18" r="4" stroke="var(--border-hi)" stroke-width="1.2"/>
+                  <path d="M13 28c0-3.87 3.13-7 7-7s7 3.13 7 7" stroke="var(--border-hi)" stroke-width="1.2"/>
+                </svg>
+              </div>
+              <p class="agent-detail-empty-title">No Agent Selected</p>
+              <p class="agent-detail-empty-hint">
+                Select an agent from the roster, or press <kbd>n</kbd> to deploy one
               </p>
             </div>
           }
@@ -41,89 +75,114 @@ const AgentDetail: Component = () => {
           {(a) => (
             <>
               <div class="agent-detail-header">
-              <div class="agent-detail-name-row">
-                <div
-                  class="agent-state-dot agent-state-dot-lg"
-                  style={{
-                    background:
-                      a().state === "running" ? "var(--emerge)" :
-                      a().state === "paused" ? "var(--warm)" :
-                      a().state === "stopped" ? "var(--danger)" :
-                      "var(--signal)",
-                  }}
-                />
-                <h2 class="agent-detail-name">{a().name}</h2>
-                <span class="agent-detail-state">{a().state}</span>
-                <Show when={agentStore.contextWindow()}>
-                  {(ctx) => (
-                    <ContextGauge used={ctx().used} total={ctx().total} />
-                  )}
-                </Show>
-              </div>
-              <div class="agent-detail-id">{a().id}</div>
-            </div>
-
-            <AgentActions agent={a()} />
-
-            <Show when={holodeckStore.entityCount() > 0}>
-              <div style={{ padding: "0 16px 8px" }}>
-                <button
-                  class="btn-secondary"
-                  style={{ "font-size": "11px", padding: "4px 10px" }}
-                  onClick={() => {
-                    holodeckStore.focusOnAgent(a().id);
-                    setCurrentView("holodeck");
-                  }}
-                >
-                  Show in 3D
-                </button>
-              </div>
-            </Show>
-
-            <div class="agent-detail-sections">
-              <div class="agent-detail-section">
-                <h3>Capabilities</h3>
-                <Show when={a().capabilities.length > 0} fallback={
-                  <span class="text-dim">None</span>
-                }>
-                  <div class="agent-caps-grid">
-                    {a().capabilities.map((cap) => (
-                      <span class="agent-cap-badge">{cap}</span>
-                    ))}
-                  </div>
-                </Show>
+                <div class="agent-detail-name-row">
+                  <div
+                    class="agent-state-dot agent-state-dot-lg"
+                    style={{
+                      background:
+                        a().state === "running" ? "var(--emerge)" :
+                        a().state === "paused" ? "var(--warm)" :
+                        a().state === "stopped" ? "var(--danger)" :
+                        "var(--signal)",
+                    }}
+                  />
+                  <h2 class="agent-detail-name">{a().name}</h2>
+                  <span class="agent-detail-state" classList={{
+                    "state-running": a().state === "running",
+                    "state-paused": a().state === "paused",
+                    "state-stopped": a().state === "stopped",
+                  }}>
+                    {a().state === "running" ? "RUN" :
+                     a().state === "paused" ? "HOLD" :
+                     a().state === "stopped" ? "STOP" :
+                     a().state?.toUpperCase().slice(0, 4) ?? "—"}
+                  </span>
+                </div>
+                <div class="agent-detail-meta">
+                  <span class="agent-detail-id" title={a().id}>
+                    {a().id.slice(0, 8)}...
+                  </span>
+                  <Show when={agentStore.contextWindow()}>
+                    {(ctx) => (
+                      <ContextGauge used={ctx().used} total={ctx().total} />
+                    )}
+                  </Show>
+                </div>
               </div>
 
-              <Show when={a().parent}>
-                <div class="agent-detail-section">
-                  <h3>Lineage</h3>
-                  <dl class="agent-detail-dl">
-                    <dt>Parent</dt>
-                    <dd>
-                      <button
-                        class="link-btn"
-                        onClick={() => agentStore.selectAgent(a().parent!)}
-                      >
-                        {a().parent}
-                      </button>
-                    </dd>
-                    <Show when={a().children.length > 0}>
-                      <dt>Children</dt>
-                      <dd>{a().children.length} agent{a().children.length !== 1 ? "s" : ""}</dd>
-                    </Show>
-                  </dl>
+              <AgentActions agent={a()} />
+
+              <Show when={holodeckStore.entityCount() > 0}>
+                <div class="agent-detail-holo-link">
+                  <button
+                    class="btn-secondary btn-compact"
+                    onClick={() => {
+                      holodeckStore.focusOnAgent(a().id);
+                      setCurrentView("holodeck");
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M6 1L10.5 3.5v5L6 11 1.5 8.5v-5L6 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                    </svg>
+                    View in Holodeck
+                  </button>
                 </div>
               </Show>
 
-              <AgentActivitySection agentId={a().id} />
+              <div class="agent-detail-sections">
+                {/* Capabilities — grouped */}
+                <div class="agent-detail-section">
+                  <h3 class="agent-section-title">Capabilities</h3>
+                  <Show when={a().capabilities.length > 0} fallback={
+                    <span class="text-dim" style={{ "font-size": "12px" }}>None assigned</span>
+                  }>
+                    <div class="agent-caps-grouped">
+                      {groupCapabilities(a().capabilities).map(({ group, items }) => (
+                        <div class="agent-cap-group">
+                          <span class="agent-cap-group-label">{group}</span>
+                          <div class="agent-cap-group-items">
+                            {items.map((cap) => (
+                              <span class="agent-cap-badge">{formatCap(cap)}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Show>
+                </div>
 
-              <div class="agent-detail-section">
-                <h3>Thought Stream</h3>
-                <ThoughtStream />
+                <Show when={a().parent}>
+                  <div class="agent-detail-section">
+                    <h3 class="agent-section-title">Lineage</h3>
+                    <dl class="agent-detail-dl">
+                      <dt>Parent</dt>
+                      <dd>
+                        <button
+                          class="link-btn"
+                          onClick={() => agentStore.selectAgent(a().parent!)}
+                        >
+                          {a().parent!.slice(0, 8)}...
+                        </button>
+                      </dd>
+                      <Show when={a().children.length > 0}>
+                        <dt>Children</dt>
+                        <dd>{a().children.length} agent{a().children.length !== 1 ? "s" : ""}</dd>
+                      </Show>
+                    </dl>
+                  </div>
+                </Show>
+
+                <AgentActivitySection agentId={a().id} />
+
+                <PendingRequestsSection agentId={a().id} />
+
+                <div class="agent-detail-section">
+                  <h3 class="agent-section-title">Thought Stream</h3>
+                  <ThoughtStream />
+                </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
         </Show>
       </Show>
     </div>
@@ -132,24 +191,18 @@ const AgentDetail: Component = () => {
 
 const AgentActivitySection: Component<{ agentId: string }> = (props) => {
   const [now, setNow] = createSignal(Date.now());
-
   let timer: ReturnType<typeof setInterval>;
-  onMount(() => {
-    timer = setInterval(() => setNow(Date.now()), 1000);
-  });
+  onMount(() => { timer = setInterval(() => setNow(Date.now()), 1000); });
   onCleanup(() => clearInterval(timer));
 
-  const activity = createMemo(() => {
-    return activityStore.activities().get(props.agentId) ?? null;
-  });
+  const activity = createMemo(() => activityStore.activities().get(props.agentId) ?? null);
 
   const toolDuration = () => {
     const a = activity();
     if (!a?.currentTool || !a.toolStartTime) return null;
     const elapsed = Math.floor((now() - a.toolStartTime) / 1000);
     if (elapsed < 60) return `${elapsed}s`;
-    const m = Math.floor(elapsed / 60);
-    return `${m}m ${elapsed % 60}s`;
+    return `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
   };
 
   const idleTime = () => {
@@ -160,30 +213,29 @@ const AgentActivitySection: Component<{ agentId: string }> = (props) => {
     if (idle < 60) return `${idle}s`;
     const m = Math.floor(idle / 60);
     if (m < 60) return `${m}m ${idle % 60}s`;
-    const h = Math.floor(m / 60);
-    return `${h}h ${m % 60}m`;
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
   };
 
   return (
     <Show when={activity()}>
       {(a) => (
         <div class="agent-detail-section">
-          <h3>Activity</h3>
+          <h3 class="agent-section-title">Activity</h3>
           <dl class="agent-detail-dl">
             <Show when={a().currentTool}>
-              <dt>Current Tool</dt>
+              <dt>Tool</dt>
               <dd>
                 <span class="agent-activity-tool">{a().currentTool}</span>
                 <Show when={toolDuration()}>
-                  <span class="agent-activity-tool-duration"> ({toolDuration()})</span>
+                  <span class="agent-activity-tool-duration"> {toolDuration()}</span>
                 </Show>
               </dd>
             </Show>
             <Show when={!a().currentTool && idleTime()}>
               <dt>Status</dt>
               <dd>
-                <span class={a().state === "long-idle" ? "text-danger" : "text-dim"}>
-                  Idle for {idleTime()}
+                <span classList={{ "text-danger": a().state === "long-idle", "text-dim": a().state !== "long-idle" }}>
+                  Idle {idleTime()}
                 </span>
               </dd>
             </Show>
@@ -192,7 +244,7 @@ const AgentActivitySection: Component<{ agentId: string }> = (props) => {
               <dd>${a().totalCost.toFixed(4)}</dd>
             </Show>
             <Show when={a().callCount > 0}>
-              <dt>API Calls</dt>
+              <dt>Calls</dt>
               <dd>{a().callCount}</dd>
             </Show>
             <Show when={a().tokens > 0}>
@@ -202,6 +254,90 @@ const AgentActivitySection: Component<{ agentId: string }> = (props) => {
           </dl>
         </div>
       )}
+    </Show>
+  );
+};
+
+interface PendingRequest {
+  id: string;
+  prompt: string;
+  type: string;
+  timestamp: number;
+}
+
+const PendingRequestsSection: Component<{ agentId: string }> = (props) => {
+  const [requests, setRequests] = createSignal<PendingRequest[]>([]);
+  const [respondingTo, setRespondingTo] = createSignal<string | null>(null);
+  const [responseText, setResponseText] = createSignal("");
+
+  // Poll for pending requests
+  const loadPending = async () => {
+    try {
+      const res = await fetch(`/api/agents/${props.agentId}/pending`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setRequests(data);
+      }
+    } catch { /* non-critical */ }
+  };
+
+  // Load on mount and periodically
+  let timer: ReturnType<typeof setInterval>;
+  onMount(() => {
+    loadPending();
+    timer = setInterval(loadPending, 5000);
+  });
+  onCleanup(() => clearInterval(timer));
+
+  async function respond(requestId: string) {
+    const text = responseText().trim();
+    if (!text) return;
+    try {
+      await fetch(`/api/pending/${requestId}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: text }),
+      });
+      setRespondingTo(null);
+      setResponseText("");
+      loadPending();
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <Show when={requests().length > 0}>
+      <div class="agent-detail-section">
+        <h3 class="agent-section-title" style={{ color: "var(--warm)" }}>
+          Awaiting Input ({requests().length})
+        </h3>
+        <For each={requests()}>
+          {(req) => (
+            <div class="pending-request">
+              <div class="pending-prompt">{req.prompt || "Human input requested"}</div>
+              <Show when={respondingTo() === req.id} fallback={
+                <button
+                  class="pending-respond-btn"
+                  onClick={() => setRespondingTo(req.id)}
+                >
+                  Respond
+                </button>
+              }>
+                <div class="pending-response-form">
+                  <input
+                    type="text"
+                    class="pending-response-input"
+                    placeholder="Type your response..."
+                    value={responseText()}
+                    onInput={(e) => setResponseText(e.currentTarget.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") respond(req.id); }}
+                  />
+                  <button class="pending-send-btn" onClick={() => respond(req.id)}>Send</button>
+                </div>
+              </Show>
+            </div>
+          )}
+        </For>
+      </div>
     </Show>
   );
 };

@@ -106,12 +106,55 @@ async function loadEvents() {
   }
 }
 
-// Fix 7: Subscribe to per-agent thought channels
+// Fix 7: Subscribe to per-agent thought channels + load historical data
 function selectAgent(id: string | null) {
   const prev = selectedId();
   if (prev) wsStore.unsubscribe(`agent:${prev}`);
   setSelectedId(id);
-  if (id) wsStore.subscribe(`agent:${id}`);
+  if (id) {
+    wsStore.subscribe(`agent:${id}`);
+    // Load historical thoughts for this agent
+    loadAgentThoughts(id);
+    // Load context window
+    loadAgentContext(id);
+  }
+}
+
+async function loadAgentThoughts(agentId: string) {
+  try {
+    const result = await fetch(`/api/agents/${agentId}/thoughts?limit=50`);
+    if (result.ok) {
+      const data = await result.json();
+      if (Array.isArray(data)) {
+        // Merge with existing thoughts, dedup by id
+        const existing = new Set(thoughts().filter(t => t.agentId === agentId).map(t => t.id));
+        const newThoughts: Thought[] = data
+          .filter((t: any) => !existing.has(t.id))
+          .map((t: any) => ({
+            id: t.id ?? `hist-${t.timestamp}-${Math.random().toString(36).slice(2)}`,
+            agentId: agentId,
+            type: t.type ?? "observation",
+            content: t.content ?? (typeof t === "string" ? t : JSON.stringify(t)),
+            timestamp: t.timestamp ?? Date.now(),
+          }));
+        if (newThoughts.length > 0) {
+          setThoughts(prev => [...newThoughts, ...prev].slice(-500));
+        }
+      }
+    }
+  } catch {
+    // Non-critical — thoughts will arrive via WS
+  }
+}
+
+async function loadAgentContext(agentId: string) {
+  try {
+    const ctx = await api.getAgentContext(agentId);
+    if (ctx) setContextWindow(ctx);
+    else setContextWindow(null);
+  } catch {
+    setContextWindow(null);
+  }
 }
 
 // Fix 3: Map frontend action names to backend REST paths
@@ -146,19 +189,38 @@ async function agentAction(action: string, agentId?: string) {
   }
 }
 
-// Fix 4: Create agent via WebSocket, REST as fallback
-async function createAgent(name: string, capabilities: string[]) {
+// Create agent via WebSocket, REST as fallback.
+// If task is provided, backend auto-starts the agent and sends the task.
+async function createAgent(name: string, capabilities: string[], task?: string) {
   try {
     if (wsStore.connected()) {
-      // WS broadcast handler (agent_created) will update the agent list
-      wsStore.send({ type: "create_agent", name, capabilities });
-      // Small delay then refresh to ensure consistency
-      setTimeout(() => loadAgents(), 500);
+      wsStore.send({ type: "create_agent", name, capabilities, ...(task ? { task } : {}) });
+      // Wait for agent_created broadcast, then auto-select the new agent
+      setTimeout(async () => {
+        await loadAgents();
+        // Find the newly created agent by name and select it
+        const newAgent = agents().find((a) => a.name === name);
+        if (newAgent) {
+          selectAgent(newAgent.id);
+          // Dispatch event to expand JarvisBar so user sees response
+          window.dispatchEvent(new CustomEvent("ap:expand-jarvis"));
+          // If task was provided, add it to chat history so user sees what was sent
+          if (task) {
+            addChatMessage(newAgent.id, {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              sender: "user",
+              content: task,
+              timestamp: Date.now(),
+            });
+            setChatLoading(true);
+          }
+        }
+      }, 600);
     } else {
       await fetch("/api/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, capabilities }),
+        body: JSON.stringify({ name, capabilities, ...(task ? { task } : {}) }),
       });
       await loadAgents();
     }

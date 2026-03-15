@@ -36,7 +36,6 @@ const JarvisBar: Component = () => {
     }).slice(0, 10);
   });
 
-  // Reset selection when matches change
   createEffect(() => {
     cliMatches();
     setCliSelectedIdx(0);
@@ -91,7 +90,6 @@ const JarvisBar: Component = () => {
     }
   }
 
-  // Global `/` shortcut to focus jarvis bar
   function handleGlobalKey(e: KeyboardEvent) {
     if (e.key === "/" && !isInputFocused()) {
       e.preventDefault();
@@ -106,15 +104,20 @@ const JarvisBar: Component = () => {
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (el as HTMLElement).isContentEditable;
   }
 
+  function handleExpandJarvis() {
+    setExpanded(true);
+  }
+
   onMount(() => {
     window.addEventListener("keydown", handleGlobalKey);
+    window.addEventListener("ap:expand-jarvis", handleExpandJarvis);
   });
 
   onCleanup(() => {
     window.removeEventListener("keydown", handleGlobalKey);
+    window.removeEventListener("ap:expand-jarvis", handleExpandJarvis);
   });
 
-  // Auto-scroll history
   createEffect(() => {
     const _ = agentStore.chatMessages().length;
     if (historyRef) {
@@ -124,11 +127,15 @@ const JarvisBar: Component = () => {
     }
   });
 
-  // Determine chat target name
   const chatTarget = createMemo(() => {
     const agent = agentStore.selectedAgent();
     if (agent) return agent.name;
     return "Jarvis";
+  });
+
+  const targetState = createMemo(() => {
+    const agent = agentStore.selectedAgent();
+    return agent?.state ?? null;
   });
 
   return (
@@ -143,9 +150,9 @@ const JarvisBar: Component = () => {
                 classList={{ "jarvis-autocomplete-item-selected": idx() === cliSelectedIdx() }}
                 onClick={() => executeCliCommand(cmd)}
               >
-                <div>
+                <div class="jarvis-autocomplete-left">
                   <span class="jarvis-autocomplete-alias">{cliAliasMap[cmd.id] ?? `/${cmd.id}`}</span>
-                  <span class="jarvis-autocomplete-name"> {cmd.name}</span>
+                  <span class="jarvis-autocomplete-name">{cmd.name}</span>
                 </div>
                 <Show when={cmd.description}>
                   <span class="jarvis-autocomplete-desc">{cmd.description}</span>
@@ -155,23 +162,26 @@ const JarvisBar: Component = () => {
           </For>
         </div>
       </Show>
-      {/* Connection hint when expanded with no messages */}
-      <Show when={expanded() && agentStore.chatMessages().length === 0 && !wsStore.connected()}>
-        <div class="jarvis-history">
-          <div class="jarvis-msg jarvis-msg-jarvis">
-            <span class="jarvis-msg-sender">Jarvis</span>
-            <span class="jarvis-msg-content">Jarvis requires a running backend. Type <code>/</code> for local CLI commands.</span>
-          </div>
-        </div>
-      </Show>
+
       {/* Chat history (expanded) */}
-      <Show when={expanded() && agentStore.chatMessages().length > 0}>
+      <Show when={expanded()}>
         <div class="jarvis-history" ref={historyRef!}>
+          <Show when={agentStore.chatMessages().length === 0}>
+            <div class="jarvis-welcome">
+              <Show when={wsStore.connected()} fallback={
+                <span class="jarvis-welcome-text">Backend offline. Type <code>/</code> for local commands.</span>
+              }>
+                <span class="jarvis-welcome-text">
+                  Ready. Ask <strong>{chatTarget()}</strong> anything, or type <code>/</code> for commands.
+                </span>
+              </Show>
+            </div>
+          </Show>
           <For each={agentStore.chatMessages()}>
             {(msg) => (
               <div class={`jarvis-msg jarvis-msg-${msg.sender}`}>
                 <span class="jarvis-msg-sender">
-                  {msg.sender === "user" ? "You" : chatTarget()}
+                  {msg.sender === "user" ? "you" : chatTarget()}
                 </span>
                 {msg.sender === "jarvis" ? (
                   <span class="jarvis-msg-content jarvis-markdown" innerHTML={renderMarkdown(msg.content)} />
@@ -199,15 +209,30 @@ const JarvisBar: Component = () => {
           onClick={() => setExpanded(!expanded())}
           title={expanded() ? "Collapse chat" : "Expand chat"}
         >
-          {expanded() ? "▾" : "▴"}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path
+              d={expanded() ? "M2 4l4 4 4-4" : "M2 8l4-4 4 4"}
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </button>
         <div class="jarvis-input-wrap">
-          <span class="jarvis-prompt-icon">{cliMode() ? ">" : chatTarget()[0]}</span>
+          <div class="jarvis-target-indicator">
+            <span class="jarvis-target-pip" classList={{
+              "pip-running": targetState() === "running",
+              "pip-paused": targetState() === "paused",
+              "pip-jarvis": !agentStore.selectedAgent(),
+            }} />
+            <span class="jarvis-target-name">{chatTarget()}</span>
+          </div>
           <input
             ref={inputRef!}
             type="text"
             class="jarvis-input"
-            placeholder={`Ask ${chatTarget()} anything... (press / to focus)`}
+            placeholder={cliMode() ? "Search commands..." : "Message or / for commands"}
             value={input()}
             onInput={(e) => setInput(e.currentTarget.value)}
             onKeyDown={handleKeyDown}
@@ -215,8 +240,13 @@ const JarvisBar: Component = () => {
           />
           <Show when={input().trim()}>
             <button class="jarvis-send-btn" onClick={submit}>
-              Send
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
             </button>
+          </Show>
+          <Show when={!input().trim()}>
+            <kbd class="jarvis-shortcut-hint">/</kbd>
           </Show>
         </div>
       </div>

@@ -183,7 +183,8 @@ const DAGCanvas: Component = () => {
 
   const bcm = () => {
     const map = new Map<string, string>();
-    dagStore.branches().forEach((b, i) => map.set(b.name, BRANCH_PALETTE[i % BRANCH_PALETTE.length]));
+    const br = dagStore.branches();
+    if (br) br.forEach((b, i) => map.set(b.name, BRANCH_PALETTE[i % BRANCH_PALETTE.length]));
     return map;
   };
 
