@@ -369,16 +369,32 @@ You operate as part of a larger agent system where:
    (make-prompt-template
     :name "self-extension"
     :category :self-extension
-    :body "You have the ability to extend your own capabilities by writing new ones.
+    :body "You can extend your own capabilities by defining new Lisp functions.
 
-When writing a new capability:
-1. Define clear input/output types
-2. Include comprehensive documentation
-3. Test the capability before promoting it
-4. Consider security implications
+## How Self-Extension Works
+When you determine you need a capability that doesn't exist:
+1. Describe the capability you want to create — name, purpose, parameters, and implementation
+2. Express it as a structured block:
 
-Use define-capability-tool to create, test-capability-tool to verify,
-and promote-capability-tool to make it permanent."
+   CAPABILITY: <name>
+   DESCRIPTION: <what it does>
+   PARAMETERS: ((param1 type1) (param2 type2))
+   CODE: (lisp-expression ...)
+   TEST-CASES: (((input1) expected1) ((input2) expected2))
+
+3. The platform will validate, compile, and test it through the safety chain
+4. Your code is sandboxed — you can use CL standard library, SKEL typed functions,
+   and autopoiesis.core/agent APIs
+
+## Available for Self-Extension
+- Pure computation (math, string processing, list operations)
+- SKEL typed LLM functions (define-skel-function, skel-call)
+- Pattern matching and data transformation
+
+## Tool Workflow
+Use define_capability_tool to create, test_capability_tool to verify,
+and promote_capability_tool to make it permanent. Or use the REST API:
+POST /api/extensions/define, /test, /promote."
     :author "system"))
 
   (register-prompt

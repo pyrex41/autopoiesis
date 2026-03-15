@@ -225,7 +225,22 @@ claude-client directly."))
           (format nil "Agentic loop completed: ~a chars of response"
                   (length action-result))
           "Agentic loop produced no response")
-      :modification (unless success :retry-suggested)))))
+      :modification (unless success :retry-suggested)))
+    ;; Record experience for learning system
+    (ignore-errors
+      (autopoiesis.agent:store-experience
+       (autopoiesis.agent:make-experience
+        :task-type :cognitive-cycle
+        :context (list :agent-name (autopoiesis.agent:agent-name agent))
+        :actions nil
+        :outcome (if success :success :failure)
+        :agent-id (autopoiesis.agent:agent-id agent))))
+    ;; Check crystallize triggers
+    (when (find-package :autopoiesis.crystallize)
+      (ignore-errors
+        (let ((check-fn (find-symbol "AUTO-CRYSTALLIZE-IF-TRIGGERED"
+                                     :autopoiesis.crystallize)))
+          (when check-fn (funcall check-fn agent)))))))
 
 ;;; ===================================================================
 ;;; Substrate Conversation Integration (Phase 7)
