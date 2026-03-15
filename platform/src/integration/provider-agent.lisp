@@ -155,19 +155,22 @@ time-travel debugging."))
 (defmethod autopoiesis.agent:reflect ((agent provider-backed-agent) action-result)
   "Record success/failure reflection and fire streaming lifecycle callbacks."
   (let ((callbacks (agent-streaming-callbacks agent)))
-    ;; Fire :on-end callback (stream finished)
-    (let ((on-end (getf callbacks :on-end)))
-      (when on-end (funcall on-end)))
-    ;; Record reflection thought
-    (when action-result
-      (let* ((success (if (typep action-result 'provider-result)
-                          (result-success-p action-result)
-                          (and action-result (stringp action-result) (> (length action-result) 0))))
-             (text (cond
-                     ((typep action-result 'provider-result)
-                      (provider-result-text action-result))
-                     ((stringp action-result) action-result)
-                     (t nil))))
+    ;; Extract response text for callbacks
+    (let* ((text (cond
+                   ((typep action-result 'provider-result)
+                    (provider-result-text action-result))
+                   ((stringp action-result) action-result)
+                   (t nil)))
+           (success (and text (stringp text) (> (length text) 0))))
+      ;; Fire :on-end callback (stream finished)
+      (let ((on-end (getf callbacks :on-end)))
+        (when on-end (funcall on-end)))
+      ;; Fire :on-complete callback with full response text (after on-end)
+      (let ((on-complete (getf callbacks :on-complete)))
+        (when (and on-complete text (> (length text) 0))
+          (ignore-errors (funcall on-complete text))))
+      ;; Record reflection thought
+      (when action-result
         (autopoiesis.core:stream-append
          (autopoiesis.agent:agent-thought-stream agent)
          (autopoiesis.core:make-reflection
@@ -179,6 +182,21 @@ time-travel debugging."))
                           (or (provider-result-error-output action-result) "unknown error")
                           "no result")))
           :modification (unless success :retry-suggested)))
+        ;; Record experience for learning system
+        (ignore-errors
+          (autopoiesis.agent:store-experience
+           (autopoiesis.agent:make-experience
+            :task-type :cognitive-cycle
+            :context (list :agent-name (autopoiesis.agent:agent-name agent))
+            :actions nil
+            :outcome (if success :success :failure)
+            :agent-id (autopoiesis.agent:agent-id agent))))
+        ;; Check crystallize triggers
+        (when (find-package :autopoiesis.crystallize)
+          (ignore-errors
+            (let ((check-fn (find-symbol "AUTO-CRYSTALLIZE-IF-TRIGGERED"
+                                         :autopoiesis.crystallize)))
+              (when check-fn (funcall check-fn agent)))))
         ;; Fire :on-complete callback with response text
         (let ((on-complete (getf callbacks :on-complete)))
           (when (and on-complete text)

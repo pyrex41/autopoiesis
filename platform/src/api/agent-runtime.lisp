@@ -74,7 +74,7 @@
                                          :command "rho-cli")))
                    ;; Set model
                    (setf (slot-value p (find-symbol "DEFAULT-MODEL" :autopoiesis.integration))
-                         "grok-4.20-reasoning")
+                         "claude-sonnet")
                    ;; Set agent-specific system prompt
                    (handler-case
                        (funcall (fdefinition
