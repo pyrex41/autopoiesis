@@ -1,0 +1,108 @@
+/* Evolution Lab styles */
+.evo-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.evo-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.evo-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.evo-input {
+  width: 80px;
+  background: var(--bg-hi);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.evo-input:focus {
+  outline: none;
+  border-color: var(--signal);
+}
+
+.evo-input:disabled {
+  opacity: 0.5;
+}
+
+.evo-progress-bar {
+  height: 4px;
+  background: var(--bg-hi);
+  border-radius: 2px;
+  margin: 8px 10px;
+  overflow: hidden;
+}
+
+.evo-progress-fill {
+  height: 100%;
+  background: var(--emerge);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.evo-stop-btn {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+}
+
+.evo-chart {
+  display: block;
+  width: 100%;
+  padding: 8px;
+}
+
+.evo-history-table {
+  font-size: 11px;
+}
+
+.evo-history-header {
+  display: grid;
+  grid-template-columns: 50px 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.evo-history-row {
+  display: grid;
+  grid-template-columns: 50px 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+}
+
+.evo-gen-num {
+  color: var(--text-dim);
+}
+
+.evo-fitness-best {
+  color: var(--emerge);
+}
+
+.evo-fitness-avg {
+  color: var(--warm);
+}
+
+.evo-fitness-worst {
+  color: var(--text-dim);
+}

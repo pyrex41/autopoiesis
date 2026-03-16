@@ -1,0 +1,123 @@
+/* Kanban Task Board styles */
+.kanban-board {
+  display: flex;
+  gap: 12px;
+  padding: 8px;
+  overflow-x: auto;
+  min-height: 300px;
+}
+
+.kanban-column {
+  flex: 1;
+  min-width: 200px;
+  max-width: 300px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban-column-dragover {
+  border-color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 5%, var(--bg));
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kanban-column-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.kanban-column-title {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.kanban-column-count {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg-hi);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.kanban-column-body {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.kanban-card {
+  background: var(--bg-hi);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 10px;
+  cursor: grab;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.kanban-card:hover {
+  border-color: var(--border-hi);
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-card-dragging {
+  opacity: 0.4;
+  transform: scale(0.95);
+}
+
+.kanban-card-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.kanban-card-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.kanban-card-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.kanban-card-priority {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.kanban-card-complexity {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.kanban-card-deps {
+  font-size: 9px;
+  color: var(--text-dim);
+}

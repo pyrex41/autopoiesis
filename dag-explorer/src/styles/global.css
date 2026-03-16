@@ -22,4 +22,10 @@
 @import './create-dialog.css';
 @import './event-log.css';
 @import './snapshot-timeline.css';
+@import './org.css';
+@import './budget.css';
+@import './approvals.css';
+@import './taskboard.css';
+@import './evolution.css';
+@import './audit.css';
 @import './utilities.css';

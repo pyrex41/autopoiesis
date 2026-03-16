@@ -1,0 +1,140 @@
+/* Budget Dashboard styles */
+.budget-panel {
+  min-height: 200px;
+}
+
+.budget-sort-select {
+  background: var(--bg-hi);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.budget-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.budget-row {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.budget-row:last-child {
+  border-bottom: none;
+}
+
+.budget-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.budget-agent-name {
+  flex: 1;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.budget-spent {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.budget-separator {
+  color: var(--text-dim);
+}
+
+.budget-limit {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.budget-pct {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--emerge);
+  min-width: 40px;
+  text-align: right;
+}
+
+.budget-warn {
+  color: var(--warm) !important;
+}
+
+.budget-exceeded {
+  color: var(--danger) !important;
+}
+
+.budget-set-limit-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.budget-set-limit-btn:hover {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.budget-edit-form {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.budget-edit-input {
+  width: 70px;
+  background: var(--bg-hi);
+  border: 1px solid var(--signal);
+  border-radius: 3px;
+  padding: 2px 6px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.budget-edit-save {
+  background: var(--signal);
+  color: var(--bg);
+  border: none;
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.budget-bar-track {
+  position: relative;
+  height: 4px;
+  background: var(--bg-hi);
+  border-radius: 2px;
+  overflow: visible;
+}
+
+.budget-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.budget-bar-threshold {
+  position: absolute;
+  top: -2px;
+  width: 1px;
+  height: 8px;
+  background: var(--text-dim);
+  opacity: 0.5;
+}

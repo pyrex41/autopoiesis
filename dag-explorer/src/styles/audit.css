@@ -1,0 +1,179 @@
+/* Audit Log styles */
+.audit-filter-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  align-items: center;
+}
+
+.audit-filter-select {
+  background: var(--bg-hi);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 11px;
+  min-width: 120px;
+}
+
+.audit-reload-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.audit-reload-btn:hover {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.audit-panel {
+  min-height: 300px;
+}
+
+.audit-table-header {
+  display: grid;
+  grid-template-columns: 140px 1fr 80px 80px;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+.audit-table-body {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.audit-row-wrapper {
+  border-bottom: 1px solid var(--border);
+}
+
+.audit-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 80px 80px;
+  gap: 8px;
+  padding: 6px 10px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.audit-row:hover {
+  background: var(--bg-hi);
+}
+
+.audit-row-expanded {
+  background: var(--bg-hi);
+}
+
+.audit-col-time {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.audit-col-type {
+  color: var(--text-muted);
+}
+
+.audit-type-error {
+  color: var(--danger);
+}
+
+.audit-type-thought {
+  color: var(--signal);
+}
+
+.audit-type-state {
+  color: var(--warm);
+}
+
+.audit-col-agent {
+  color: var(--signal);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.audit-col-source {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.audit-detail {
+  padding: 8px 10px 12px 20px;
+  background: var(--bg);
+}
+
+.audit-detail-row {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 11px;
+}
+
+.audit-detail-label {
+  color: var(--text-dim);
+  min-width: 60px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.audit-detail-value {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.audit-detail-data {
+  flex-direction: column;
+}
+
+.audit-detail-pre {
+  background: var(--bg-hi);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 4px 0 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.audit-load-more {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--signal);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.audit-load-more:hover {
+  background: var(--bg-hi);
+}
+
+.audit-load-more:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}

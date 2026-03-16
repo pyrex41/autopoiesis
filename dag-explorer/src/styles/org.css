@@ -1,0 +1,191 @@
+/* Org Chart styles */
+.org-tree-panel {
+  min-height: 300px;
+}
+
+.org-tree {
+  padding: 4px 0;
+}
+
+.org-dept-node {
+  margin: 1px 0;
+}
+
+.org-dept-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.org-dept-header:hover {
+  background: var(--bg-hi);
+  border-color: var(--border);
+}
+
+.org-dept-selected {
+  background: var(--bg-hi);
+  border-color: var(--signal) !important;
+}
+
+.org-dept-toggle {
+  color: var(--text-dim);
+  font-size: 10px;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.org-dept-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.org-dept-goal-count {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.org-dept-budget {
+  color: var(--signal);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.org-dept-goals {
+  padding: 2px 0 4px;
+}
+
+.org-goal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin: 2px;
+  background: var(--bg-hi);
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.org-goal-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.org-goal-status-dot.status-active { background: var(--emerge); }
+.org-goal-status-dot.status-completed { background: var(--signal); }
+.org-goal-status-dot.status-paused { background: var(--warm); }
+
+.org-goals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.org-goal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.org-goal-status-pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.org-goal-title {
+  flex: 1;
+  color: var(--text);
+}
+
+.org-goal-dept {
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-hi);
+  border-radius: 8px;
+}
+
+.org-goal-agent {
+  color: var(--signal);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.org-goal-status-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Create dialogs */
+.org-create-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.org-create-dialog {
+  background: var(--bg);
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  padding: 20px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.org-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.org-dialog-input {
+  background: var(--bg-hi);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.org-dialog-input:focus {
+  outline: none;
+  border-color: var(--signal);
+}
+
+.org-dialog-select {
+  background: var(--bg-hi);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.org-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
