@@ -76,7 +76,8 @@ Multi-turn sessions use --resume with rho's SQLite session persistence.")
      (incf turns)
      (push (list :name (cdr (assoc :tool--name json))
                  :id (cdr (assoc :tool--id json))
-                 :input (cdr (assoc :input--summary json)))
+                 :input (or (cdr (assoc :input json))
+                            (cdr (assoc :input--summary json))))
            tool-calls))
     ("tool_result"
      ;; Update the last tool call with success status

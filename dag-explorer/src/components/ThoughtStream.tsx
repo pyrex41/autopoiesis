@@ -1,6 +1,6 @@
 import { type Component, For, Show, createEffect, createSignal } from "solid-js";
 import { agentStore, type Thought } from "../stores/agents";
-import { setModalThought } from "./ThoughtModal";
+import { setModalThought, summarizeThought, normalizeTimestamp } from "./ThoughtModal";
 
 const typeConfig: Record<string, { bg: string; fg: string; label: string; icon: string }> = {
   observation: { bg: "rgba(79, 195, 247, 0.12)", fg: "var(--signal)", label: "OBS", icon: "eye" },
@@ -64,15 +64,12 @@ const ThoughtCard: Component<{ thought: Thought }> = (props) => {
   const [expanded, setExpanded] = createSignal(false);
   const info = () => typeConfig[props.thought.type] ?? typeConfig.observation;
   const time = () => {
-    const d = new Date(props.thought.timestamp);
+    const d = new Date(normalizeTimestamp(props.thought.timestamp));
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   };
 
   const isExpandable = () => props.thought.content.length > 120 || hasStructured(props.thought);
-  const displayContent = () => {
-    if (expanded() || props.thought.content.length <= 120) return props.thought.content;
-    return props.thought.content.slice(0, 120) + "...";
-  };
+  const displayContent = () => summarizeThought(props.thought);
 
   return (
     <div

@@ -53,6 +53,11 @@
   animation: fadeSlideUp 0.2s ease;
   border-radius: 0 var(--radius) var(--radius) 0;
   transition: background var(--transition);
+  cursor: pointer;
+}
+
+.thought-card:hover {
+  background: rgba(79, 195, 247, 0.03);
 }
 
 .thought-card-expandable {
@@ -218,7 +223,7 @@
   border: 1px solid var(--border-hi, #30363d);
   border-radius: 12px;
   width: min(90vw, 800px);
-  max-height: 85vh;
+  height: min(85vh, 700px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -270,7 +275,8 @@
 .thought-modal-close:hover { color: var(--text, #e6edf3); }
 
 .thought-modal-body {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px;
 }
@@ -295,7 +301,8 @@
 .thought-modal-lang-lisp { color: #d2a8ff; }
 
 .thought-modal-meta {
-  padding: 12px 20px 16px;
+  padding: 12px 0 0;
+  margin-top: 16px;
   border-top: 1px solid var(--border, #21262d);
   display: flex;
   flex-direction: column;
@@ -341,7 +348,8 @@
 }
 
 .thought-modal-raw {
-  padding: 8px 20px 16px;
+  padding: 8px 0 0;
+  margin-top: 12px;
   border-top: 1px solid var(--border, #21262d);
 }
 
@@ -364,6 +372,66 @@
   word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
+}
+
+/* ── Tool Header Bar ──────────────────────────────────────────── */
+
+.thought-modal-tool-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  background: rgba(105, 240, 174, 0.15);
+  color: var(--emerge, #69f0ae);
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+}
+
+.thought-modal-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--border, #21262d);
+}
+
+.thought-modal-tool-filepath {
+  font-size: 12px;
+  color: var(--signal, #4fc3f7);
+  font-family: var(--font-mono, monospace);
+  opacity: 0.9;
+}
+
+/* ── Code Block (tool content) ────────────────────────────────── */
+
+.thought-modal-code {
+  background: rgba(0, 0, 0, 0.45) !important;
+  color: #c9d1d9 !important;
+  border-color: rgba(48, 54, 61, 0.8) !important;
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 4;
+}
+
+/* ── Modal Scrollbar ──────────────────────────────────────────── */
+
+.thought-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.thought-modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.thought-modal-body::-webkit-scrollbar-thumb {
+  background: rgba(110, 118, 129, 0.3);
+  border-radius: 3px;
+}
+
+.thought-modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(110, 118, 129, 0.5);
 }
 
 @keyframes modalFadeIn {

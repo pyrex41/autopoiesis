@@ -195,7 +195,7 @@ async function loadAgentThoughts(agentId: string) {
             agentId: agentId,
             type: t.type ?? "observation",
             content: t.content ?? (typeof t === "string" ? t : JSON.stringify(t)),
-            timestamp: t.timestamp ?? Date.now(),
+            timestamp: t.timestamp ? (t.timestamp < 1e12 ? t.timestamp * 1000 : t.timestamp) : Date.now(),
             confidence: t.confidence,
             alternatives: t.alternatives,
             chosen: t.chosen,
@@ -385,6 +385,10 @@ function handleWSMessage(msg: ServerMessage) {
     case "thought_added": {
       const thought = msg.thought as Thought;
       if (thought) {
+        // Normalize CL timestamps (seconds) to JS timestamps (milliseconds)
+        if (thought.timestamp && thought.timestamp < 1e12) {
+          thought.timestamp = thought.timestamp * 1000;
+        }
         setThoughts((prev) => {
           // Dedup by ID — same thought may arrive via multiple subscription channels
           if (thought.id && prev.some((t) => t.id === thought.id)) return prev;

@@ -2,7 +2,7 @@ import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { agentStore, type Thought } from "../stores/agents";
 import type { IntegrationEvent } from "../api/types";
 import EmptyState from "./EmptyState";
-import { setModalThought } from "./ThoughtModal";
+import { setModalThought, summarizeThought, normalizeTimestamp } from "./ThoughtModal";
 
 interface TimelineEntry {
   id: string;
@@ -72,7 +72,7 @@ const TimelineView: Component = () => {
   });
 
   const formatTime = (ts: number) => {
-    const d = new Date(ts);
+    const d = new Date(normalizeTimestamp(ts));
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   };
 
@@ -192,7 +192,9 @@ const TimelineView: Component = () => {
                       </span>
                     </Show>
                   </div>
-                  <div class="timeline-entry-content">{entry.content}</div>
+                  <div class="timeline-entry-content">
+                    {entry.thought ? summarizeThought(entry.thought) : entry.content}
+                  </div>
                 </div>
               </div>
             )}
