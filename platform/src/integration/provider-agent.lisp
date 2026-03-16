@@ -25,7 +25,11 @@
    (streaming-callbacks :initarg :streaming-callbacks
                         :accessor agent-streaming-callbacks
                         :initform nil
-                        :documentation "Plist (:on-start fn :on-delta fn :on-end fn :on-complete fn)"))
+                        :documentation "Plist (:on-start fn :on-delta fn :on-end fn :on-complete fn)")
+   (cycle-count :initarg :cycle-count
+                :accessor agent-cycle-count
+                :initform 0
+                :documentation "Number of cognitive cycles completed (for learning schedule)"))
   (:documentation "An agent that delegates cognition to an external CLI provider.
 
 The provider (Claude Code, Codex, etc.) runs its own agentic loop.
@@ -182,15 +186,22 @@ time-travel debugging."))
                           (or (provider-result-error-output action-result) "unknown error")
                           "no result")))
           :modification (unless success :retry-suggested)))
-        ;; Record experience for learning system
+        ;; Record experience with provider context
         (ignore-errors
           (autopoiesis.agent:store-experience
            (autopoiesis.agent:make-experience
             :task-type :cognitive-cycle
-            :context (list :agent-name (autopoiesis.agent:agent-name agent))
-            :actions nil
+            :context (list :agent-name (autopoiesis.agent:agent-name agent)
+                           :provider (provider-name (agent-provider agent))
+                           :capabilities (autopoiesis.agent:agent-capabilities agent))
+            :actions (list (intern (string-upcase (provider-name (agent-provider agent))) :keyword))
             :outcome (if success :success :failure)
             :agent-id (autopoiesis.agent:agent-id agent))))
+        ;; Run learning pipeline periodically (every 5 cycles)
+        (when (slot-boundp agent 'cycle-count)
+          (incf (agent-cycle-count agent))
+          (when (zerop (mod (agent-cycle-count agent) 5))
+            (run-learning-pipeline agent)))
         ;; Check crystallize triggers
         (when (find-package :autopoiesis.crystallize)
           (ignore-errors

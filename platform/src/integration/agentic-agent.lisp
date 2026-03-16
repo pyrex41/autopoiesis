@@ -43,7 +43,15 @@
    (tool-capabilities :initarg :tool-capabilities
                       :accessor agent-tool-capabilities
                       :initform nil
-                      :documentation "List of capability instances available as tools"))
+                      :documentation "List of capability instances available as tools")
+   (cycle-actions :initarg :cycle-actions
+                  :accessor agent-cycle-actions
+                  :initform nil
+                  :documentation "Tool actions collected during the current cognitive cycle")
+   (cycle-count :initarg :cycle-count
+                :accessor agent-cycle-count
+                :initform 0
+                :documentation "Number of cognitive cycles completed (for learning schedule)"))
   (:documentation "Agent that runs agentic loops via direct API calls.
 
 Unlike provider-backed-agent which delegates to external CLI tools,
@@ -129,11 +137,16 @@ claude-client directly."))
     messages))
 
 (defmethod autopoiesis.agent:reason ((agent agentic-agent) observations)
-  "Build the full message list and gather tool capabilities."
-  (let ((messages (append (agent-conversation-history agent) observations)))
+  "Build the full message list, gather tool capabilities, and inject learned heuristics."
+  (let* ((messages (append (agent-conversation-history agent) observations))
+         (base-prompt (agent-system-prompt agent))
+         (heuristic-section (format-learned-heuristics agent))
+         (system-prompt (if heuristic-section
+                            (format nil "~a~%~%~a" base-prompt heuristic-section)
+                            base-prompt)))
     (list :messages messages
           :capabilities (agent-tool-capabilities agent)
-          :system-prompt (agent-system-prompt agent))))
+          :system-prompt system-prompt)))
 
 (defmethod autopoiesis.agent:decide ((agent agentic-agent) understanding)
   "Record decision to run the agentic loop and pass understanding through."
@@ -150,6 +163,8 @@ claude-client directly."))
 
 (defmethod autopoiesis.agent:act ((agent agentic-agent) decision)
   "Run the agentic loop and record each turn as a thought."
+  ;; Reset cycle actions for this cycle
+  (setf (agent-cycle-actions agent) nil)
   (let* ((messages (getf decision :messages))
          (capabilities (getf decision :capabilities))
          (system (getf decision :system-prompt))
@@ -187,6 +202,17 @@ claude-client directly."))
            (model-kw (when provider (intern (string-upcase (provider-name provider)) :keyword)))
            (wrapped-on-thought
              (lambda (type data)
+               ;; Collect tool actions for learning system
+               (when (eq type :tool-execution)
+                 (let ((tool-name (cond
+                                    ((stringp data) (intern (string-upcase data) :keyword))
+                                    ((and (listp data) (getf data :name))
+                                     (intern (string-upcase (getf data :name)) :keyword))
+                                    ((and (listp data) (first data))
+                                     (if (keywordp (first data)) (first data)
+                                         (intern (string-upcase (format nil "~a" (first data))) :keyword)))
+                                    (t :unknown-tool))))
+                   (push tool-name (agent-cycle-actions agent))))
                ;; Record turns in substrate when context available
                (when ctx
                  (case type
@@ -215,32 +241,78 @@ claude-client directly."))
                final-response))))))
 
 (defmethod autopoiesis.agent:reflect ((agent agentic-agent) action-result)
-  "Record a reflection on the agentic loop outcome."
-  (let ((success (and action-result (stringp action-result) (> (length action-result) 0))))
+  "Record a reflection on the agentic loop outcome and run learning pipeline."
+  (let* ((success (and action-result (stringp action-result) (> (length action-result) 0)))
+         (actions (nreverse (agent-cycle-actions agent))))
     (autopoiesis.core:stream-append
      (autopoiesis.agent:agent-thought-stream agent)
      (autopoiesis.core:make-reflection
       "agentic-loop"
       (if success
-          (format nil "Agentic loop completed: ~a chars of response"
-                  (length action-result))
+          (format nil "Agentic loop completed: ~a chars, ~a tool call~:p"
+                  (length action-result) (length actions))
           "Agentic loop produced no response")
       :modification (unless success :retry-suggested)))
-    ;; Record experience for learning system
+    ;; Record experience with actual tool actions and richer context
     (ignore-errors
       (autopoiesis.agent:store-experience
        (autopoiesis.agent:make-experience
         :task-type :cognitive-cycle
-        :context (list :agent-name (autopoiesis.agent:agent-name agent))
-        :actions nil
+        :context (list :agent-name (autopoiesis.agent:agent-name agent)
+                       :capabilities (autopoiesis.agent:agent-capabilities agent)
+                       :tool-count (length actions))
+        :actions actions
         :outcome (if success :success :failure)
         :agent-id (autopoiesis.agent:agent-id agent))))
+    ;; Run learning pipeline periodically (every 5 cycles)
+    (incf (agent-cycle-count agent))
+    (when (zerop (mod (agent-cycle-count agent) 5))
+      (run-learning-pipeline agent))
     ;; Check crystallize triggers
     (when (find-package :autopoiesis.crystallize)
       (ignore-errors
         (let ((check-fn (find-symbol "AUTO-CRYSTALLIZE-IF-TRIGGERED"
                                      :autopoiesis.crystallize)))
           (when check-fn (funcall check-fn agent)))))))
+
+;;; ===================================================================
+;;; Learning Pipeline Integration
+;;; ===================================================================
+
+(defun run-learning-pipeline (agent)
+  "Extract patterns from recent experiences and generate heuristics.
+   Called periodically from reflect (every 5 cycles)."
+  (ignore-errors
+    (let* ((agent-id (autopoiesis.agent:agent-id agent))
+           (experiences (autopoiesis.agent:list-experiences :agent-id agent-id))
+           (recent (subseq experiences 0 (min 50 (length experiences)))))
+      (when (>= (length recent) 3)
+        (let ((patterns (autopoiesis.agent:extract-patterns recent :min-frequency 0.2)))
+          (when patterns
+            (let ((new-heuristics (autopoiesis.agent:generate-heuristics-from-patterns
+                                   patterns :min-frequency 0.25)))
+              (dolist (h new-heuristics)
+                (autopoiesis.agent:store-heuristic h)))))))))
+
+(defun format-learned-heuristics (agent)
+  "Format applicable heuristics as a system prompt section, or NIL if none."
+  (ignore-errors
+    (let ((heuristics (autopoiesis.agent:list-heuristics :min-confidence 0.3)))
+      (when heuristics
+        (let ((lines (loop for h in (subseq heuristics 0 (min 10 (length heuristics)))
+                           for rec = (autopoiesis.agent:heuristic-recommendation h)
+                           for name = (autopoiesis.agent:heuristic-name h)
+                           for conf = (autopoiesis.agent:heuristic-confidence h)
+                           collect (format nil "- ~a (confidence: ~,1f): ~a"
+                                           (or name "unnamed") conf
+                                           (cond
+                                             ((and (listp rec) (eq (first rec) :prefer-actions))
+                                              (format nil "prefer ~{~a~^, ~}" (second rec)))
+                                             ((and (listp rec) (eq (first rec) :avoid-actions))
+                                              (format nil "avoid ~{~a~^, ~}" (second rec)))
+                                             (t (format nil "~a" rec)))))))
+          (when lines
+            (format nil "# LEARNED PATTERNS~%Based on past experience:~%~{~a~%~}" lines)))))))
 
 ;;; ===================================================================
 ;;; Substrate Conversation Integration (Phase 7)
