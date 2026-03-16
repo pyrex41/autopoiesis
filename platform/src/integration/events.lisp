@@ -39,7 +39,10 @@
     :team-member-joined   ; Agent joined a team
     :team-member-left     ; Agent left a team
     :team-task-assigned   ; Task assigned to team member
-    :team-task-completed)) ; Team member completed a task
+    :team-task-completed  ; Team member completed a task
+    ;; Paperclip adapter events
+    :paperclip-heartbeat-received   ; Paperclip heartbeat received
+    :paperclip-heartbeat-responded)) ; Paperclip heartbeat response sent
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Integration Event Class

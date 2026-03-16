@@ -900,6 +900,101 @@
       (t (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed")))))
 
 ;;; ===================================================================
+;;; Paperclip Adapter Endpoints
+;;; ===================================================================
+
+(defun %paperclip-loaded-p ()
+  "Return T if the autopoiesis.paperclip package is loaded and adapter is active."
+  (let ((pkg (find-package :autopoiesis.paperclip)))
+    (when pkg
+      (let ((sym (find-symbol "*PAPERCLIP-ADAPTER-LOADED*" pkg)))
+        (and sym (boundp sym) (symbol-value sym))))))
+
+(defun %paperclip-fn (name)
+  "Find a function symbol in the autopoiesis.paperclip package."
+  (when (find-package :autopoiesis.paperclip)
+    (find-symbol (string name) :autopoiesis.paperclip)))
+
+(defun %call-paperclip (fn-name &rest args)
+  "Call a function in autopoiesis.paperclip by name."
+  (let ((fn (%paperclip-fn fn-name)))
+    (unless fn
+      (error "Paperclip function ~A not found" fn-name))
+    (apply fn args)))
+
+(defun rest-handle-paperclip (request)
+  "Dispatch /api/paperclip requests."
+  (unless (%paperclip-loaded-p)
+    (return-from rest-handle-paperclip
+      (json-error "Paperclip adapter not loaded" :status 503
+                  :error-type "Service Unavailable")))
+  (let* ((method (hunchentoot:request-method request))
+         (uri (hunchentoot:request-uri request))
+         (qpos (position #\? uri)))
+    (when qpos (setf uri (subseq uri 0 qpos)))
+    ;; Strip /api/paperclip/ prefix (15 chars) to get sub-path
+    ;; e.g., "/api/paperclip/heartbeat" -> "heartbeat"
+    ;;        "/api/paperclip" -> ""
+    (let ((sub-path (if (> (length uri) 15)
+                        (subseq uri 15)
+                        "")))
+      (cond
+        ;; POST /api/paperclip/heartbeat
+        ((and (eq method :post) (string= sub-path "heartbeat"))
+         (require-permission :write)
+         (let* ((body (parse-json-body))
+                (response (%call-paperclip "HANDLE-PAPERCLIP-HEARTBEAT" body)))
+           (json-ok response)))
+        ;; GET /api/paperclip/agents
+        ((and (eq method :get) (string= sub-path "agents"))
+         (require-permission :read)
+         (json-ok (%call-paperclip "PAPERCLIP-LIST-AGENTS")))
+        ;; GET /api/paperclip/agents/:role
+        ((and (eq method :get)
+              (>= (length sub-path) 8)
+              (string= "agents/" (subseq sub-path 0 7)))
+         (require-permission :read)
+         (let* ((role-id (subseq sub-path 7))
+                (agents (%call-paperclip "PAPERCLIP-LIST-AGENTS"))
+                (entry (assoc role-id agents :test #'string=)))
+           (if entry
+               (json-ok `((:role . ,(car entry)) (:agent--id . ,(cdr entry))))
+               (json-not-found "Paperclip role" role-id))))
+        ;; GET /api/paperclip/skills
+        ((and (eq method :get) (string= sub-path "skills"))
+         (setf (hunchentoot:content-type*) "text/markdown")
+         (%call-paperclip "GENERATE-SKILLS-MD"))
+        ;; GET /api/paperclip/budget/:role
+        ((and (eq method :get)
+              (>= (length sub-path) 8)
+              (string= "budget/" (subseq sub-path 0 7)))
+         (require-permission :read)
+         (let* ((role-id (subseq sub-path 7))
+                (budget (%call-paperclip "GET-PAPERCLIP-BUDGET" role-id)))
+           (if budget
+               (json-ok `((:role . ,role-id)
+                           (:spent . ,(getf budget :spent))
+                           (:limit . ,(getf budget :limit))
+                           (:currency . ,(getf budget :currency))))
+               (json-ok `((:role . ,role-id) (:spent . 0) (:limit . nil))))))
+        ;; POST /api/paperclip/budget/:role
+        ((and (eq method :post)
+              (>= (length sub-path) 8)
+              (string= "budget/" (subseq sub-path 0 7)))
+         (require-permission :write)
+         (let* ((role-id (subseq sub-path 7))
+                (body (parse-json-body))
+                (limit (cdr (assoc :limit body)))
+                (currency (cdr (assoc :currency body)))
+                (budget (%call-paperclip "UPDATE-PAPERCLIP-BUDGET" role-id
+                                         :limit limit :currency currency)))
+           (json-ok `((:role . ,role-id)
+                       (:spent . ,(getf budget :spent))
+                       (:limit . ,(getf budget :limit))
+                       (:currency . ,(getf budget :currency))))))
+        (t (json-not-found "Paperclip route" sub-path))))))
+
+;;; ===================================================================
 ;;; Main Router
 ;;; ===================================================================
 
@@ -946,6 +1041,11 @@
                (and (> (length uri) 16)
                     (string= "/api/extensions/" (subseq uri 0 16))))
            (rest-handle-extensions request))
+          ;; /api/paperclip or /api/paperclip/...
+          ((or (string= uri "/api/paperclip")
+               (and (>= (length uri) 15)
+                    (string= "/api/paperclip/" (subseq uri 0 15))))
+           (rest-handle-paperclip request))
           ;; /api/events (exact match)
           ((string= uri "/api/events")
            (rest-handle-events request))
