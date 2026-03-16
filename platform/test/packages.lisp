@@ -35,4 +35,8 @@
    #:persistent-agent-tests
    #:swarm-integration-tests
    #:live-llm-tests
-   #:test-live-llm))
+   #:learning-integration-tests
+   #:mailbox-integration-tests
+   #:test-live-llm
+   #:test-learning-integration
+   #:test-mailbox-integration))

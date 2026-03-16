@@ -100,21 +100,17 @@ RUN mkdir -p /data/logs /data/snapshots /app/static
 # Volume for persistent data (snapshots, logs, config)
 VOLUME /data
 
-# Expose HTTP ports (main app and monitoring)
-EXPOSE 8080 8081
+# Expose HTTP ports (WebSocket, monitoring, REST)
+EXPOSE 8080 8081 8082
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD sbcl --noinform --non-interactive \
-        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
-        --eval "(ql:quickload :autopoiesis :silent t)" \
-        --eval "(if (autopoiesis:health-check-ok-p) (quit :unix-status 0) (quit :unix-status 1))" \
-        || exit 1
+# Health check via curl (fast, no memory overhead)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD curl -sf http://localhost:8080/health || exit 1
 
-# Default command: start the REPL with system loaded
-# Override with specific entry point as needed
-CMD ["sbcl", "--noinform", \
+# Start the API server (matches Earthfile +server target)
+ENTRYPOINT []
+CMD ["sbcl", "--noinform", "--non-interactive", \
      "--eval", "(push #P\"/app/\" asdf:*central-registry*)", \
-     "--eval", "(ql:quickload :autopoiesis :silent t)", \
-     "--eval", "(in-package :autopoiesis)", \
-     "--eval", "(format t \"~%Autopoiesis loaded. Type (help) for commands.~%\")"]
+     "--eval", "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)", \
+     "--eval", "(ql:quickload '(:autopoiesis/api :autopoiesis/jarvis) :silent t)", \
+     "--eval", "(progn (autopoiesis.substrate:open-store) (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api~%\") (loop (sleep 60)))"]

@@ -37,6 +37,8 @@
   (run! 'team-tests)
   (run! 'persistent-agent-tests)
   (run! 'swarm-integration-tests)
+  (run! 'learning-integration-tests)
+  (run! 'mailbox-integration-tests)
   (run! 'e2e-tests)
   ;; API tests live in a separate ASDF system (autopoiesis/api)
   ;; Load and run them if available
@@ -127,6 +129,14 @@
 (defun test-team ()
   "Run only team coordination tests."
   (run! 'team-tests))
+
+(defun test-learning-integration ()
+  "Run only learning integration tests."
+  (run! 'learning-integration-tests))
+
+(defun test-mailbox-integration ()
+  "Run only mailbox integration tests."
+  (run! 'mailbox-integration-tests))
 
 (defun test-api ()
   "Run only WebSocket API tests."

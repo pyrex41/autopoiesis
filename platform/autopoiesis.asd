@@ -376,6 +376,35 @@
      (:file "loop")
      (:file "human-in-the-loop")))))
 
+;;; Paperclip AI BYOA adapter (optional)
+(asdf:defsystem #:autopoiesis/paperclip
+  :description "Paperclip AI BYOA adapter for Autopoiesis"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :depends-on (#:autopoiesis)
+  :serial t
+  :components
+  ((:module "src/paperclip"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "adapter")
+     (:file "skills")))))
+
+;;; Paperclip adapter tests
+(asdf:defsystem #:autopoiesis/paperclip-test
+  :description "Tests for Paperclip adapter"
+  :depends-on (#:autopoiesis/paperclip #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "paperclip-adapter-tests"))))
+  :perform (test-op (o c)
+            (symbol-call :autopoiesis.paperclip.test :run-paperclip-tests)))
+
 ;;; Holodeck 3D visualization subsystem (Phase 8)
 ;;; Separate system to avoid requiring OpenGL dependencies for core usage
 (asdf:defsystem #:autopoiesis/holodeck
@@ -459,6 +488,8 @@
       ;; - autopoiesis/crystallize-test (includes git-tools-tests)
       ;; - autopoiesis/jarvis-test
       (:file "persistent-agent-tests")
+      (:file "learning-integration-tests")
+      (:file "mailbox-integration-tests")
       (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))

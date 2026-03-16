@@ -206,7 +206,7 @@ claude-client directly."))
                (when (eq type :tool-execution)
                  (let ((tool-name (cond
                                     ((stringp data) (intern (string-upcase data) :keyword))
-                                    ((and (listp data) (getf data :name))
+                                    ((and (listp data) (evenp (length data)) (getf data :name))
                                      (intern (string-upcase (getf data :name)) :keyword))
                                     ((and (listp data) (first data))
                                      (if (keywordp (first data)) (first data)

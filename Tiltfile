@@ -38,6 +38,15 @@ local_resource(
   labels=['test']
 )
 
+# Container smoke test — standalone, builds + tests Docker image
+local_resource(
+  'container-smoke',
+  cmd='./e2e/container-smoke.sh',
+  auto_init=False,
+  trigger_mode=TRIGGER_MODE_MANUAL,
+  labels=['test']
+)
+
 # Full browser E2E test — manual trigger, needs both backend and frontend
 local_resource(
   'e2e-tests',
