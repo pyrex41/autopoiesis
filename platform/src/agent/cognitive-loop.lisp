@@ -48,11 +48,22 @@
 ;;; ═══════════════════════════════════════════════════════════════════
 
 (defun cognitive-cycle (agent environment)
-  "Execute one iteration of the cognitive loop."
+  "Execute one iteration of the cognitive loop.
+   Reflect is always called, even when act signals an error, so the learning
+   system can record failures."
   (when (agent-running-p agent)
     (let* ((observations (perceive agent environment))
            (understanding (reason agent observations))
            (decision (decide agent understanding))
-           (result (act agent decision)))
-      (reflect agent result)
+           (result nil)
+           (errored nil))
+      (handler-case
+          (setf result (act agent decision))
+        (error (e)
+          (setf errored t)
+          ;; Re-signal after reflect so callers still see the error
+          (reflect agent nil)
+          (error e)))
+      (unless errored
+        (reflect agent result))
       result)))

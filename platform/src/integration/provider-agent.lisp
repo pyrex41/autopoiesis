@@ -157,7 +157,7 @@ time-travel debugging."))
     result))
 
 (defmethod autopoiesis.agent:reflect ((agent provider-backed-agent) action-result)
-  "Record success/failure reflection and fire streaming lifecycle callbacks."
+  "Record success/failure reflection, fire streaming callbacks, and run learning."
   (let ((callbacks (agent-streaming-callbacks agent)))
     ;; Extract response text for callbacks
     (let* ((text (cond
@@ -173,41 +173,42 @@ time-travel debugging."))
       (let ((on-complete (getf callbacks :on-complete)))
         (when (and on-complete text (> (length text) 0))
           (ignore-errors (funcall on-complete text))))
-      ;; Record reflection thought
-      (when action-result
-        (autopoiesis.core:stream-append
-         (autopoiesis.agent:agent-thought-stream agent)
-         (autopoiesis.core:make-reflection
-          (provider-name (agent-provider agent))
-          (if success
-              "Provider invocation completed successfully"
-              (format nil "Provider invocation failed: ~a"
-                      (if (typep action-result 'provider-result)
-                          (or (provider-result-error-output action-result) "unknown error")
-                          "no result")))
-          :modification (unless success :retry-suggested)))
-        ;; Record experience with provider context
+      ;; Record reflection thought — always, even on nil action-result (act error)
+      (autopoiesis.core:stream-append
+       (autopoiesis.agent:agent-thought-stream agent)
+       (autopoiesis.core:make-reflection
+        (provider-name (agent-provider agent))
+        (if success
+            "Provider invocation completed successfully"
+            (format nil "Provider invocation failed: ~a"
+                    (cond
+                      ((typep action-result 'provider-result)
+                       (or (provider-result-error-output action-result) "unknown error"))
+                      ((null action-result) "act phase error")
+                      (t "no result"))))
+        :modification (unless success :retry-suggested)))
+      ;; Record experience — always, including failures
+      (ignore-errors
+        (autopoiesis.agent:store-experience
+         (autopoiesis.agent:make-experience
+          :task-type :cognitive-cycle
+          :context (list :agent-name (autopoiesis.agent:agent-name agent)
+                         :provider (provider-name (agent-provider agent))
+                         :capabilities (autopoiesis.agent:agent-capabilities agent))
+          :actions (list (intern (string-upcase (provider-name (agent-provider agent))) :keyword))
+          :outcome (if success :success :failure)
+          :agent-id (autopoiesis.agent:agent-id agent))))
+      ;; Run learning pipeline periodically (every 5 cycles)
+      (when (slot-boundp agent 'cycle-count)
+        (incf (agent-cycle-count agent))
+        (when (zerop (mod (agent-cycle-count agent) 5))
+          (run-learning-pipeline agent)))
+      ;; Check crystallize triggers
+      (when (find-package :autopoiesis.crystallize)
         (ignore-errors
-          (autopoiesis.agent:store-experience
-           (autopoiesis.agent:make-experience
-            :task-type :cognitive-cycle
-            :context (list :agent-name (autopoiesis.agent:agent-name agent)
-                           :provider (provider-name (agent-provider agent))
-                           :capabilities (autopoiesis.agent:agent-capabilities agent))
-            :actions (list (intern (string-upcase (provider-name (agent-provider agent))) :keyword))
-            :outcome (if success :success :failure)
-            :agent-id (autopoiesis.agent:agent-id agent))))
-        ;; Run learning pipeline periodically (every 5 cycles)
-        (when (slot-boundp agent 'cycle-count)
-          (incf (agent-cycle-count agent))
-          (when (zerop (mod (agent-cycle-count agent) 5))
-            (run-learning-pipeline agent)))
-        ;; Check crystallize triggers
-        (when (find-package :autopoiesis.crystallize)
-          (ignore-errors
-            (let ((check-fn (find-symbol "AUTO-CRYSTALLIZE-IF-TRIGGERED"
-                                         :autopoiesis.crystallize)))
-              (when check-fn (funcall check-fn agent)))))))))
+          (let ((check-fn (find-symbol "AUTO-CRYSTALLIZE-IF-TRIGGERED"
+                                       :autopoiesis.crystallize)))
+            (when check-fn (funcall check-fn agent))))))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Convenience API
