@@ -616,7 +616,7 @@ Agents are created on-demand per role, persist across heartbeats, and accumulate
 
 ## Architecture
 
-**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. Two frontends connect over WebSocket/REST: **dag-explorer** (SolidJS Command Center — primary, 11 views) and **Holodeck** (Rust/Bevy 3D visualization). See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
+**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. The primary frontend is **dag-explorer** (SolidJS Command Center, 11 views) connecting over WebSocket/REST. Two additional Rust frontends (**Holodeck** — Bevy 3D visualization, **Nexus** — ratatui TUI cockpit) exist but are frozen and not actively maintained. See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
 
 **Legacy view (17 layers):**
 
@@ -671,7 +671,8 @@ Agents are created on-demand per role, persist across heartbeats, and accumulate
 │                        Value Index  •  Interning  •  defsystem       │
 └──────────────────────────────────────────────────────────────────────┘
 
-Separate frontends: dag-explorer (SolidJS Command Center, 11 views), Holodeck (Rust/Bevy 3D viz)
+Primary frontend: dag-explorer (SolidJS Command Center, 11 views)
+Frozen frontends: holodeck/ (Rust/Bevy 3D, 4.7K LOC), nexus/ (Rust TUI, 10K LOC)
 Separate ASDF systems: Holodeck (CL-native ECS), Sandbox (squashd containers), Research (parallel campaigns)
 ```
 
@@ -789,9 +790,12 @@ ap/
 │   │   ├── styles/       # CSS modules
 │   │   └── lib/          # Commands, navigation, utilities
 │   └── package.json
-├── holodeck/          # Bevy/Rust 3D visualization frontend
+├── holodeck/          # Bevy/Rust 3D visualization (frozen)
 │   ├── Cargo.toml
 │   └── src/
+├── nexus/             # Rust TUI cockpit (frozen)
+│   ├── Cargo.toml
+│   └── crates/        # 5 workspace crates (protocol, tui, holodeck, voice, mcp)
 ├── sdk/               # Client SDKs
 │   └── go/            # Go SDK
 ├── thoughts/          # Research & planning docs
