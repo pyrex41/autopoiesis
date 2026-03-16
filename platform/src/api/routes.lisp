@@ -100,6 +100,8 @@
             (rest-take-snapshot agent-id))
            ((string= sub-path "/respond")
             (rest-respond-to-request agent-id))
+           ((string= sub-path "/chat")
+            (rest-chat-agent agent-id))
            (t (json-not-found "Route" (format nil "/api/agents/~a~a" agent-id sub-path))))))
       ;; DELETE /api/agents/:id - remove agent
       ((and (eq method :delete) agent-id)
@@ -194,6 +196,31 @@
           (sse-broadcast "agent_stopped" (agent-to-json-alist agent))
           (json-ok (agent-to-json-alist agent)))
         (json-not-found "Agent" agent-id))))
+
+(defun rest-chat-agent (agent-id)
+  "POST /api/agents/:id/chat - Send a chat message to a running agent.
+   Body: {\"text\": \"message\"} or {\"message\": \"message\"}
+   The message is delivered to the agent's mailbox asynchronously.
+   Returns immediately with acceptance confirmation."
+  (require-permission :write)
+  (let ((agent (autopoiesis.agent:find-agent agent-id)))
+    (unless agent
+      (return-from rest-chat-agent (json-not-found "Agent" agent-id)))
+    (unless (eq (autopoiesis.agent:agent-state agent) :running)
+      (return-from rest-chat-agent
+        (json-error "Agent is not running" :status 409
+                    :error-type "Conflict")))
+    (let* ((body (parse-json-body))
+           (text (or (cdr (assoc :text body))
+                     (cdr (assoc :message body))
+                     "")))
+      (when (or (null text) (string= text ""))
+        (return-from rest-chat-agent
+          (json-error "Missing 'text' or 'message' field" :status 400)))
+      (send-message-to-agent agent-id text :from "user")
+      (json-ok `((:accepted . t)
+                 (:agent-id . ,agent-id)
+                 (:message . "Message delivered to agent mailbox"))))))
 
 (defun rest-delete-agent (agent-id)
   "DELETE /api/agents/:id - Stop and unregister an agent."

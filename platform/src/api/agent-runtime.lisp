@@ -72,9 +72,9 @@
                  (let ((p (make-instance rho-class
                                          :name (format nil "agent-~a" (agent-name agent))
                                          :command "rho-cli")))
-                   ;; Set model
+                   ;; Set model (AUTOPOIESIS_MODEL env var, or default)
                    (setf (slot-value p (find-symbol "DEFAULT-MODEL" :autopoiesis.integration))
-                         "claude-sonnet")
+                         (or (uiop:getenv "AUTOPOIESIS_MODEL") "claude-sonnet"))
                    ;; Set agent-specific system prompt
                    (handler-case
                        (funcall (fdefinition

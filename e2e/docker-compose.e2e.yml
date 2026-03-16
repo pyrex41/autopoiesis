@@ -12,6 +12,7 @@ services:
       - AUTOPOIESIS_PORT=8080
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - XAI_API_KEY=${XAI_API_KEY:-}
+      - AUTOPOIESIS_MODEL=${AUTOPOIESIS_MODEL:-grok-code-fast-1}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 5s
