@@ -27,6 +27,10 @@ export function navigateTo(view: ViewId, label: string, agentId?: string) {
   navigationStore.push({ view, label, agentId, timestamp: Date.now() });
 }
 
+// Expose for devtools/testing
+(window as any).__setView = (v: ViewId) => { setCurrentView(v); return v; };
+(window as any).__navigateTo = navigateTo;
+
 export const commands: Command[] = [
   // ── Agents ─────────────────────────────────────────────────
   {

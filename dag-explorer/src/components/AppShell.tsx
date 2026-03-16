@@ -16,6 +16,7 @@ import CreateTeamDialog from "./CreateTeamDialog";
 import ToastContainer from "./Toast";
 import CrystallizePulse from "./CrystallizePulse";
 import Breadcrumb from "./Breadcrumb";
+import ThoughtModal from "./ThoughtModal";
 import { RadarLoader, MeshLoader } from "./LoadingStates";
 import Dashboard from "./Dashboard";
 import TimelineView from "./TimelineView";
@@ -152,6 +153,7 @@ const AppShell: Component = () => {
       <CommandPalette />
       <CreateAgentDialog />
       <CreateTeamDialog />
+      <ThoughtModal />
       <ToastContainer />
       <CrystallizePulse />
     </div>

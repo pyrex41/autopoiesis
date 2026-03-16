@@ -2,6 +2,7 @@ import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { agentStore, type Thought } from "../stores/agents";
 import type { IntegrationEvent } from "../api/types";
 import EmptyState from "./EmptyState";
+import { setModalThought } from "./ThoughtModal";
 
 interface TimelineEntry {
   id: string;
@@ -10,6 +11,7 @@ interface TimelineEntry {
   subtype: string;
   agentId?: string;
   content: string;
+  thought?: Thought;
 }
 
 const TimelineView: Component = () => {
@@ -29,6 +31,7 @@ const TimelineView: Component = () => {
         subtype: t.type,
         agentId: t.agentId,
         content: t.content,
+        thought: t,
       });
     }
 
@@ -163,7 +166,11 @@ const TimelineView: Component = () => {
         }>
           <For each={entries()}>
             {(entry) => (
-              <div class="timeline-entry">
+              <div
+                class="timeline-entry"
+                classList={{ "timeline-entry-clickable": !!entry.thought }}
+                onClick={() => entry.thought && setModalThought(entry.thought)}
+              >
                 <div class="timeline-entry-time">{formatTime(entry.timestamp)}</div>
                 <div class="timeline-entry-dot" style={{ background: subtypeColor(entry) }} />
                 <div class="timeline-entry-body">
@@ -178,7 +185,7 @@ const TimelineView: Component = () => {
                       <span class="timeline-entry-agent">
                         <button
                           class="link-btn"
-                          onClick={() => agentStore.selectAgent(entry.agentId!)}
+                          onClick={(e) => { e.stopPropagation(); agentStore.selectAgent(entry.agentId!); }}
                         >
                           {entry.agentId}
                         </button>

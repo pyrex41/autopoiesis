@@ -1,5 +1,6 @@
 import { type Component, For, Show, createEffect, createSignal } from "solid-js";
 import { agentStore, type Thought } from "../stores/agents";
+import { setModalThought } from "./ThoughtModal";
 
 const typeConfig: Record<string, { bg: string; fg: string; label: string; icon: string }> = {
   observation: { bg: "rgba(79, 195, 247, 0.12)", fg: "var(--signal)", label: "OBS", icon: "eye" },
@@ -78,7 +79,7 @@ const ThoughtCard: Component<{ thought: Thought }> = (props) => {
       class="thought-card"
       classList={{ "thought-card-expandable": isExpandable(), "thought-card-expanded": expanded() }}
       style={{ "border-left-color": info().fg }}
-      onClick={() => isExpandable() && setExpanded(!expanded())}
+      onClick={() => setModalThought(props.thought)}
     >
       <div class="thought-card-header">
         <span
@@ -138,11 +139,7 @@ const ThoughtCard: Component<{ thought: Thought }> = (props) => {
           </Show>
         </div>
       </Show>
-      <Show when={isExpandable()}>
-        <span class="thought-expand-hint">
-          {expanded() ? "click to collapse" : "click to expand"}
-        </span>
-      </Show>
+      <span class="thought-expand-hint">click to inspect</span>
     </div>
   );
 };
