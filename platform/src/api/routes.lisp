@@ -102,6 +102,8 @@
             (rest-respond-to-request agent-id))
            ((string= sub-path "/chat")
             (rest-chat-agent agent-id))
+           ((string= sub-path "/schedule")
+            (rest-schedule-agent agent-id))
            (t (json-not-found "Route" (format nil "/api/agents/~a~a" agent-id sub-path))))))
       ;; DELETE /api/agents/:id - remove agent
       ((and (eq method :delete) agent-id)
@@ -1022,6 +1024,373 @@
         (t (json-not-found "Paperclip route" sub-path))))))
 
 ;;; ===================================================================
+;;; Department Endpoints
+;;; ===================================================================
+
+(defun rest-handle-departments (request)
+  "Dispatch /api/departments requests."
+  (let ((method (hunchentoot:request-method request))
+        (dept-id (extract-path-segment request "/api/departments/")))
+    (cond
+      ((and (eq method :get) (null dept-id))
+       (rest-list-departments))
+      ((and (eq method :post) (null dept-id))
+       (rest-create-department))
+      ((and (eq method :get) dept-id)
+       (rest-get-department (parse-integer dept-id :junk-allowed t)))
+      ((and (eq method :put) dept-id)
+       (rest-update-department (parse-integer dept-id :junk-allowed t)))
+      (t (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed")))))
+
+(defun rest-list-departments ()
+  (require-permission :read)
+  (let ((eids (autopoiesis.substrate:find-entities :entity/type :department)))
+    (json-ok (or (mapcar #'department-to-json-alist eids) #()))))
+
+(defun rest-create-department ()
+  (require-permission :write)
+  (let* ((body (parse-json-body))
+         (name (cdr (assoc :name body)))
+         (parent (cdr (assoc :parent body)))
+         (description (cdr (assoc :description body)))
+         (budget-limit (cdr (assoc :budget--limit body)))
+         (currency (or (cdr (assoc :currency body)) "USD")))
+    (unless name
+      (return-from rest-create-department
+        (json-error "Department requires 'name'")))
+    (let ((eid (autopoiesis.substrate:intern-id
+                (format nil "dept-~A" (make-uuid)))))
+      (autopoiesis.substrate:transact!
+       (list (list eid :entity/type :department)
+             (list eid :department/name name)
+             (list eid :department/parent parent)
+             (list eid :department/description description)
+             (list eid :department/budget-limit budget-limit)
+             (list eid :department/currency currency)
+             (list eid :department/created-at (get-universal-time))))
+      (sse-broadcast "department_created" (department-to-json-alist eid))
+      (json-ok (department-to-json-alist eid) :status 201))))
+
+(defun rest-get-department (eid)
+  (require-permission :read)
+  (unless eid
+    (return-from rest-get-department (json-error "Invalid department ID")))
+  (let ((name (autopoiesis.substrate:entity-attr eid :department/name)))
+    (if name
+        (json-ok (department-to-json-alist eid))
+        (json-not-found "Department" eid))))
+
+(defun rest-update-department (eid)
+  (require-permission :write)
+  (unless eid
+    (return-from rest-update-department (json-error "Invalid department ID")))
+  (let ((name (autopoiesis.substrate:entity-attr eid :department/name)))
+    (unless name
+      (return-from rest-update-department (json-not-found "Department" eid)))
+    (let* ((body (parse-json-body))
+           (datoms '()))
+      (when (assoc :name body)
+        (push (list eid :department/name (cdr (assoc :name body))) datoms))
+      (when (assoc :description body)
+        (push (list eid :department/description (cdr (assoc :description body))) datoms))
+      (when (assoc :budget--limit body)
+        (push (list eid :department/budget-limit (cdr (assoc :budget--limit body))) datoms))
+      (when (assoc :currency body)
+        (push (list eid :department/currency (cdr (assoc :currency body))) datoms))
+      (when (assoc :parent body)
+        (push (list eid :department/parent (cdr (assoc :parent body))) datoms))
+      (when datoms
+        (autopoiesis.substrate:transact! datoms))
+      (json-ok (department-to-json-alist eid)))))
+
+;;; ===================================================================
+;;; Goal Endpoints
+;;; ===================================================================
+
+(defun rest-handle-goals (request)
+  "Dispatch /api/goals requests."
+  (let ((method (hunchentoot:request-method request))
+        (goal-id (extract-path-segment request "/api/goals/")))
+    (cond
+      ((and (eq method :get) (null goal-id))
+       (rest-list-goals))
+      ((and (eq method :post) (null goal-id))
+       (rest-create-goal))
+      ((and (eq method :put) goal-id)
+       (rest-update-goal (parse-integer goal-id :junk-allowed t)))
+      (t (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed")))))
+
+(defun rest-list-goals ()
+  (require-permission :read)
+  (let* ((result (autopoiesis.substrate:find-entities :entity/type :goal))
+         (dept-filter (hunchentoot:get-parameter "department"))
+         (agent-filter (hunchentoot:get-parameter "agent"))
+         (status-filter (hunchentoot:get-parameter "status")))
+    ;; Apply filters
+    (when dept-filter
+      (let ((dept-id (parse-integer dept-filter :junk-allowed t)))
+        (setf result (remove-if-not
+                      (lambda (eid)
+                        (eql dept-id (autopoiesis.substrate:entity-attr eid :goal/department)))
+                      result))))
+    (when agent-filter
+      (setf result (remove-if-not
+                    (lambda (eid)
+                      (equal agent-filter (autopoiesis.substrate:entity-attr eid :goal/agent)))
+                    result)))
+    (when status-filter
+      (let ((status-kw (intern (string-upcase status-filter) :keyword)))
+        (setf result (remove-if-not
+                      (lambda (eid)
+                        (eq status-kw (autopoiesis.substrate:entity-attr eid :goal/status)))
+                      result))))
+    (json-ok (or (mapcar #'goal-to-json-alist result) #()))))
+
+(defun rest-create-goal ()
+  (require-permission :write)
+  (let* ((body (parse-json-body))
+         (title (cdr (assoc :title body)))
+         (description (cdr (assoc :description body)))
+         (department (cdr (assoc :department body)))
+         (agent (cdr (assoc :agent body)))
+         (status (or (cdr (assoc :status body)) "active"))
+         (parent (cdr (assoc :parent body))))
+    (unless title
+      (return-from rest-create-goal
+        (json-error "Goal requires 'title'")))
+    (let ((eid (autopoiesis.substrate:intern-id
+                (format nil "goal-~A" (make-uuid)))))
+      (autopoiesis.substrate:transact!
+       (list (list eid :entity/type :goal)
+             (list eid :goal/title title)
+             (list eid :goal/description description)
+             (list eid :goal/department department)
+             (list eid :goal/agent agent)
+             (list eid :goal/status (intern (string-upcase status) :keyword))
+             (list eid :goal/parent parent)
+             (list eid :goal/created-at (get-universal-time))))
+      (sse-broadcast "goal_created" (goal-to-json-alist eid))
+      (json-ok (goal-to-json-alist eid) :status 201))))
+
+(defun rest-update-goal (eid)
+  (require-permission :write)
+  (unless eid
+    (return-from rest-update-goal (json-error "Invalid goal ID")))
+  (let ((title (autopoiesis.substrate:entity-attr eid :goal/title)))
+    (unless title
+      (return-from rest-update-goal (json-not-found "Goal" eid)))
+    (let* ((body (parse-json-body))
+           (datoms '()))
+      (when (assoc :title body)
+        (push (list eid :goal/title (cdr (assoc :title body))) datoms))
+      (when (assoc :description body)
+        (push (list eid :goal/description (cdr (assoc :description body))) datoms))
+      (when (assoc :status body)
+        (push (list eid :goal/status (intern (string-upcase (cdr (assoc :status body))) :keyword)) datoms))
+      (when (assoc :agent body)
+        (push (list eid :goal/agent (cdr (assoc :agent body))) datoms))
+      (when (assoc :department body)
+        (push (list eid :goal/department (cdr (assoc :department body))) datoms))
+      (when datoms
+        (autopoiesis.substrate:transact! datoms))
+      (json-ok (goal-to-json-alist eid)))))
+
+;;; ===================================================================
+;;; Budget Endpoints
+;;; ===================================================================
+
+(defun rest-handle-budgets (request)
+  "Dispatch /api/budgets requests."
+  (let ((method (hunchentoot:request-method request))
+        (budget-id (extract-path-segment request "/api/budgets/")))
+    (cond
+      ((and (eq method :get) (null budget-id))
+       (rest-list-budgets))
+      ((and (eq method :get) budget-id)
+       (rest-get-budget budget-id))
+      ((and (eq method :put) budget-id)
+       (rest-update-budget budget-id))
+      (t (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed")))))
+
+(defun rest-list-budgets ()
+  (require-permission :read)
+  ;; Merge substrate budget datoms with live cost state
+  (let ((budgets (autopoiesis.substrate:find-entities :entity/type :budget)))
+    ;; Build combined result - start with persisted budgets
+    (let ((result (mapcar #'budget-to-json-alist budgets)))
+      ;; Add live cost data for agents without explicit budgets
+      (bt:with-lock-held (*activity-lock*)
+        (maphash (lambda (agent-id cost-plist)
+                   (unless (find agent-id budgets
+                                :test #'equal
+                                :key (lambda (eid)
+                                       (autopoiesis.substrate:entity-attr
+                                        eid :budget/target-id)))
+                     (push `((:entity--id . ,agent-id)
+                             (:entity--type . "agent")
+                             (:limit . nil)
+                             (:spent . ,(or (getf cost-plist :total-cost) 0))
+                             (:currency . "USD")
+                             (:updated--at . ,(get-universal-time)))
+                           result)))
+                 *cost-state*))
+      (json-ok (or result #())))))
+
+(defun rest-get-budget (entity-id)
+  (require-permission :read)
+  ;; Find budget by entity-id string
+  (let ((budget-eid nil))
+    (dolist (eid (autopoiesis.substrate:find-entities :entity/type :budget))
+      (when (equal entity-id (autopoiesis.substrate:entity-attr eid :budget/target-id))
+        (setf budget-eid eid)
+        (return)))
+    (if budget-eid
+        (json-ok (budget-to-json-alist budget-eid))
+        ;; Fall back to live cost data
+        (let ((cost-plist (bt:with-lock-held (*activity-lock*)
+                            (gethash entity-id *cost-state*))))
+          (json-ok `((:entity--id . ,entity-id)
+                     (:entity--type . "agent")
+                     (:limit . nil)
+                     (:spent . ,(or (and cost-plist (getf cost-plist :total-cost)) 0))
+                     (:currency . "USD")))))))
+
+(defun rest-update-budget (entity-id)
+  (require-permission :write)
+  (let* ((body (parse-json-body))
+         (limit (cdr (assoc :limit body)))
+         (currency (or (cdr (assoc :currency body)) "USD")))
+    ;; Find or create budget entity
+    (let ((budget-eid nil))
+      (dolist (eid (autopoiesis.substrate:find-entities :entity/type :budget))
+        (when (equal entity-id (autopoiesis.substrate:entity-attr eid :budget/target-id))
+          (setf budget-eid eid)
+          (return)))
+      (unless budget-eid
+        (setf budget-eid (autopoiesis.substrate:intern-id
+                          (format nil "budget-~A" (make-uuid))))
+        (autopoiesis.substrate:transact!
+         (list (list budget-eid :entity/type :budget)
+               (list budget-eid :budget/target-id entity-id)
+               (list budget-eid :budget/target-type :agent)
+               (list budget-eid :budget/spent 0)
+               (list budget-eid :budget/currency currency)
+               (list budget-eid :budget/updated-at (get-universal-time)))))
+      ;; Update limit
+      (autopoiesis.substrate:transact!
+       (list (list budget-eid :budget/limit limit)
+             (list budget-eid :budget/updated-at (get-universal-time))))
+      (json-ok (budget-to-json-alist budget-eid)))))
+
+;;; ===================================================================
+;;; Audit Endpoints
+;;; ===================================================================
+
+(defun rest-handle-audit (request)
+  "Dispatch /api/audit requests."
+  (let ((method (hunchentoot:request-method request)))
+    (if (eq method :get)
+        (rest-list-audit)
+        (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed"))))
+
+(defun rest-list-audit ()
+  (require-permission :read)
+  (let* ((limit (or (ignore-errors
+                      (parse-integer (or (hunchentoot:get-parameter "limit") "") :junk-allowed t))
+                    100))
+         (agent-id (hunchentoot:get-parameter "agent"))
+         (event-type-str (hunchentoot:get-parameter "type"))
+         (event-type (when event-type-str
+                       (find-symbol (string-upcase event-type-str) :keyword)))
+         (events (autopoiesis.integration:get-event-history
+                  :limit limit
+                  :type event-type
+                  :agent-id agent-id)))
+    (json-ok (or (mapcar #'event-to-json-alist events) #()))))
+
+;;; ===================================================================
+;;; Approval Endpoints
+;;; ===================================================================
+
+(defun rest-handle-approvals (request)
+  "Dispatch /api/approvals requests."
+  (let ((method (hunchentoot:request-method request))
+        (approval-id (extract-path-segment request "/api/approvals/")))
+    (cond
+      ((and (eq method :get) (null approval-id))
+       (rest-list-approvals))
+      ((and (eq method :post) approval-id)
+       (let ((sub-path (path-after-segment request "/api/approvals/" approval-id)))
+         (cond
+           ((string= sub-path "/approve")
+            (rest-approve-request approval-id))
+           ((string= sub-path "/reject")
+            (rest-reject-request approval-id))
+           (t (json-not-found "Route" (format nil "/api/approvals/~a~a" approval-id sub-path))))))
+      (t (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed")))))
+
+(defun rest-list-approvals ()
+  (require-permission :read)
+  (let ((requests (list-pending-blocking-requests)))
+    (json-ok (or (mapcar #'blocking-request-to-json-alist requests) #()))))
+
+(defun rest-approve-request (request-id)
+  (require-permission :write)
+  (let* ((body (parse-json-body))
+         (response (or (cdr (assoc :response body)) "approved")))
+    (multiple-value-bind (ok request)
+        (respond-to-request request-id response)
+      (declare (ignore request))
+      (if ok
+          (json-ok `((:approved . t) (:request--id . ,request-id)))
+          (json-not-found "Approval request" request-id)))))
+
+(defun rest-reject-request (request-id)
+  (require-permission :write)
+  (let* ((body (parse-json-body))
+         (reason (or (cdr (assoc :reason body)) "rejected")))
+    (multiple-value-bind (ok request)
+        (respond-to-request request-id (format nil "REJECTED: ~a" reason))
+      (declare (ignore request))
+      (if ok
+          (json-ok `((:rejected . t) (:request--id . ,request-id) (:reason . ,reason)))
+          (json-not-found "Approval request" request-id)))))
+
+;;; ===================================================================
+;;; Agent Schedule Endpoint
+;;; ===================================================================
+
+(defun rest-schedule-agent (agent-id)
+  "POST /api/agents/:id/schedule - Schedule a task for an agent."
+  (require-permission :write)
+  (let ((agent (autopoiesis.agent:find-agent agent-id)))
+    (unless agent
+      (return-from rest-schedule-agent (json-not-found "Agent" agent-id)))
+    (let* ((body (parse-json-body))
+           (message (cdr (assoc :message body)))
+           (delay (or (cdr (assoc :delay--seconds body)) 0))
+           (recurring (cdr (assoc :recurring body)))
+           (interval (cdr (assoc :interval--seconds body))))
+      (unless message
+        (return-from rest-schedule-agent
+          (json-error "Missing 'message' field")))
+      (let ((conductor autopoiesis.orchestration:*conductor*))
+        (unless conductor
+          (return-from rest-schedule-agent
+            (json-error "Conductor is not running" :status 503)))
+        (autopoiesis.orchestration:schedule-action conductor delay
+          (list :action-type :agent-wakeup
+                :agent-id agent-id
+                :message message
+                :recurring (and recurring (not (eq recurring :false)))
+                :interval (when (and recurring (not (eq recurring :false)))
+                            (or interval 30))))
+        (json-ok `((:scheduled . t)
+                   (:agent--id . ,agent-id)
+                   (:delay--seconds . ,delay)
+                   (:recurring . ,(if (and recurring (not (eq recurring :false))) t :false))))))))
+
+;;; ===================================================================
 ;;; Main Router
 ;;; ===================================================================
 
@@ -1076,6 +1445,31 @@
           ;; /api/events (exact match)
           ((string= uri "/api/events")
            (rest-handle-events request))
+          ;; /api/departments or /api/departments/...
+          ((or (string= uri "/api/departments")
+               (and (> (length uri) 18)
+                    (string= "/api/departments/" (subseq uri 0 18))))
+           (rest-handle-departments request))
+          ;; /api/goals or /api/goals/...
+          ((or (string= uri "/api/goals")
+               (and (> (length uri) 11)
+                    (string= "/api/goals/" (subseq uri 0 11))))
+           (rest-handle-goals request))
+          ;; /api/budgets or /api/budgets/...
+          ((or (string= uri "/api/budgets")
+               (and (> (length uri) 13)
+                    (string= "/api/budgets/" (subseq uri 0 13))))
+           (rest-handle-budgets request))
+          ;; /api/audit
+          ((or (string= uri "/api/audit")
+               (and (> (length uri) 11)
+                    (string= "/api/audit/" (subseq uri 0 11))))
+           (rest-handle-audit request))
+          ;; /api/approvals or /api/approvals/...
+          ((or (string= uri "/api/approvals")
+               (and (> (length uri) 15)
+                    (string= "/api/approvals/" (subseq uri 0 15))))
+           (rest-handle-approvals request))
           ;; Unknown API route
           (t
            (json-not-found "API route" uri)))

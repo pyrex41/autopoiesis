@@ -804,3 +804,195 @@ for data stream messages. Control messages are always JSON."
               (error-response "view_failed"
                               (format nil "Failed to set view mode: ~a" e))))
           (error-response "holodeck_error" "View mode switching not available")))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Command Center Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(define-handler handle-list-departments "list_departments" (msg conn)
+  (declare (ignore msg conn))
+  (let ((result (autopoiesis.substrate:find-entities :entity/type :department)))
+    (ok-response "departments"
+                 "departments" (mapcar #'department-to-json-plist result))))
+
+(define-handler handle-create-department "create_department" (msg conn)
+  (declare (ignore conn))
+  (let ((name (gethash "name" msg)))
+    (unless name
+      (return-from handle-create-department
+        (error-response "missing_field" "create_department requires 'name'")))
+    (let ((eid (autopoiesis.substrate:intern-id
+                (format nil "dept-~A" (make-uuid)))))
+      (autopoiesis.substrate:transact!
+       (list (list eid :entity/type :department)
+             (list eid :department/name name)
+             (list eid :department/parent (gethash "parent" msg))
+             (list eid :department/description (gethash "description" msg))
+             (list eid :department/budget-limit (gethash "budgetLimit" msg))
+             (list eid :department/currency (or (gethash "currency" msg) "USD"))
+             (list eid :department/created-at (get-universal-time))))
+      (let ((dept-plist (department-to-json-plist eid)))
+        (broadcast-stream-data (ok-response "department_created"
+                                            "department" dept-plist)
+                               :subscription-type "departments")
+        (ok-response "department_created" "department" dept-plist)))))
+
+(define-handler handle-update-department "update_department" (msg conn)
+  (declare (ignore conn))
+  (let ((eid (gethash "id" msg)))
+    (unless eid
+      (return-from handle-update-department
+        (error-response "missing_field" "update_department requires 'id'")))
+    (let ((datoms '()))
+      (when (gethash "name" msg)
+        (push (list eid :department/name (gethash "name" msg)) datoms))
+      (when (gethash "description" msg)
+        (push (list eid :department/description (gethash "description" msg)) datoms))
+      (when (gethash "budgetLimit" msg)
+        (push (list eid :department/budget-limit (gethash "budgetLimit" msg)) datoms))
+      (when datoms
+        (autopoiesis.substrate:transact! datoms))
+      (ok-response "department_updated" "department" (department-to-json-plist eid)))))
+
+(define-handler handle-list-goals "list_goals" (msg conn)
+  (declare (ignore msg conn))
+  (let ((result (autopoiesis.substrate:find-entities :entity/type :goal)))
+    (ok-response "goals" "goals" (mapcar #'goal-to-json-plist result))))
+
+(define-handler handle-create-goal "create_goal" (msg conn)
+  (declare (ignore conn))
+  (let ((title (gethash "title" msg)))
+    (unless title
+      (return-from handle-create-goal
+        (error-response "missing_field" "create_goal requires 'title'")))
+    (let ((eid (autopoiesis.substrate:intern-id
+                (format nil "goal-~A" (make-uuid)))))
+      (autopoiesis.substrate:transact!
+       (list (list eid :entity/type :goal)
+             (list eid :goal/title title)
+             (list eid :goal/description (gethash "description" msg))
+             (list eid :goal/department (gethash "department" msg))
+             (list eid :goal/agent (gethash "agent" msg))
+             (list eid :goal/status (intern (string-upcase (or (gethash "status" msg) "active")) :keyword))
+             (list eid :goal/parent (gethash "parent" msg))
+             (list eid :goal/created-at (get-universal-time))))
+      (ok-response "goal_created" "goal" (goal-to-json-plist eid)))))
+
+(define-handler handle-update-goal "update_goal" (msg conn)
+  (declare (ignore conn))
+  (let ((eid (gethash "id" msg)))
+    (unless eid
+      (return-from handle-update-goal
+        (error-response "missing_field" "update_goal requires 'id'")))
+    (let ((datoms '()))
+      (when (gethash "title" msg)
+        (push (list eid :goal/title (gethash "title" msg)) datoms))
+      (when (gethash "status" msg)
+        (push (list eid :goal/status (intern (string-upcase (gethash "status" msg)) :keyword)) datoms))
+      (when (gethash "agent" msg)
+        (push (list eid :goal/agent (gethash "agent" msg)) datoms))
+      (when datoms
+        (autopoiesis.substrate:transact! datoms))
+      (ok-response "goal_updated" "goal" (goal-to-json-plist eid)))))
+
+(define-handler handle-list-budgets "list_budgets" (msg conn)
+  (declare (ignore msg conn))
+  (let ((result (autopoiesis.substrate:find-entities :entity/type :budget)))
+    (ok-response "budgets" "budgets" (mapcar #'budget-to-json-plist result))))
+
+(define-handler handle-update-budget "update_budget" (msg conn)
+  (declare (ignore conn))
+  (let ((entity-id (gethash "entityId" msg))
+        (limit (gethash "limit" msg)))
+    (unless entity-id
+      (return-from handle-update-budget
+        (error-response "missing_field" "update_budget requires 'entityId'")))
+    ;; Find or create budget entity
+    (let ((budget-eid nil))
+      (dolist (eid (autopoiesis.substrate:find-entities :entity/type :budget))
+        (when (equal entity-id (autopoiesis.substrate:entity-attr eid :budget/target-id))
+          (setf budget-eid eid)
+          (return)))
+      (unless budget-eid
+        (setf budget-eid (autopoiesis.substrate:intern-id
+                          (format nil "budget-~A" (make-uuid))))
+        (autopoiesis.substrate:transact!
+         (list (list budget-eid :entity/type :budget)
+               (list budget-eid :budget/target-id entity-id)
+               (list budget-eid :budget/target-type :agent)
+               (list budget-eid :budget/spent 0)
+               (list budget-eid :budget/currency "USD")
+               (list budget-eid :budget/updated-at (get-universal-time)))))
+      (autopoiesis.substrate:transact!
+       (list (list budget-eid :budget/limit limit)
+             (list budget-eid :budget/updated-at (get-universal-time))))
+      (ok-response "budget_updated" "budget" (budget-to-json-plist budget-eid)))))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Evolution Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defvar *evolution-thread* nil "Background evolution thread.")
+(defvar *evolution-running* nil "Whether evolution is currently running.")
+(defvar *evolution-generation* 0 "Current evolution generation.")
+
+(define-handler handle-start-evolution "start_evolution" (msg conn)
+  (declare (ignore conn))
+  (when *evolution-running*
+    (return-from handle-start-evolution
+      (error-response "already_running" "Evolution is already running")))
+  (let ((generations (or (gethash "generations" msg) 10))
+        (mutation-rate (or (gethash "mutationRate" msg) 0.1))
+        (population-size (or (gethash "populationSize" msg) 10)))
+    (setf *evolution-running* t
+          *evolution-generation* 0)
+    (setf *evolution-thread*
+          (bt:make-thread
+           (lambda ()
+             (unwind-protect
+                  (handler-case
+                      (let ((agents (loop repeat population-size
+                                         collect (autopoiesis.agent:make-persistent-agent
+                                                  :name (format nil "evo-~a" (gensym))
+                                                  :capabilities '(:observe :decide :act))))
+                            (evaluator (autopoiesis.agent:make-standard-pa-evaluator)))
+                        (declare (ignore agents evaluator))
+                        (dotimes (gen generations)
+                          (unless *evolution-running* (return))
+                          (setf *evolution-generation* (1+ gen))
+                          ;; Broadcast progress
+                          (broadcast-stream-data
+                           (ok-response "evolution_progress"
+                                        "generation" (1+ gen)
+                                        "totalGenerations" generations
+                                        "populationSize" population-size)
+                           :subscription-type "evolution"))
+                        (broadcast-stream-data
+                         (ok-response "evolution_complete"
+                                      "generations" generations)
+                         :subscription-type "evolution"))
+                    (error (e)
+                      (broadcast-stream-data
+                       (ok-response "evolution_error"
+                                    "error" (format nil "~a" e))
+                       :subscription-type "evolution")))
+               (setf *evolution-running* nil)))
+           :name "evolution-worker"))
+    (ok-response "evolution_started"
+                 "generations" generations
+                 "mutationRate" mutation-rate
+                 "populationSize" population-size)))
+
+(define-handler handle-stop-evolution "stop_evolution" (msg conn)
+  (declare (ignore msg conn))
+  (if *evolution-running*
+      (progn
+        (setf *evolution-running* nil)
+        (ok-response "evolution_stopped" "generation" *evolution-generation*))
+      (error-response "not_running" "No evolution is running")))
+
+(define-handler handle-evolution-status "evolution_status" (msg conn)
+  (declare (ignore msg conn))
+  (ok-response "evolution_status"
+               "running" (if *evolution-running* t :false)
+               "generation" *evolution-generation*))

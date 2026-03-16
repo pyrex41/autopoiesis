@@ -68,3 +68,28 @@
   (:prompt/created-at   :type integer  :required t)
   (:prompt/variables    :type t)
   (:prompt/includes     :type t))
+
+(define-entity-type :department
+  (:department/name        :type string   :required t)
+  (:department/parent      :type (or null integer))
+  (:department/description :type (or null string))
+  (:department/budget-limit :type (or null number))
+  (:department/currency    :type (or null string))
+  (:department/created-at  :type integer  :required t))
+
+(define-entity-type :goal
+  (:goal/title       :type string   :required t)
+  (:goal/description :type (or null string))
+  (:goal/department  :type (or null integer))
+  (:goal/agent       :type (or null string))
+  (:goal/status      :type keyword  :required t)
+  (:goal/parent      :type (or null integer))
+  (:goal/created-at  :type integer  :required t))
+
+(define-entity-type :budget
+  (:budget/target-id   :type string   :required t)
+  (:budget/target-type :type keyword  :required t)
+  (:budget/limit       :type (or null number))
+  (:budget/spent       :type number   :required t)
+  (:budget/currency    :type string   :required t)
+  (:budget/updated-at  :type integer  :required t))

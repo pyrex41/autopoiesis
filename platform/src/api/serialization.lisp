@@ -126,3 +126,83 @@
     (:data . ,(let ((d (autopoiesis.integration:integration-event-data event)))
                 (if d (prin1-to-string d) nil)))
     (:timestamp . ,(autopoiesis.integration:integration-event-timestamp event))))
+
+;;; ===================================================================
+;;; Command Center Serialization
+;;; ===================================================================
+
+(defun department-to-json-alist (eid)
+  "Convert a department entity to a JSON-encodable alist."
+  (let ((state (autopoiesis.substrate:entity-state eid)))
+    `((:id . ,eid)
+      (:name . ,(getf state :department/name))
+      (:parent . ,(getf state :department/parent))
+      (:description . ,(getf state :department/description))
+      (:budget--limit . ,(getf state :department/budget-limit))
+      (:currency . ,(getf state :department/currency))
+      (:created--at . ,(getf state :department/created-at)))))
+
+(defun goal-to-json-alist (eid)
+  "Convert a goal entity to a JSON-encodable alist."
+  (let ((state (autopoiesis.substrate:entity-state eid)))
+    `((:id . ,eid)
+      (:title . ,(getf state :goal/title))
+      (:description . ,(getf state :goal/description))
+      (:department . ,(getf state :goal/department))
+      (:agent . ,(getf state :goal/agent))
+      (:status . ,(string-downcase (string (or (getf state :goal/status) :unknown))))
+      (:parent . ,(getf state :goal/parent))
+      (:created--at . ,(getf state :goal/created-at)))))
+
+(defun budget-to-json-alist (eid)
+  "Convert a budget entity to a JSON-encodable alist."
+  (let ((state (autopoiesis.substrate:entity-state eid)))
+    `((:id . ,eid)
+      (:entity--id . ,(getf state :budget/target-id))
+      (:entity--type . ,(string-downcase (string (or (getf state :budget/target-type) :unknown))))
+      (:limit . ,(getf state :budget/limit))
+      (:spent . ,(getf state :budget/spent))
+      (:currency . ,(getf state :budget/currency))
+      (:updated--at . ,(getf state :budget/updated-at)))))
+
+;;; --- Hash-table serializers for WS handlers ---
+
+(defun department-to-json-plist (eid)
+  "Convert a department entity to a hash-table for WS response."
+  (let ((state (autopoiesis.substrate:entity-state eid))
+        (ht (make-hash-table :test 'equal)))
+    (setf (gethash "id" ht) eid
+          (gethash "name" ht) (getf state :department/name)
+          (gethash "parent" ht) (getf state :department/parent)
+          (gethash "description" ht) (getf state :department/description)
+          (gethash "budgetLimit" ht) (getf state :department/budget-limit)
+          (gethash "currency" ht) (getf state :department/currency)
+          (gethash "createdAt" ht) (getf state :department/created-at))
+    ht))
+
+(defun goal-to-json-plist (eid)
+  "Convert a goal entity to a hash-table for WS response."
+  (let ((state (autopoiesis.substrate:entity-state eid))
+        (ht (make-hash-table :test 'equal)))
+    (setf (gethash "id" ht) eid
+          (gethash "title" ht) (getf state :goal/title)
+          (gethash "description" ht) (getf state :goal/description)
+          (gethash "department" ht) (getf state :goal/department)
+          (gethash "agent" ht) (getf state :goal/agent)
+          (gethash "status" ht) (string-downcase (string (or (getf state :goal/status) :unknown)))
+          (gethash "parent" ht) (getf state :goal/parent)
+          (gethash "createdAt" ht) (getf state :goal/created-at))
+    ht))
+
+(defun budget-to-json-plist (eid)
+  "Convert a budget entity to a hash-table for WS response."
+  (let ((state (autopoiesis.substrate:entity-state eid))
+        (ht (make-hash-table :test 'equal)))
+    (setf (gethash "id" ht) eid
+          (gethash "entityId" ht) (getf state :budget/target-id)
+          (gethash "entityType" ht) (string-downcase (string (or (getf state :budget/target-type) :unknown)))
+          (gethash "limit" ht) (getf state :budget/limit)
+          (gethash "spent" ht) (getf state :budget/spent)
+          (gethash "currency" ht) (getf state :budget/currency)
+          (gethash "updatedAt" ht) (getf state :budget/updated-at))
+    ht))
