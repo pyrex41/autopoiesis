@@ -15,7 +15,8 @@ export interface Command {
   handler: () => void;
 }
 
-export type ViewId = "dashboard" | "dag" | "timeline" | "tasks" | "holodeck" | "constellation";
+export type ViewId = "dashboard" | "dag" | "timeline" | "tasks" | "holodeck" | "constellation"
+  | "org" | "budget" | "approvals" | "evolution" | "audit";
 
 // View state — managed here so commands + ViewSwitcher share it
 import { createSignal } from "solid-js";
@@ -191,6 +192,51 @@ export const commands: Command[] = [
     category: "views",
     icon: "✦",
     handler: () => navigateTo("constellation", "Constellation"),
+  },
+  {
+    id: "view.org",
+    name: "Org Chart",
+    description: "Department hierarchy and goals",
+    shortcut: "7",
+    category: "views",
+    icon: "⊞",
+    handler: () => navigateTo("org", "Org Chart"),
+  },
+  {
+    id: "view.budget",
+    name: "Budget",
+    description: "Budget tracking and limits",
+    shortcut: "8",
+    category: "views",
+    icon: "$",
+    handler: () => navigateTo("budget", "Budget"),
+  },
+  {
+    id: "view.approvals",
+    name: "Approvals",
+    description: "Pending approval requests",
+    shortcut: "9",
+    category: "views",
+    icon: "✓",
+    handler: () => navigateTo("approvals", "Approvals"),
+  },
+  {
+    id: "view.evolution",
+    name: "Evolution Lab",
+    description: "Agent evolution and fitness",
+    shortcut: "0",
+    category: "views",
+    icon: "⧖",
+    handler: () => navigateTo("evolution", "Evolution Lab"),
+  },
+  {
+    id: "view.audit",
+    name: "Audit Log",
+    description: "Event history and audit trail",
+    shortcut: "-",
+    category: "views",
+    icon: "≋",
+    handler: () => navigateTo("audit", "Audit Log"),
   },
 
   // ── Navigation (DAG) ──────────────────────────────────────

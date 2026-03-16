@@ -1,6 +1,8 @@
 import { type Component, For, Show, createMemo, onMount } from "solid-js";
 import { agentStore } from "../stores/agents";
 import { activityStore } from "../stores/activity";
+import { approvalsStore } from "../stores/approvals";
+import { budgetStore } from "../stores/budget";
 import { wsStore } from "../stores/ws";
 import type { Agent, IntegrationEvent } from "../api/types";
 import ConductorDashboard from "./ConductorDashboard";
@@ -10,6 +12,8 @@ import CostDashboard from "./CostDashboard";
 const Dashboard: Component = () => {
   onMount(() => {
     activityStore.init();
+    approvalsStore.init();
+    budgetStore.init();
   });
 
   const recentEvents = createMemo(() =>
@@ -56,6 +60,18 @@ const Dashboard: Component = () => {
             <span class="sys-indicator-label">EVENTS</span>
             <span class="sys-indicator-value">{agentStore.events().length}</span>
           </div>
+          <Show when={approvalsStore.pendingCount() > 0}>
+            <div class="sys-indicator">
+              <span class="sys-indicator-label">APPROVALS</span>
+              <span class="sys-indicator-value sys-warn">{approvalsStore.pendingCount()}</span>
+            </div>
+          </Show>
+          <Show when={budgetStore.totalSpend() > 0}>
+            <div class="sys-indicator">
+              <span class="sys-indicator-label">SPEND</span>
+              <span class="sys-indicator-value">${budgetStore.totalSpend().toFixed(2)}</span>
+            </div>
+          </Show>
         </div>
         <div class="sys-strip-actions">
           <button

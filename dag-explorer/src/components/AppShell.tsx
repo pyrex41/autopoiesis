@@ -21,6 +21,11 @@ import { RadarLoader, MeshLoader } from "./LoadingStates";
 import Dashboard from "./Dashboard";
 import TimelineView from "./TimelineView";
 import TasksView from "./TasksView";
+import OrgChart from "./OrgChart";
+import BudgetDashboard from "./BudgetDashboard";
+import ApprovalsView from "./ApprovalsView";
+import EvolutionLab from "./EvolutionLab";
+import AuditLog from "./AuditLog";
 
 // Only lazy-load the heavy DAG view (WebGL/Three.js)
 const DAGView = lazy(() => import("./DAGView"));
@@ -52,6 +57,11 @@ const viewComponents: Record<ViewId, Component> = {
   tasks: TasksView,
   holodeck: LazyHolodeck,
   constellation: LazyConstellation,
+  org: OrgChart,
+  budget: BudgetDashboard,
+  approvals: ApprovalsView,
+  evolution: EvolutionLab,
+  audit: AuditLog,
 };
 
 const AppShell: Component = () => {
@@ -91,6 +101,11 @@ const AppShell: Component = () => {
       "4": { view: "tasks", label: "Tasks" },
       "5": { view: "holodeck", label: "Holodeck" },
       "6": { view: "constellation", label: "Constellation" },
+      "7": { view: "org", label: "Org Chart" },
+      "8": { view: "budget", label: "Budget" },
+      "9": { view: "approvals", label: "Approvals" },
+      "0": { view: "evolution", label: "Evolution Lab" },
+      "-": { view: "audit", label: "Audit Log" },
     };
     if (viewKeys[e.key]) {
       e.preventDefault();

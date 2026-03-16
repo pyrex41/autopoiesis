@@ -137,3 +137,55 @@ export interface CapabilityInvocationResult {
   result: unknown;
   capability: string;
 }
+
+// ── Command Center types ──────────────────────────────────────────
+
+export interface Department {
+  id: number;
+  name: string;
+  parent: number | null;
+  description: string | null;
+  budgetLimit: number | null;
+  currency: string | null;
+  createdAt: number;
+}
+
+export interface Goal {
+  id: number;
+  title: string;
+  description: string | null;
+  department: number | null;
+  agent: string | null;
+  status: string;
+  parent: number | null;
+  createdAt: number;
+}
+
+export interface Budget {
+  id?: number;
+  entityId: string;
+  entityType: string;
+  limit: number | null;
+  spent: number;
+  currency: string;
+  updatedAt?: number;
+}
+
+export interface AuditEntry {
+  id: string;
+  type: string;
+  source: string;
+  agentId: string | null;
+  data: string | null;
+  timestamp: number;
+}
+
+export interface Approval {
+  id: string;
+  prompt: string;
+  context: string | null;
+  options: string[];
+  status: string;
+  default: string | null;
+  createdAt: number;
+}
