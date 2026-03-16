@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Autopoiesis is a self-configuring, self-extending agent platform built on Common Lisp's homoiconic foundation. Agent cognition, conversation, and configuration are represented as S-expressions (code-as-data, data-as-code), enabling agents to modify their own behavior, full state snapshots for time-travel debugging, and human-in-the-loop interaction at any point.
 
-**Current Status:** All phases (0-10) complete plus CL consolidation and persistent agent architecture. Pure Common Lisp architecture with substrate-backed state management, conductor orchestration, multi-provider agentic loops, and persistent functional agents with O(1) forking via structural sharing. The LFE layer has been removed.
+**Current Status:** All phases (0-11) complete plus Command Center frontend. Pure Common Lisp architecture with substrate-backed state management, conductor orchestration, multi-provider agentic loops, and persistent functional agents with O(1) forking via structural sharing. The LFE layer has been removed. The dag-explorer frontend is a SolidJS Command Center with 11 views (dashboard, DAG, timeline, tasks, holodeck, constellation, org chart, budget, approvals, evolution lab, audit log).
 
 ## Build & Development Commands
 
@@ -41,12 +41,12 @@ See `platform/docs/layers.md` for the complete layered architecture with Mermaid
 
 ### Core Platform (6–7 focused layers)
 
-1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types, value indexing, interning, LMDB persistence, blob store
+1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types (event, worker, agent, session, snapshot, turn, context, prompt, department, goal, budget), value indexing, interning, LMDB persistence, blob store
 2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, persistent data structures (fset wrappers: pmap/pvec/pset), extension compiler, recovery, profiling, config
 3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes, persistent agents (O(1) fork, immutable cognition, lineage, membrane), dual-agent bridge
 4. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
 5. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue
-6. **Integration + API Layer** (`platform/src/integration/`, `platform/src/api/`) - Claude bridge, MCP client, multi-provider agentic loops, REST/WebSocket (Clack/Woo), MCP server, SSE, JSON/MessagePack
+6. **Integration + API Layer** (`platform/src/integration/`, `platform/src/api/`) - Claude bridge, MCP client, multi-provider agentic loops, REST/WebSocket (Clack/Woo), MCP server, SSE, JSON/MessagePack, Command Center endpoints (departments, goals, budgets, audit, approvals, evolution)
 7. **Interface Layer** (`platform/src/interface/`, `platform/src/viz/`) - Navigator, viewport, CLI session, blocking input, 2D ANSI terminal timeline
 
 ### Optional Extensions
@@ -79,6 +79,7 @@ Powerful capabilities that extend the core platform for specific use cases:
 | 9 | Self-extension, agent-written code | Complete |
 | 10 | Performance, security, deployment | Complete |
 | 11 | Persistent agent architecture (fset, dual-agent, swarm integration) | Complete |
+| 12 | Command Center (org hierarchy, budget, approvals, evolution lab, audit) | Complete |
 
 ## Key Dependencies
 

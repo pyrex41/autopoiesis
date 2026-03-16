@@ -55,7 +55,7 @@ Tilt orchestrates the full stack:
 | Tilt UI | 14400 | Dev dashboard |
 | Backend (WS) | 14401 | WebSocket API |
 | Backend (REST) | 14402 | REST API + MCP |
-| Web Console | 14403 | SolidJS frontend |
+| Command Center | 14403 | SolidJS dashboard (11 views) |
 
 ### Manual Start
 
@@ -598,11 +598,25 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
     :args ("-y" "@modelcontextprotocol/server-filesystem" "/tmp")))
 ```
 
+### Paperclip AI Integration
+
+Run Autopoiesis agents as [Paperclip](https://paperclip.dev) BYOA (Bring Your Own Agent) workers. Paperclip sends heartbeats, each one triggers a full cognitive cycle:
+
+```bash
+# Paperclip sends this to your webhook:
+curl -X POST http://localhost:8082/api/paperclip/heartbeat \
+  -H 'Content-Type: application/json' \
+  -d '{"agentId":"analyst","runId":"run-42","context":{"taskKey":"review auth module"}}'
+# => {"status":"completed","role":"analyst","heartbeat_id":"run-42",...}
+```
+
+Agents are created on-demand per role, persist across heartbeats, and accumulate thought history. Budget limits can be set per role. See **[platform/docs/paperclip.md](platform/docs/paperclip.md)** for the full setup guide.
+
 ---
 
 ## Architecture
 
-**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. Three frontends connect over WebSocket/REST: **dag-explorer** (SolidJS web console — primary), **Nexus** (Rust TUI cockpit), and **Holodeck** (Rust/Bevy 3D visualization). See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
+**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. Two frontends connect over WebSocket/REST: **dag-explorer** (SolidJS Command Center — primary, 11 views) and **Holodeck** (Rust/Bevy 3D visualization). See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
 
 **Legacy view (17 layers):**
 
@@ -657,7 +671,7 @@ Connect to Claude and MCP servers. Agent capabilities become Claude tools. MCP t
 │                        Value Index  •  Interning  •  defsystem       │
 └──────────────────────────────────────────────────────────────────────┘
 
-Separate frontends: dag-explorer (SolidJS web console), Nexus (Rust TUI), Holodeck (3D ECS viz)
+Separate frontends: dag-explorer (SolidJS Command Center, 11 views), Holodeck (Rust/Bevy 3D viz)
 Separate ASDF systems: Holodeck (CL-native ECS), Sandbox (squashd containers), Research (parallel campaigns)
 ```
 
@@ -703,7 +717,7 @@ Emits live runtime changes — capabilities, heuristics, genomes — as Lisp sou
 
 ### API Layer (`platform/src/api/`)
 
-Multi-protocol API server: REST endpoints via Hunchentoot, WebSocket via Clack/Woo for real-time frontends, MCP server support, SSE for streaming events. JSON and MessagePack serialization. Authentication middleware.
+Multi-protocol API server: REST endpoints via Hunchentoot, WebSocket via Clack/Woo for real-time frontends, MCP server support, SSE for streaming events. JSON and MessagePack serialization. Authentication middleware. Command Center endpoints: departments, goals, budgets, audit log, approvals, agent scheduling, evolution control. 30+ WS handlers, entity type serialization for org hierarchy and budget tracking.
 
 ### Integration Layer (`platform/src/integration/`)
 
@@ -757,6 +771,7 @@ ap/
 │   │   ├── team/          # Multi-agent coordination (5 strategies)
 │   │   ├── orchestration/ # Conductor, event queue, workers
 │   │   ├── jarvis/        # NL→tool conversational loop
+│   │   ├── paperclip/     # Paperclip AI BYOA adapter
 │   │   ├── holodeck/      # 3D ECS visualization (separate ASDF system)
 │   │   ├── sandbox/       # Squashd container integration (separate ASDF system)
 │   │   ├── research/      # Parallel research campaigns (separate ASDF system)
@@ -766,6 +781,14 @@ ap/
 │   ├── scripts/
 │   ├── docs/
 │   └── Dockerfile
+├── dag-explorer/      # SolidJS Command Center (primary frontend)
+│   ├── src/
+│   │   ├── components/   # 50+ view components (11 views)
+│   │   ├── stores/       # Reactive state stores (agents, org, budget, etc.)
+│   │   ├── api/          # REST client + TypeScript types
+│   │   ├── styles/       # CSS modules
+│   │   └── lib/          # Commands, navigation, utilities
+│   └── package.json
 ├── holodeck/          # Bevy/Rust 3D visualization frontend
 │   ├── Cargo.toml
 │   └── src/
@@ -773,6 +796,35 @@ ap/
 │   └── go/            # Go SDK
 ├── thoughts/          # Research & planning docs
 └── CLAUDE.md
+```
+
+## Command Center (`dag-explorer/`)
+
+The primary frontend is a SolidJS dashboard with 11 views organized into Observe and Manage groups, connected to the backend via REST + WebSocket.
+
+**Observe views** (keyboard shortcuts 1-6):
+| View | Key | Purpose |
+|------|-----|---------|
+| Dashboard | 1 | Agent roster, event feed, activity, cost tracking, conductor status |
+| DAG Explorer | 2 | Interactive snapshot DAG visualization with zoom/pan/diff |
+| Timeline | 3 | Chronological event stream |
+| Tasks | 4 | Task queue with list and kanban board modes |
+| Holodeck | 5 | 3D agent visualization (WebGL) |
+| Constellation | 6 | Force-directed agent relationship graph |
+
+**Manage views** (keyboard shortcuts 7-0, -):
+| View | Key | Purpose |
+|------|-----|---------|
+| Org Chart | 7 | Department hierarchy, goal tracking, create/edit dialogs |
+| Budget | 8 | Per-agent spend tracking, budget limits, utilization bars |
+| Approvals | 9 | Pending human-in-the-loop requests, approve/reject/respond |
+| Evolution Lab | 0 | Swarm evolution controls, SVG fitness chart, generation log |
+| Audit Log | - | Filterable event history, expandable detail, JSON export |
+
+Additional features: Jarvis chat bar, command palette (Ctrl+K), agent detail panel, team management, thought stream inspection, snapshot timeline, capability inspector.
+
+```bash
+cd dag-explorer && bun install && bun run dev
 ```
 
 ## Tests
@@ -797,6 +849,7 @@ Supervisor tests:      63 assertions    Checkpoint/revert, stable state, promoti
 Crystallize tests:     60 assertions    Emit capabilities/heuristics/genomes to source
 Git tools tests:       38 assertions    Git read/write tool integration
 Jarvis tests:          69 assertions    NL dispatch, tool invocation, session management
+Paperclip tests:       49 assertions    BYOA adapter, heartbeat protocol, budget, Paperclip-native payloads
 Team tests:            30 assertions    Mailbox concurrency, CV-based await, strategies
 Workspace tests:       69 assertions    Ephemeral contexts, isolation, team coordination
 Persistent agent:      80 assertions    Persistent structs, cognition, fork, lineage, dual-agent
@@ -849,6 +902,7 @@ Total:              4,095+ assertions   All passing
   - [07 Implementation Roadmap](platform/docs/specs/07-implementation-roadmap.md) — Phased plan
   - [08 Addendum](platform/docs/specs/08-specification-addendum.md) — Event sourcing, security, resources
   - [08 Remaining Phases](platform/docs/specs/08-remaining-phases.md) — Phase 7-10 specifications
+- **[Paperclip Integration](platform/docs/paperclip.md)** — BYOA adapter setup, heartbeat protocol, API reference
 - **[Deployment](platform/docs/DEPLOYMENT.md)** — Docker deployment
 - **[CLAUDE.md](CLAUDE.md)** — Development guidelines and code conventions
 
