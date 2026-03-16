@@ -56,13 +56,16 @@ build:
     COPY test/ test/
     COPY vendor/ vendor/
 
+    # Clear stale FASL cache so ASDF recompiles from fresh source
+    RUN rm -rf /root/.cache/common-lisp/sbcl-*/app/src/
+
     # Compile full system
     RUN sbcl --noinform --non-interactive \
         --eval "(push #P\"/app/\" asdf:*central-registry*)" \
         --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
         --eval "(handler-case \
                   (progn \
-                    (ql:quickload '(:autopoiesis/api :autopoiesis/jarvis) :silent t) \
+                    (ql:quickload '(:autopoiesis/api :autopoiesis/jarvis :autopoiesis/paperclip) :silent t) \
                     (format t \"~%System loaded successfully.~%\") \
                     (quit :unix-status 0)) \
                   (error (e) \
@@ -96,10 +99,11 @@ test:
 server:
     FROM +build
 
-    ENTRYPOINT ["sbcl", "--noinform", \
+    ENTRYPOINT []
+    CMD ["sbcl", "--noinform", "--non-interactive", \
         "--eval", "(push #P\"/app/\" asdf:*central-registry*)", \
         "--eval", "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)", \
-        "--eval", "(ql:quickload '(:autopoiesis/api :autopoiesis/jarvis :slynk) :silent t)", \
+        "--eval", "(ql:quickload '(:autopoiesis/api :autopoiesis/jarvis :autopoiesis/paperclip :slynk) :silent t)", \
         "--eval", "(progn (autopoiesis.substrate:open-store) (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (slynk:create-server :port 4005 :dont-close t) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api | Slynk port 4005~%\") (loop (sleep 60)))"]
 
     SAVE IMAGE autopoiesis-server:latest
