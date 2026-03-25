@@ -15,6 +15,8 @@
    #:snapshot-parent
    #:snapshot-agent-state
    #:snapshot-metadata
+   #:snapshot-tree-root
+   #:snapshot-tree-entries
    #:snapshot-hash
 
    ;; Content-addressable store
@@ -25,6 +27,35 @@
    #:store-exists-p
    #:store-delete
    #:store-gc
+   ;; Blob operations (filesystem content)
+   #:blob-hash
+   #:store-put-blob
+   #:store-get-blob
+   #:store-blob-exists-p
+   #:store-stats
+
+   ;; Filesystem tree operations
+   #:make-file-entry
+   #:make-directory-entry
+   #:make-symlink-entry
+   #:entry-type
+   #:entry-path
+   #:entry-hash
+   #:entry-mode
+   #:entry-size
+   #:entry-mtime
+   #:entry-target
+   #:scan-directory-flat
+   #:read-file-bytes
+   #:write-file-bytes
+   #:tree-hash
+   #:tree-diff
+   #:entries-equal-p
+   #:materialize-tree
+   #:materialize-diff
+   #:tree-file-count
+   #:tree-total-size
+   #:tree-find-entry
 
    ;; Snapshot persistence
    #:snapshot-store

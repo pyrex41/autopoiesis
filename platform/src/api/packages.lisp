@@ -159,4 +159,8 @@
     #:*session-cookie-secure*
     #:*session-cookie-http-only*
     #:*session-cookie-path*
-    #:*session-cookie-max-age*))
+    #:*session-cookie-max-age*
+
+    ;; Sandbox API
+    #:*api-sandbox-manager*
+    #:rest-handle-sandboxes))

@@ -1470,6 +1470,11 @@
                (and (> (length uri) 15)
                     (string= "/api/approvals/" (subseq uri 0 15))))
            (rest-handle-approvals request))
+          ;; /api/sandboxes or /api/sandboxes/...
+          ((or (string= uri "/api/sandboxes")
+               (and (> (length uri) 16)
+                    (string= "/api/sandboxes/" (subseq uri 0 16))))
+           (rest-handle-sandboxes request))
           ;; Unknown API route
           (t
            (json-not-found "API route" uri)))
