@@ -50,6 +50,8 @@
    #:find-connection
    #:broadcast-message
    #:broadcast-stream-data
+   #:broadcast-widget
+   #:stream-widget-to-connections
    #:send-to-connection
    #:send-stream-to-connection
    #:subscribe-connection

@@ -23,11 +23,20 @@ export interface Thought {
   result?: unknown;
 }
 
+export interface WidgetPayload {
+  id: string;
+  source: string;     // Arrow.js JavaScript source
+  css?: string;        // Optional widget CSS
+  title?: string;      // Widget header label
+  height?: number;     // Suggested height in px
+}
+
 export interface ChatMessage {
   id: string;
   sender: "user" | "jarvis";
   content: string;
   timestamp: number;
+  widget?: WidgetPayload;
 }
 
 // ── Signals ──────────────────────────────────────────────────────
@@ -56,6 +65,11 @@ const [chatLoading, setChatLoading] = createSignal(false);
 const [streamingText, setStreamingText] = createSignal<string | null>(null);
 let activeChatAgentId: string | null = null;
 let streamingMessageId: string | null = null;
+
+// Widget streaming state
+let streamingWidgetId: string | null = null;
+let streamingWidgetSource: string = "";
+let streamingWidgetMeta: { css?: string; title?: string; height?: number; text?: string } = {};
 
 // Derived: chat messages for the currently selected agent (or "jarvis")
 const chatMessages = () => {
@@ -513,6 +527,95 @@ function handleWSMessage(msg: ServerMessage) {
 
     case "snapshot_created": {
       // DAG live update — could trigger DAG refresh
+      break;
+    }
+
+    // ── Widget messages ──────────────────────────────────────────
+
+    case "widget_show": {
+      // Non-streaming: complete widget arrives in one message
+      const widget: WidgetPayload = {
+        id: (msg.widgetId as string) ?? `w-${Date.now()}`,
+        source: msg.source as string,
+        css: msg.css as string | undefined,
+        title: msg.title as string | undefined,
+        height: msg.height as number | undefined,
+      };
+      const wAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
+      const reply: ChatMessage = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        sender: "jarvis",
+        content: (msg.text as string) ?? "",
+        timestamp: Date.now(),
+        widget,
+      };
+      addChatMessage(wAgentId, reply);
+      setChatLoading(false);
+      break;
+    }
+
+    case "widget_stream_start": {
+      // Begin streaming widget — create placeholder message
+      if (streamingWidgetId) break; // ignore duplicate starts
+      const wsAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
+      streamingWidgetId = (msg.widgetId as string) ?? `w-${Date.now()}`;
+      streamingWidgetSource = "";
+      streamingWidgetMeta = {
+        css: msg.css as string | undefined,
+        title: msg.title as string | undefined,
+        height: msg.height as number | undefined,
+        text: msg.text as string | undefined,
+      };
+      // Create placeholder with loading content
+      streamingMessageId = `widget-stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const placeholder: ChatMessage = {
+        id: streamingMessageId,
+        sender: "jarvis",
+        content: streamingWidgetMeta.title
+          ? `Loading widget: ${streamingWidgetMeta.title}...`
+          : "Loading widget...",
+        timestamp: Date.now(),
+      };
+      addChatMessage(wsAgentId, placeholder);
+      break;
+    }
+
+    case "widget_stream_delta": {
+      const wDelta = msg.delta as string;
+      if (wDelta && streamingWidgetId) {
+        streamingWidgetSource += wDelta;
+      }
+      break;
+    }
+
+    case "widget_stream_end": {
+      if (streamingWidgetId && streamingMessageId) {
+        const widget: WidgetPayload = {
+          id: streamingWidgetId,
+          source: streamingWidgetSource,
+          css: streamingWidgetMeta.css,
+          title: streamingWidgetMeta.title,
+          height: streamingWidgetMeta.height,
+        };
+        const wsEndAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
+        const msgId = streamingMessageId;
+        setChatHistories((prev) => {
+          const history = prev[wsEndAgentId] ?? [];
+          return {
+            ...prev,
+            [wsEndAgentId]: history.map((m) =>
+              m.id === msgId
+                ? { ...m, content: streamingWidgetMeta.text ?? "", widget }
+                : m
+            ),
+          };
+        });
+      }
+      streamingWidgetId = null;
+      streamingWidgetSource = "";
+      streamingWidgetMeta = {};
+      streamingMessageId = null;
+      setChatLoading(false);
       break;
     }
   }
