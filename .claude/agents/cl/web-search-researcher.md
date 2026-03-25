@@ -38,13 +38,6 @@ When you receive a research query, you will:
 
 ## Search Strategies
 
-### For LLMS.txt and sub-links (ends in `.txt` or `.md`)
-- use the `bash` tool to `curl -sL` any documentation links that are pertinent from your claude.md instructions which end in `llms.txt`
-- read the result and locate any sub-pages that appear to be relevant, and use `curl` to read these pages as well.
-- `llms.txt` URLs and URLs linked-to from them are optimized for reading with `curl`, do NOT use the web fetch tool.
-- if you know the URL / site for an app (e.g. `https://vite.dev`), you can _always_ try curl-ing `https://<site>/llms.txt` to see if a `llms.txt` file is available. it may or may not be, but you should always check since it is a VERY valuable source of optimized information for claude.
-- **any URLs which end in `.md` or `.txt` should be fetched with curl rather than web fetch this way!**
-
 ### For API/Library Documentation:
 - Search for official docs first: "[library name] official documentation [specific feature]"
 - Look for changelog or release notes for version-specific information
