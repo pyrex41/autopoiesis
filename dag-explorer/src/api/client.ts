@@ -1,4 +1,4 @@
-import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent, Task, TaskUpdate, ContextWindow, CapabilityDetail, CapabilityInvocationResult, Department, Goal, Budget, AuditEntry, Approval } from "./types";
+import type { Snapshot, Branch, Agent, SnapshotDiff, IntegrationEvent, Task, TaskUpdate, ContextWindow, CapabilityDetail, CapabilityInvocationResult, Department, Goal, Budget, AuditEntry, Approval, EvalScenario, EvalRun, EvalTrial, EvalHarness, EvalComparison } from "./types";
 
 const BASE = "/api";
 
@@ -265,4 +265,50 @@ export async function rejectRequest(id: string, reason?: string): Promise<{ reje
 
 export async function scheduleAgent(agentId: string, data: { message: string; delaySeconds?: number; recurring?: boolean; intervalSeconds?: number }): Promise<{ scheduled: boolean }> {
   return post<{ scheduled: boolean }>(`/agents/${agentId}/schedule`, data);
+}
+
+// ── Eval Lab ──────────────────────────────────────────────────────
+
+export async function listEvalScenarios(): Promise<EvalScenario[]> {
+  return get<EvalScenario[]>("/eval/scenarios");
+}
+
+export async function createEvalScenario(data: { name: string; description: string; prompt: string; domain?: string; verifier?: string; rubric?: string }): Promise<EvalScenario> {
+  return post<EvalScenario>("/eval/scenarios", data);
+}
+
+export async function getEvalScenario(id: number): Promise<EvalScenario> {
+  return get<EvalScenario>(`/eval/scenarios/${id}`);
+}
+
+export async function listEvalHarnesses(): Promise<EvalHarness[]> {
+  return get<EvalHarness[]>("/eval/harnesses");
+}
+
+export async function listEvalRuns(): Promise<EvalRun[]> {
+  return get<EvalRun[]>("/eval/runs");
+}
+
+export async function createEvalRun(data: { name: string; scenarios: number[]; harnesses: string[]; trials?: number }): Promise<EvalRun> {
+  return post<EvalRun>("/eval/runs", data);
+}
+
+export async function getEvalRun(id: number): Promise<EvalRun> {
+  return get<EvalRun>(`/eval/runs/${id}`);
+}
+
+export async function executeEvalRun(id: number, opts?: { judge?: boolean }): Promise<{ status: string; runId: number }> {
+  return post<{ status: string; runId: number }>(`/eval/runs/${id}/execute`, opts);
+}
+
+export async function cancelEvalRun(id: number): Promise<{ status: string; runId: number }> {
+  return post<{ status: string; runId: number }>(`/eval/runs/${id}/cancel`);
+}
+
+export async function getEvalTrials(runId: number): Promise<EvalTrial[]> {
+  return get<EvalTrial[]>(`/eval/runs/${runId}/trials`);
+}
+
+export async function getEvalComparison(runId: number): Promise<EvalComparison> {
+  return get<EvalComparison>(`/eval/runs/${runId}/compare`);
 }
