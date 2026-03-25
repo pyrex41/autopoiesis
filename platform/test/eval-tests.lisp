@@ -467,3 +467,238 @@
   "Parsing invalid JSON returns nil."
   (is (null (autopoiesis.eval::parse-judge-response "not json at all")))
   (is (null (autopoiesis.eval::parse-judge-response ""))))
+
+;;; ===================================================================
+;;; Shell Harness Tests
+;;; ===================================================================
+
+(test shell-harness-basic
+  "Shell harness executes a command and captures output."
+  (autopoiesis.substrate:with-store ()
+    (let ((h (autopoiesis.eval:make-shell-harness
+              "echo-test" "echo 'hello from shell'")))
+      (let ((result (autopoiesis.eval:harness-run-scenario
+                     h (list :eval-scenario/prompt "test"))))
+        (is (not (null (getf result :output))))
+        (is (search "hello from shell" (getf result :output)))
+        (is (eql 0 (getf result :exit-code)))
+        (is (numberp (getf result :duration)))))))
+
+(test shell-harness-with-prompt
+  "Shell harness interpolates {{prompt}} in command."
+  (autopoiesis.substrate:with-store ()
+    (let ((h (autopoiesis.eval:make-shell-harness
+              "echo-prompt" "echo {{prompt}}")))
+      (let ((result (autopoiesis.eval:harness-run-scenario
+                     h (list :eval-scenario/prompt "interpolated text"))))
+        (is (search "interpolated text" (getf result :output)))))))
+
+(test shell-harness-with-verifier
+  "Shell harness runs verifier against output."
+  (autopoiesis.substrate:with-store ()
+    (let ((h (autopoiesis.eval:make-shell-harness
+              "verify-test" "echo 'expected output here'")))
+      (let ((result (autopoiesis.eval:harness-run-scenario
+                     h (list :eval-scenario/prompt "test"
+                             :eval-scenario/verifier '(:type :contains :value "expected output")))))
+        (is (eq :pass (getf result :passed)))))))
+
+(test shell-harness-failure
+  "Shell harness captures non-zero exit codes."
+  (autopoiesis.substrate:with-store ()
+    (let ((h (autopoiesis.eval:make-shell-harness
+              "fail-test" "exit 1")))
+      (let ((result (autopoiesis.eval:harness-run-scenario
+                     h (list :eval-scenario/prompt "test"
+                             :eval-scenario/verifier :exit-zero))))
+        (is (eql 1 (getf result :exit-code)))
+        (is (eq :fail (getf result :passed)))))))
+
+(test shell-harness-in-eval-run
+  "Shell harness works within a full eval run."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.eval:clear-harness-registry)
+    (autopoiesis.eval:register-harness
+     (autopoiesis.eval:make-shell-harness "echo-h" "echo 'hello world'"))
+    (let* ((s (autopoiesis.eval:create-scenario
+               :name "Shell Scenario"
+               :description "Test shell harness in run"
+               :prompt "test"
+               :verifier '(:type :contains :value "hello")))
+           (run-id (autopoiesis.eval:create-eval-run
+                    :name "Shell Run"
+                    :scenarios (list s)
+                    :harnesses '("echo-h")
+                    :trials 2)))
+      (autopoiesis.eval:execute-eval-run run-id)
+      (is (eq :complete (autopoiesis.substrate:entity-attr run-id :eval-run/status)))
+      (let ((trials (autopoiesis.eval:list-trials run-id)))
+        (is (= 2 (length trials)))
+        (dolist (eid trials)
+          (is (eq :pass (autopoiesis.substrate:entity-attr eid :eval-trial/passed))))))))
+
+;;; ===================================================================
+;;; Template Interpolation Tests
+;;; ===================================================================
+
+(test template-interpolation
+  "Template interpolation handles special characters."
+  (is (string= "echo 'hello'" (autopoiesis.eval::interpolate-template "echo {{prompt}}" "hello")))
+  ;; Should shell-escape quotes
+  (let ((result (autopoiesis.eval::interpolate-template "echo {{prompt}}" "it's a test")))
+    (is (search "it" result))))
+
+;;; ===================================================================
+;;; Ralph Harness Tests (structural only - no actual ralph execution)
+;;; ===================================================================
+
+(test ralph-harness-creation
+  "Ralph harness can be created with configuration."
+  (let ((h (autopoiesis.eval:make-ralph-harness
+            "ralph-test"
+            :backend "claude"
+            :mode "build"
+            :max-iterations 3)))
+    (is (equal "ralph-test" (autopoiesis.eval:harness-name h)))
+    (is (equal "claude" (autopoiesis.eval::rh-backend h)))
+    (is (equal "build" (autopoiesis.eval::rh-mode h)))
+    (is (= 3 (autopoiesis.eval::rh-max-iterations h)))))
+
+(test ralph-harness-config-plist
+  "Ralph harness serializes to config plist."
+  (let* ((h (autopoiesis.eval:make-ralph-harness
+             "ralph-opus" :backend "claude" :max-iterations 10))
+         (config (autopoiesis.eval:harness-to-config-plist h)))
+    (is (equal "ralph" (getf config :type)))
+    (is (equal "ralph-opus" (getf config :name)))
+    (is (equal "claude" (getf config :backend)))
+    (is (= 10 (getf config :max-iterations)))))
+
+;;; ===================================================================
+;;; Team Harness Tests (structural only - team layer may not be loaded)
+;;; ===================================================================
+
+(test team-harness-creation
+  "Team harness can be created with configuration."
+  (let ((h (autopoiesis.eval:make-team-harness
+            "debate-3"
+            :strategy :debate
+            :team-size 3
+            :provider-name "claude-code")))
+    (is (equal "debate-3" (autopoiesis.eval:harness-name h)))
+    (is (eq :debate (autopoiesis.eval::th-strategy h)))
+    (is (= 3 (autopoiesis.eval::th-team-size h)))
+    (is (equal "claude-code" (autopoiesis.eval::th-provider-name h)))))
+
+(test team-harness-config-plist
+  "Team harness serializes to config plist."
+  (let* ((h (autopoiesis.eval:make-team-harness
+             "parallel-5" :strategy :parallel :team-size 5))
+         (config (autopoiesis.eval:harness-to-config-plist h)))
+    (is (equal "team" (getf config :type)))
+    (is (eq :parallel (getf config :strategy)))
+    (is (= 5 (getf config :team-size)))))
+
+;;; ===================================================================
+;;; Builtin Scenarios Tests
+;;; ===================================================================
+
+(test builtin-scenarios-load
+  "Builtin scenarios load without error."
+  (autopoiesis.substrate:with-store ()
+    (setf autopoiesis.eval::*builtin-scenarios-loaded* nil)
+    (let ((count (autopoiesis.eval:load-builtin-scenarios)))
+      (is (> count 10))
+      (is (>= (length (autopoiesis.eval:list-scenarios)) 10)))))
+
+(test builtin-scenarios-domains
+  "Builtin scenarios cover multiple domains."
+  (autopoiesis.substrate:with-store ()
+    (setf autopoiesis.eval::*builtin-scenarios-loaded* nil)
+    (autopoiesis.eval:load-builtin-scenarios)
+    (let ((coding (autopoiesis.eval:list-scenarios :domain :coding))
+          (refactoring (autopoiesis.eval:list-scenarios :domain :refactoring))
+          (research (autopoiesis.eval:list-scenarios :domain :research))
+          (tool-use (autopoiesis.eval:list-scenarios :domain :tool-use))
+          (reasoning (autopoiesis.eval:list-scenarios :domain :reasoning)))
+      (is (>= (length coding) 4))
+      (is (>= (length refactoring) 1))
+      (is (>= (length research) 1))
+      (is (>= (length tool-use) 1))
+      (is (>= (length reasoning) 1)))))
+
+(test builtin-scenarios-have-verifiers
+  "Builtin scenarios include verifiers."
+  (autopoiesis.substrate:with-store ()
+    (setf autopoiesis.eval::*builtin-scenarios-loaded* nil)
+    (autopoiesis.eval:load-builtin-scenarios)
+    (let* ((all (autopoiesis.eval:list-scenarios))
+           (with-verifier (remove-if-not
+                           (lambda (eid)
+                             (autopoiesis.substrate:entity-attr eid :eval-scenario/verifier))
+                           all)))
+      (is (>= (length with-verifier) 10)))))
+
+(test builtin-scenarios-have-rubrics
+  "Builtin scenarios include rubrics for LLM judge."
+  (autopoiesis.substrate:with-store ()
+    (setf autopoiesis.eval::*builtin-scenarios-loaded* nil)
+    (autopoiesis.eval:load-builtin-scenarios)
+    (let* ((all (autopoiesis.eval:list-scenarios))
+           (with-rubric (remove-if-not
+                         (lambda (eid)
+                           (autopoiesis.substrate:entity-attr eid :eval-scenario/rubric))
+                         all)))
+      (is (>= (length with-rubric) 10)))))
+
+(test builtin-scenarios-idempotent
+  "Loading builtin scenarios twice doesn't duplicate."
+  (autopoiesis.substrate:with-store ()
+    (setf autopoiesis.eval::*builtin-scenarios-loaded* nil)
+    (let ((count1 (autopoiesis.eval:load-builtin-scenarios))
+          (count2 (autopoiesis.eval:load-builtin-scenarios)))
+      (declare (ignore count2))
+      (is (= count1 (length (autopoiesis.eval:list-scenarios)))))))
+
+;;; ===================================================================
+;;; History / Summary Tests
+;;; ===================================================================
+
+(test eval-summary-basic
+  "Eval summary returns correct structure."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.eval:clear-harness-registry)
+    (autopoiesis.eval:register-harness
+     (make-instance 'mock-harness :name "m" :mock-exit-code 0))
+    (let* ((s (autopoiesis.eval:create-scenario
+               :name "S" :description "D" :prompt "P" :verifier :exit-zero))
+           (run-id (autopoiesis.eval:create-eval-run
+                    :name "Summary Run"
+                    :scenarios (list s) :harnesses '("m") :trials 2)))
+      (autopoiesis.eval:execute-eval-run run-id)
+      (let ((summary (autopoiesis.eval:eval-summary)))
+        (is (= 1 (getf summary :total-scenarios)))
+        (is (= 1 (getf summary :total-runs)))
+        (is (= 1 (getf summary :completed-runs)))
+        (is (= 2 (getf summary :total-trials)))
+        (is (= 1 (getf summary :active-harnesses)))))))
+
+(test harness-performance-history-basic
+  "Harness history returns run-by-run data."
+  (autopoiesis.substrate:with-store ()
+    (autopoiesis.eval:clear-harness-registry)
+    (autopoiesis.eval:register-harness
+     (make-instance 'mock-harness :name "h1" :mock-exit-code 0))
+    (let ((s (autopoiesis.eval:create-scenario
+              :name "S" :description "D" :prompt "P" :verifier :exit-zero)))
+      ;; Run two evaluations
+      (let ((r1 (autopoiesis.eval:create-eval-run
+                 :name "Run 1" :scenarios (list s) :harnesses '("h1") :trials 1)))
+        (autopoiesis.eval:execute-eval-run r1))
+      (let ((r2 (autopoiesis.eval:create-eval-run
+                 :name "Run 2" :scenarios (list s) :harnesses '("h1") :trials 1)))
+        (autopoiesis.eval:execute-eval-run r2))
+      (let ((history (autopoiesis.eval:harness-performance-history "h1")))
+        (is (= 2 (length history)))
+        (dolist (entry history)
+          (is (= 1.0 (getf entry :pass-rate))))))))

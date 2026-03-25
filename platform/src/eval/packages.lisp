@@ -63,6 +63,27 @@
 
    ;; Comparison
    #:compare-harnesses
-   #:compare-runs))
+   #:compare-runs
+   #:compute-normalized-gain
+
+   ;; Shell harness
+   #:shell-harness
+   #:make-shell-harness
+
+   ;; Ralph harness
+   #:ralph-harness
+   #:make-ralph-harness
+
+   ;; Team harness
+   #:team-harness
+   #:make-team-harness
+
+   ;; History
+   #:harness-performance-history
+   #:scenario-performance-history
+   #:eval-summary
+
+   ;; Builtin scenarios
+   #:load-builtin-scenarios))
 
 ;; Test package defined in test/eval-tests.lisp (requires fiveam loaded first)

@@ -635,7 +635,12 @@
      (:file "judge")
      (:file "metrics")
      (:file "run")
-     (:file "comparison")))))
+     (:file "comparison")
+     (:file "harness-shell")
+     (:file "harness-ralph")
+     (:file "harness-team")
+     (:file "history")
+     (:file "builtin-scenarios")))))
 
 ;;; Eval tests
 (asdf:defsystem #:autopoiesis/eval-test
