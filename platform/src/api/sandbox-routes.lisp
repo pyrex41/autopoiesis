@@ -149,13 +149,16 @@
 
 (defun rest-sandbox-restore (sandbox-id snapshot-ref)
   "POST /api/sandboxes/:id/restore/:snapshot - Restore to snapshot."
-  ;; For now, restore by scanning the snapshot's tree entries
-  ;; In a full implementation, we'd look up the snapshot by ID
-  (let ((ops (autopoiesis.sandbox:manager-restore
-              *api-sandbox-manager* sandbox-id nil :incremental t)))
-    (json-ok `((:sandbox--id . ,sandbox-id)
-               (:snapshot--ref . ,snapshot-ref)
-               (:operations . ,ops)))))
+  (handler-case
+      (let* ((snapshot (autopoiesis.snapshot:load-snapshot snapshot-ref))
+             (ops (autopoiesis.sandbox:manager-restore
+                   *api-sandbox-manager* sandbox-id snapshot :incremental t)))
+        (json-ok `((:sandbox--id . ,sandbox-id)
+                   (:snapshot--ref . ,snapshot-ref)
+                   (:operations . ,ops))))
+    (error (e)
+      (json-error (format nil "Failed to restore snapshot ~A: ~A"
+                          snapshot-ref e)))))
 
 (defun rest-sandbox-tree (sandbox-id)
   "GET /api/sandboxes/:id/tree - Get current filesystem tree."

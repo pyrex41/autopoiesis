@@ -1,4 +1,4 @@
-import { type Component, Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { type Component, Show, For, createSignal, createEffect, onMount } from "solid-js";
 import { agentStore } from "../stores/agents";
 import { wsStore } from "../stores/ws";
 import { renderMarkdown } from "../lib/markdown";

@@ -1,4 +1,5 @@
 import { type Component, For, Show, createSignal } from "solid-js";
+import { formatSize } from "../../lib/format";
 
 interface FileChange {
   path: string;
@@ -61,11 +62,5 @@ const DiffView: Component<{ data: DiffData }> = (props) => {
     </div>
   );
 };
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
 
 export default DiffView;

@@ -134,7 +134,7 @@
                                                    (symbol-name (first change))))))
                                   diff)))
               (result-with-blocks
-               (format nil "~D change~:P: +~D added, -~D removed, ~~D modified."
+               (format nil "~D change~:P: +~D added, -~D removed, ~D modified."
                        (length diff) added removed modified)
                (list (make-block "diff-view"
                                  (list :added added :removed removed

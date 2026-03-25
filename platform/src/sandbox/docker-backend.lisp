@@ -65,12 +65,16 @@ Provides full process isolation via Docker."))
                            ~A sleep infinity"
                       container-name memory cpus network image)))
     ;; Create and start container
-    (let ((result (uiop:run-program
-                   (list "/bin/sh" "-c" cmd)
-                   :output '(:string :stripped t)
-                   :error-output '(:string :stripped t)
-                   :ignore-error-status t)))
-      (declare (ignore result)))
+    (multiple-value-bind (stdout stderr exit-code)
+        (uiop:run-program
+         (list "/bin/sh" "-c" cmd)
+         :output '(:string :stripped t)
+         :error-output '(:string :stripped t)
+         :ignore-error-status t)
+      (declare (ignore stdout))
+      (unless (zerop exit-code)
+        (error "Failed to create Docker container ~A: ~A"
+               container-name stderr)))
     (uiop:run-program
      (list "docker" "start" container-name)
      :ignore-error-status t)
