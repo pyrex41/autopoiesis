@@ -15,12 +15,11 @@ export interface Command {
   handler: () => void;
 }
 
-export type ViewId = "dashboard" | "dag" | "timeline" | "tasks" | "holodeck" | "constellation"
-  | "org" | "budget" | "approvals" | "evolution" | "audit";
+export type ViewId = "command" | "dag" | "timeline" | "dashboard";
 
 // View state — managed here so commands + ViewSwitcher share it
 import { createSignal } from "solid-js";
-export const [currentView, setCurrentView] = createSignal<ViewId>("dashboard");
+export const [currentView, setCurrentView] = createSignal<ViewId>("command");
 
 /** Navigate to a view, updating both the signal and navigation history */
 export function navigateTo(view: ViewId, label: string, agentId?: string) {
@@ -138,105 +137,42 @@ export const commands: Command[] = [
     },
   },
 
-  // ── Views ──────────────────────────────────────────────────
+  // ── Views (simplified: 4 core views) ─────────────────────
   {
-    id: "view.dashboard",
-    name: "Dashboard",
-    description: "Agent overview and live events",
+    id: "view.command",
+    name: "Command",
+    description: "Conversational agent with generative UI",
     shortcut: "1",
     category: "views",
-    icon: "◫",
-    handler: () => navigateTo("dashboard", "Dashboard"),
+    icon: "⌘",
+    handler: () => navigateTo("command", "Command"),
   },
   {
     id: "view.dag",
-    name: "DAG Explorer",
+    name: "Graph",
     description: "Snapshot DAG visualization",
     shortcut: "2",
     category: "views",
     icon: "◇",
-    handler: () => navigateTo("dag", "DAG Explorer"),
+    handler: () => navigateTo("dag", "Graph"),
   },
   {
     id: "view.timeline",
-    name: "Timeline",
-    description: "Chronological event stream",
+    name: "Stream",
+    description: "Real-time event and thought feed",
     shortcut: "3",
     category: "views",
     icon: "≡",
-    handler: () => navigateTo("timeline", "Timeline"),
+    handler: () => navigateTo("timeline", "Stream"),
   },
   {
-    id: "view.tasks",
-    name: "Tasks",
-    description: "Task queue and scheduler",
+    id: "view.dashboard",
+    name: "Dashboard",
+    description: "System status and agent roster",
     shortcut: "4",
     category: "views",
-    icon: "☰",
-    handler: () => navigateTo("tasks", "Tasks"),
-  },
-  {
-    id: "view.holodeck",
-    name: "Holodeck",
-    description: "3D agent visualization",
-    shortcut: "5",
-    category: "views",
-    icon: "⬡",
-    handler: () => navigateTo("holodeck", "Holodeck"),
-  },
-  {
-    id: "view.constellation",
-    name: "Constellation",
-    description: "Force-directed agent relationship graph",
-    shortcut: "6",
-    category: "views",
-    icon: "✦",
-    handler: () => navigateTo("constellation", "Constellation"),
-  },
-  {
-    id: "view.org",
-    name: "Org Chart",
-    description: "Department hierarchy and goals",
-    shortcut: "7",
-    category: "views",
-    icon: "⊞",
-    handler: () => navigateTo("org", "Org Chart"),
-  },
-  {
-    id: "view.budget",
-    name: "Budget",
-    description: "Budget tracking and limits",
-    shortcut: "8",
-    category: "views",
-    icon: "$",
-    handler: () => navigateTo("budget", "Budget"),
-  },
-  {
-    id: "view.approvals",
-    name: "Approvals",
-    description: "Pending approval requests",
-    shortcut: "9",
-    category: "views",
-    icon: "✓",
-    handler: () => navigateTo("approvals", "Approvals"),
-  },
-  {
-    id: "view.evolution",
-    name: "Evolution Lab",
-    description: "Agent evolution and fitness",
-    shortcut: "0",
-    category: "views",
-    icon: "⧖",
-    handler: () => navigateTo("evolution", "Evolution Lab"),
-  },
-  {
-    id: "view.audit",
-    name: "Audit Log",
-    description: "Event history and audit trail",
-    shortcut: "-",
-    category: "views",
-    icon: "≋",
-    handler: () => navigateTo("audit", "Audit Log"),
+    icon: "◫",
+    handler: () => navigateTo("dashboard", "Dashboard"),
   },
 
   // ── Navigation (DAG) ──────────────────────────────────────

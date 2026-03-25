@@ -9,7 +9,6 @@ import ViewSwitcher from "./ViewSwitcher";
 import AgentList from "./AgentList";
 import TeamPanel from "./TeamPanel";
 import AgentDetail from "./AgentDetail";
-import JarvisBar from "./JarvisBar";
 import CommandPalette from "./CommandPalette";
 import CreateAgentDialog from "./CreateAgentDialog";
 import CreateTeamDialog from "./CreateTeamDialog";
@@ -17,51 +16,25 @@ import ToastContainer from "./Toast";
 import CrystallizePulse from "./CrystallizePulse";
 import Breadcrumb from "./Breadcrumb";
 import ThoughtModal from "./ThoughtModal";
-import { RadarLoader, MeshLoader } from "./LoadingStates";
+import { RadarLoader } from "./LoadingStates";
 import Dashboard from "./Dashboard";
 import TimelineView from "./TimelineView";
-import TasksView from "./TasksView";
-import OrgChart from "./OrgChart";
-import BudgetDashboard from "./BudgetDashboard";
-import ApprovalsView from "./ApprovalsView";
-import EvolutionLab from "./EvolutionLab";
-import AuditLog from "./AuditLog";
+import CommandView from "./CommandView";
 
-// Only lazy-load the heavy DAG view (WebGL/Three.js)
+// Only lazy-load the heavy DAG view
 const DAGView = lazy(() => import("./DAGView"));
-const HolodeckView = lazy(() => import("./HolodeckView"));
-const ConstellationView = lazy(() => import("./ConstellationView"));
 
 const LazyDAG: Component = () => (
-  <Suspense fallback={<RadarLoader label="Initializing DAG" />}>
+  <Suspense fallback={<RadarLoader label="Initializing Graph" />}>
     <DAGView />
   </Suspense>
 );
 
-const LazyHolodeck: Component = () => (
-  <Suspense fallback={<MeshLoader label="Assembling Holodeck" />}>
-    <HolodeckView />
-  </Suspense>
-);
-
-const LazyConstellation: Component = () => (
-  <Suspense fallback={<RadarLoader label="Mapping Constellation" />}>
-    <ConstellationView />
-  </Suspense>
-);
-
 const viewComponents: Record<ViewId, Component> = {
-  dashboard: Dashboard,
+  command: CommandView,
   dag: LazyDAG,
   timeline: TimelineView,
-  tasks: TasksView,
-  holodeck: LazyHolodeck,
-  constellation: LazyConstellation,
-  org: OrgChart,
-  budget: BudgetDashboard,
-  approvals: ApprovalsView,
-  evolution: EvolutionLab,
-  audit: AuditLog,
+  dashboard: Dashboard,
 };
 
 const AppShell: Component = () => {
@@ -95,17 +68,10 @@ const AppShell: Component = () => {
 
     // View switching: 1-4
     const viewKeys: Record<string, { view: ViewId; label: string }> = {
-      "1": { view: "dashboard", label: "Dashboard" },
-      "2": { view: "dag", label: "DAG Explorer" },
-      "3": { view: "timeline", label: "Timeline" },
-      "4": { view: "tasks", label: "Tasks" },
-      "5": { view: "holodeck", label: "Holodeck" },
-      "6": { view: "constellation", label: "Constellation" },
-      "7": { view: "org", label: "Org Chart" },
-      "8": { view: "budget", label: "Budget" },
-      "9": { view: "approvals", label: "Approvals" },
-      "0": { view: "evolution", label: "Evolution Lab" },
-      "-": { view: "audit", label: "Audit Log" },
+      "1": { view: "command", label: "Command" },
+      "2": { view: "dag", label: "Graph" },
+      "3": { view: "timeline", label: "Stream" },
+      "4": { view: "dashboard", label: "Dashboard" },
     };
     if (viewKeys[e.key]) {
       e.preventDefault();
@@ -142,6 +108,9 @@ const AppShell: Component = () => {
 
   const activeComponent = createMemo(() => viewComponents[currentView()]);
 
+  // Command view is full-width (no sidebars)
+  const isCommandView = createMemo(() => currentView() === "command");
+
   return (
     <div class="app-shell">
       <StatusBar />
@@ -149,22 +118,25 @@ const AppShell: Component = () => {
       <Breadcrumb />
 
       <div class="app-body">
-        {/* Left sidebar — Agent list + Teams */}
-        <div class="left-sidebar">
-          <AgentList />
-          <TeamPanel />
-        </div>
+        {/* Left sidebar — hidden in Command view */}
+        <Show when={!isCommandView()}>
+          <div class="left-sidebar">
+            <AgentList />
+            <TeamPanel />
+          </div>
+        </Show>
 
         {/* Main content */}
-        <div class="app-content" classList={{ transitioning: transitioning() }}>
+        <div class="app-content" classList={{ transitioning: transitioning(), "app-content-full": isCommandView() }}>
           <Dynamic component={activeComponent()} />
         </div>
 
-        {/* Right panel — Agent detail */}
-        <AgentDetail />
+        {/* Right panel — hidden in Command view */}
+        <Show when={!isCommandView()}>
+          <AgentDetail />
+        </Show>
       </div>
 
-      <JarvisBar />
       <CommandPalette />
       <CreateAgentDialog />
       <CreateTeamDialog />

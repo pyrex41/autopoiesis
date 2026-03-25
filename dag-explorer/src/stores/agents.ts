@@ -23,11 +23,20 @@ export interface Thought {
   result?: unknown;
 }
 
+/** A generative UI block embedded in a chat message */
+export interface ChatBlock {
+  type: string;
+  data: any;
+  title?: string;
+}
+
 export interface ChatMessage {
   id: string;
   sender: "user" | "jarvis";
   content: string;
   timestamp: number;
+  /** Generative UI blocks (diffs, file trees, timelines, etc.) */
+  blocks?: ChatBlock[];
 }
 
 // ── Signals ──────────────────────────────────────────────────────
@@ -477,27 +486,29 @@ function handleWSMessage(msg: ServerMessage) {
 
     case "chat_response": {
       const text = msg.text as string;
+      const blocks = (msg.blocks as ChatBlock[]) ?? undefined;
       const respAgentId = (msg.agentId as string) ?? activeChatAgentId ?? "jarvis";
       if (streamingMessageId) {
-        // We were streaming — update the final message with complete text
+        // We were streaming — update the final message with complete text + blocks
         setChatHistories((prev) => {
           const history = prev[respAgentId] ?? [];
           return {
             ...prev,
             [respAgentId]: history.map((m) =>
-              m.id === streamingMessageId ? { ...m, content: text ?? "" } : m
+              m.id === streamingMessageId ? { ...m, content: text ?? "", blocks } : m
             ),
           };
         });
         streamingMessageId = null;
         setStreamingText(null);
       } else {
-        // Non-streaming response — add as new message
+        // Non-streaming response — add as new message with blocks
         const reply: ChatMessage = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           sender: "jarvis",
           content: text ?? "",
           timestamp: Date.now(),
+          blocks,
         };
         addChatMessage(respAgentId, reply);
       }
