@@ -377,7 +377,8 @@
      (:file "session")
      (:file "dispatch")
      (:file "loop")
-     (:file "human-in-the-loop")))))
+     (:file "human-in-the-loop")
+     (:file "query-tools")))))
 
 ;;; Paperclip AI BYOA adapter (optional)
 (asdf:defsystem #:autopoiesis/paperclip
