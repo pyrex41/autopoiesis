@@ -162,13 +162,18 @@
                 (when (getf result :raw-provider-result)
                   (push (make-datom trial-eid :eval-trial/raw-result
                                     (getf result :raw-provider-result)) datoms))
+                (when (getf result :metadata)
+                  (push (make-datom trial-eid :eval-trial/metadata
+                                    (getf result :metadata)) datoms))
                 (transact! datoms))
               ;; Run judge if requested
               (when (and judge
                          (getf result :output)
                          (getf scenario-plist :eval-scenario/rubric))
                 (handler-case
-                    (let ((judge-result (run-judge scenario-plist (getf result :output))))
+                    (let ((judge-result (run-judge scenario-plist (getf result :output)
+                                                  :diff-context (getf (getf result :metadata)
+                                                                      :diff-summary))))
                       (when (getf judge-result :success)
                         (transact!
                          (list (make-datom trial-eid :eval-trial/judge-scores

@@ -214,5 +214,37 @@ function isPrime(n) {
    :expected "Groups: ($30,$20,$15) free=$15, ($10,$5) free=$5. Total paid = $30+$20+$10 = $60. Wait — need to regroup. Groups: ($30,$20,$15)->free $15; ($10,$5)->only 2 items, no free item. Total: $30+$20+$10+$5 = $65. Savings: $15."
    :rubric "Evaluate for: correct grouping strategy, correct identification of free items, accurate arithmetic, clear step-by-step reasoning")
 
+  ;; ── Sandbox: Filesystem Operations ──────────────────────────────
+
+  (create-scenario
+   :name "Create Project Structure"
+   :description "Create a standard Python project directory layout"
+   :prompt "mkdir -p src tests && echo 'def hello(): return \"Hello, world!\"' > src/main.py && echo 'from src.main import hello\ndef test_hello(): assert hello() == \"Hello, world!\"' > tests/test_main.py && echo 'pytest' > requirements.txt && echo '# My Project' > README.md && echo done"
+   :domain :sandbox
+   :tags '(:filesystem :project-setup)
+   :verifier :file-exists
+   :expected "src/main.py"
+   :rubric "Evaluate for: all files created, correct content, proper project structure")
+
+  (create-scenario
+   :name "Refactor File Organization"
+   :description "Reorganize flat files into module directories"
+   :prompt "mkdir -p core api common && mv utils.py common/ 2>/dev/null; mv models.py core/ 2>/dev/null; mv db.py core/ 2>/dev/null; mv views.py api/ 2>/dev/null; mv auth.py api/ 2>/dev/null; touch core/__init__.py api/__init__.py common/__init__.py && echo done"
+   :domain :sandbox
+   :tags '(:filesystem :refactoring)
+   :verifier :tree-matches
+   :expected '("core/__init__.py" "api/__init__.py" "common/__init__.py")
+   :rubric "Evaluate for: all directories created, init files present, logical grouping")
+
+  (create-scenario
+   :name "Write Configuration File"
+   :description "Create a JSON configuration file with production settings"
+   :prompt "echo '{\"port\": 8080, \"host\": \"0.0.0.0\", \"debug\": false, \"log_level\": \"INFO\"}' > config.json && echo done"
+   :domain :sandbox
+   :tags '(:filesystem :configuration)
+   :verifier :file-exists
+   :expected "config.json"
+   :rubric "Evaluate for: valid JSON, correct production values, all fields present")
+
   (setf *builtin-scenarios-loaded* t)
   (length (list-scenarios)))

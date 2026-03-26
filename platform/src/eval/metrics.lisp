@@ -123,3 +123,29 @@
             :max-overall-score (when overall-scores (reduce #'max overall-scores))
             :dimension-averages (nreverse dim-avgs)
             :trials-judged n))))
+
+;;; ===================================================================
+;;; Sandbox Metrics
+;;; ===================================================================
+
+(defun compute-sandbox-metrics (trial-plists)
+  "Compute aggregate sandbox-specific metrics from trial plists.
+   Each plist should have :eval-trial/metadata with sandbox keys.
+   Returns a plist of sandbox-specific aggregates."
+  (let* ((metadatas (remove nil (mapcar (lambda (tr)
+                                          (getf tr :eval-trial/metadata))
+                                        trial-plists)))
+         (deltas (remove nil (mapcar (lambda (m) (getf m :file-count-delta)) metadatas)))
+         (added (remove nil (mapcar (lambda (m) (getf m :files-added)) metadatas)))
+         (removed (remove nil (mapcar (lambda (m) (getf m :files-removed)) metadatas)))
+         (modified (remove nil (mapcar (lambda (m) (getf m :files-modified)) metadatas)))
+         (bytes (remove nil (mapcar (lambda (m) (getf m :bytes-written-total)) metadatas)))
+         (hashes (remove nil (mapcar (lambda (m) (getf m :tree-hash-after)) metadatas))))
+    (list :trials-with-sandbox-data (length metadatas)
+          :avg-file-count-delta (safe-mean deltas)
+          :total-files-added (when added (reduce #'+ added))
+          :total-files-removed (when removed (reduce #'+ removed))
+          :total-files-modified (when modified (reduce #'+ modified))
+          :avg-bytes-written (safe-mean bytes)
+          :total-bytes-written (when bytes (reduce #'+ bytes))
+          :unique-tree-hashes (length (remove-duplicates hashes :test #'equal)))))

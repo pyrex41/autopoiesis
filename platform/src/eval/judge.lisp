@@ -32,10 +32,11 @@ IMPORTANT: You MUST respond with ONLY a valid JSON object in this exact format:
 Do not include any text before or after the JSON object."
   "System prompt for the LLM judge.")
 
-(defun build-judge-prompt (scenario-description rubric output &optional expected)
-  "Build the user prompt for the judge."
-  (format nil "## Task Description~%~a~%~%## Evaluation Rubric~%~a~%~%~@[## Expected Output~%~a~%~%~]## Actual Output~%~a~%~%Score the output according to the rubric. Return ONLY a JSON object."
-          scenario-description rubric expected output))
+(defun build-judge-prompt (scenario-description rubric output &optional expected diff-context)
+  "Build the user prompt for the judge.
+   DIFF-CONTEXT is an optional string showing filesystem changes from sandbox execution."
+  (format nil "## Task Description~%~a~%~%## Evaluation Rubric~%~a~%~%~@[## Expected Output~%~a~%~%~]~@[## Filesystem Changes~%~a~%~%~]## Actual Output~%~a~%~%Score the output according to the rubric. Return ONLY a JSON object."
+          scenario-description rubric expected diff-context output))
 
 (defun parse-judge-response (response)
   "Parse a judge response string into a plist (:score :dimensions :reasoning).
@@ -67,13 +68,14 @@ Do not include any text before or after the JSON object."
       (declare (ignore e))
       nil)))
 
-(defun run-judge (scenario-plist output &key (num-judges 1) client)
+(defun run-judge (scenario-plist output &key (num-judges 1) client diff-context)
   "Run LLM judge NUM-JUDGES times and return aggregated scores.
 
    SCENARIO-PLIST is the entity-state of an eval-scenario.
    OUTPUT is the agent's text output to evaluate.
    NUM-JUDGES is how many independent judge runs to perform (default 1).
    CLIENT is an optional LLM client override.
+   DIFF-CONTEXT is an optional string of filesystem changes from sandbox execution.
 
    Returns a plist:
      :overall-score   - median overall score (1-10 or nil)
@@ -89,7 +91,7 @@ Do not include any text before or after the JSON object."
                        (if r (format nil "~a" r)
                            "Evaluate for correctness, completeness, and quality."))))
          (expected (getf scenario-plist :eval-scenario/expected))
-         (prompt (build-judge-prompt description rubric output expected))
+         (prompt (build-judge-prompt description rubric output expected diff-context))
          (scores nil)
          (reasonings nil))
     ;; Run judges

@@ -110,3 +110,40 @@
   (lambda (output &key &allow-other-keys)
     (declare (ignore output))
     :pass))
+
+;;; ===================================================================
+;;; Filesystem-Aware Verifiers (for sandbox harness)
+;;; ===================================================================
+
+(defun %snapshot-find-entry (tree path)
+  "Look up a tree entry by path (dynamic resolution)."
+  (let* ((pkg (find-package :autopoiesis.snapshot))
+         (fn (when pkg (find-symbol "TREE-FIND-ENTRY" pkg))))
+    (when (and fn (fboundp fn))
+      (funcall fn tree path))))
+
+(register-verifier :file-exists
+  (lambda (output &key expected result &allow-other-keys)
+    "Check that a file path exists in the sandbox after-tree."
+    (declare (ignore output))
+    (let ((after-tree (getf (getf result :metadata) :after-tree)))
+      (if (and expected after-tree (%snapshot-find-entry after-tree expected))
+          :pass :fail))))
+
+(register-verifier :file-count-delta
+  (lambda (output &key expected result &allow-other-keys)
+    "Check that the file count change matches expected integer."
+    (declare (ignore output))
+    (let ((delta (getf (getf result :metadata) :file-count-delta)))
+      (if (and expected delta (= expected delta))
+          :pass :fail))))
+
+(register-verifier :tree-matches
+  (lambda (output &key expected result &allow-other-keys)
+    "Check that all paths in EXPECTED list exist in the after-tree."
+    (declare (ignore output))
+    (let ((after-tree (getf (getf result :metadata) :after-tree)))
+      (if (and expected (listp expected) after-tree
+               (every (lambda (path) (%snapshot-find-entry after-tree path))
+                      expected))
+          :pass :fail))))

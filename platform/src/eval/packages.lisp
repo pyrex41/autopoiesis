@@ -78,6 +78,16 @@
    #:team-harness
    #:make-team-harness
 
+   ;; Sandbox harness
+   #:sandbox-harness
+   #:make-sandbox-harness
+   #:sandbox-prepare-baseline
+   #:sandbox-run-in-fork
+   #:sandbox-destroy-baseline
+
+   ;; Sandbox metrics
+   #:compute-sandbox-metrics
+
    ;; History
    #:harness-performance-history
    #:scenario-performance-history

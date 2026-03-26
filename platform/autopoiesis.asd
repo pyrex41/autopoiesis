@@ -639,6 +639,7 @@
      (:file "harness-shell")
      (:file "harness-ralph")
      (:file "harness-team")
+     (:file "harness-sandbox")
      (:file "history")
      (:file "builtin-scenarios")))))
 
@@ -654,3 +655,16 @@
     ((:file "eval-tests"))))
   :perform (test-op (o c)
             (symbol-call :autopoiesis.eval.test :run-eval-tests)))
+
+;;; Eval+Sandbox integration tests (requires both systems)
+(asdf:defsystem #:autopoiesis/eval-sandbox-test
+  :description "Tests for eval-sandbox integration"
+  :depends-on (#:autopoiesis/eval #:autopoiesis/sandbox-backends #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "eval-sandbox-tests"))))
+  :perform (test-op (o c)
+            (symbol-call :autopoiesis.eval-sandbox.test :run-eval-sandbox-tests)))
