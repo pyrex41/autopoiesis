@@ -16,7 +16,7 @@ export interface Command {
 }
 
 export type ViewId = "dashboard" | "dag" | "timeline" | "tasks" | "holodeck" | "constellation"
-  | "org" | "budget" | "approvals" | "evolution" | "audit";
+  | "org" | "budget" | "approvals" | "evolution" | "audit" | "widgets" | "eval";
 
 // View state — managed here so commands + ViewSwitcher share it
 import { createSignal } from "solid-js";
@@ -237,6 +237,25 @@ export const commands: Command[] = [
     category: "views",
     icon: "≋",
     handler: () => navigateTo("audit", "Audit Log"),
+  },
+  {
+    id: "view.widgets",
+    name: "Widgets",
+    description: "Agent-generated interactive widgets",
+    shortcut: "=",
+    category: "views",
+    icon: "⧉",
+    handler: () => navigateTo("widgets", "Widgets"),
+  },
+
+  {
+    id: "view.eval",
+    name: "Eval Lab",
+    description: "Agent evaluation and comparison",
+    shortcut: "[",
+    category: "views",
+    icon: "⊞",
+    handler: () => navigateTo("eval", "Eval Lab"),
   },
 
   // ── Navigation (DAG) ──────────────────────────────────────

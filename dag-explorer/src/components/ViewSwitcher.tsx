@@ -80,6 +80,23 @@ const viewIcons: Record<string, () => any> = {
       <path d="M4.5 4h5M4.5 7h5M4.5 10h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
     </svg>
   ),
+  widgets: () => (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+      <rect x="8" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+      <rect x="1" y="8" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+      <rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+      <circle cx="3.5" cy="3.5" r="1" fill="currentColor" opacity="0.5"/>
+      <circle cx="10.5" cy="3.5" r="1" fill="currentColor" opacity="0.5"/>
+    </svg>
+  ),
+  eval: () => (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+      <path d="M1 5h12M5 1v12" stroke="currentColor" stroke-width="0.9" opacity="0.5"/>
+      <path d="M8 8l2 2M8 10l2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+  ),
 };
 
 const observeViews: { id: ViewId; label: string; shortcut: string }[] = [
@@ -97,6 +114,8 @@ const manageViews: { id: ViewId; label: string; shortcut: string }[] = [
   { id: "approvals", label: "Approvals", shortcut: "9" },
   { id: "evolution", label: "Evolution", shortcut: "0" },
   { id: "audit", label: "Audit", shortcut: "-" },
+  { id: "widgets", label: "Widgets", shortcut: "=" },
+  { id: "eval", label: "Eval Lab", shortcut: "[" },
 ];
 
 const ViewSwitcher: Component = () => {

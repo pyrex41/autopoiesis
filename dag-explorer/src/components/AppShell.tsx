@@ -26,6 +26,8 @@ import BudgetDashboard from "./BudgetDashboard";
 import ApprovalsView from "./ApprovalsView";
 import EvolutionLab from "./EvolutionLab";
 import AuditLog from "./AuditLog";
+import WidgetsView from "./WidgetsView";
+import EvalLab from "./EvalLab";
 
 // Only lazy-load the heavy DAG view (WebGL/Three.js)
 const DAGView = lazy(() => import("./DAGView"));
@@ -62,6 +64,8 @@ const viewComponents: Record<ViewId, Component> = {
   approvals: ApprovalsView,
   evolution: EvolutionLab,
   audit: AuditLog,
+  widgets: WidgetsView,
+  eval: EvalLab,
 };
 
 const AppShell: Component = () => {
@@ -106,6 +110,7 @@ const AppShell: Component = () => {
       "9": { view: "approvals", label: "Approvals" },
       "0": { view: "evolution", label: "Evolution Lab" },
       "-": { view: "audit", label: "Audit Log" },
+      "=": { view: "widgets", label: "Widgets" },
     };
     if (viewKeys[e.key]) {
       e.preventDefault();

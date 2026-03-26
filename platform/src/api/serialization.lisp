@@ -165,6 +165,87 @@
       (:currency . ,(getf state :budget/currency))
       (:updated--at . ,(getf state :budget/updated-at)))))
 
+;;; ===================================================================
+;;; Eval Lab Serialization (uses autopoiesis.eval if loaded)
+;;; ===================================================================
+
+(defun eval-scenario-to-json-alist (eid)
+  "Convert an eval-scenario entity to a JSON-encodable alist."
+  (let ((pkg (find-package :autopoiesis.eval)))
+    (if pkg
+        (let ((fn (find-symbol "SCENARIO-TO-ALIST" pkg)))
+          (when (and fn (fboundp fn))
+            (funcall fn eid)))
+        ;; Fallback: read directly from substrate
+        `((:id . ,eid)
+          (:name . ,(autopoiesis.substrate:entity-attr eid :eval-scenario/name))))))
+
+(defun eval-run-to-json-alist (eid)
+  "Convert an eval-run entity to a JSON-encodable alist."
+  (let ((pkg (find-package :autopoiesis.eval)))
+    (if pkg
+        (let ((fn (find-symbol "RUN-TO-ALIST" pkg)))
+          (when (and fn (fboundp fn))
+            (funcall fn eid)))
+        `((:id . ,eid)
+          (:name . ,(autopoiesis.substrate:entity-attr eid :eval-run/name))))))
+
+(defun eval-trial-to-json-alist (eid)
+  "Convert an eval-trial entity to a JSON-encodable alist."
+  (let ((pkg (find-package :autopoiesis.eval)))
+    (if pkg
+        (let ((fn (find-symbol "TRIAL-TO-ALIST" pkg)))
+          (when (and fn (fboundp fn))
+            (funcall fn eid)))
+        `((:id . ,eid)))))
+
+;;; --- Eval WS serializers (hash-table) ---
+
+(defun eval-scenario-to-json-plist (eid)
+  "Convert an eval-scenario to a hash-table for WS."
+  (let ((ht (make-hash-table :test 'equal)))
+    (setf (gethash "id" ht) eid
+          (gethash "name" ht) (autopoiesis.substrate:entity-attr eid :eval-scenario/name)
+          (gethash "description" ht) (autopoiesis.substrate:entity-attr eid :eval-scenario/description)
+          (gethash "prompt" ht) (autopoiesis.substrate:entity-attr eid :eval-scenario/prompt)
+          (gethash "domain" ht) (let ((d (autopoiesis.substrate:entity-attr eid :eval-scenario/domain)))
+                                   (when d (string-downcase (symbol-name d))))
+          (gethash "hasVerifier" ht) (if (autopoiesis.substrate:entity-attr eid :eval-scenario/verifier) t nil)
+          (gethash "hasRubric" ht) (if (autopoiesis.substrate:entity-attr eid :eval-scenario/rubric) t nil)
+          (gethash "createdAt" ht) (autopoiesis.substrate:entity-attr eid :eval-scenario/created-at))
+    ht))
+
+(defun eval-run-to-json-plist (eid)
+  "Convert an eval-run to a hash-table for WS."
+  (let ((ht (make-hash-table :test 'equal)))
+    (setf (gethash "id" ht) eid
+          (gethash "name" ht) (autopoiesis.substrate:entity-attr eid :eval-run/name)
+          (gethash "status" ht) (string-downcase (symbol-name (or (autopoiesis.substrate:entity-attr eid :eval-run/status) :unknown)))
+          (gethash "scenarios" ht) (autopoiesis.substrate:entity-attr eid :eval-run/scenarios)
+          (gethash "harnesses" ht) (autopoiesis.substrate:entity-attr eid :eval-run/harnesses)
+          (gethash "trialsPerCombo" ht) (autopoiesis.substrate:entity-attr eid :eval-run/trials)
+          (gethash "createdAt" ht) (autopoiesis.substrate:entity-attr eid :eval-run/created-at)
+          (gethash "completedAt" ht) (autopoiesis.substrate:entity-attr eid :eval-run/completed-at))
+    ht))
+
+(defun eval-trial-to-json-plist (eid)
+  "Convert an eval-trial to a hash-table for WS."
+  (let ((ht (make-hash-table :test 'equal)))
+    (setf (gethash "id" ht) eid
+          (gethash "runId" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/run)
+          (gethash "scenarioId" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/scenario)
+          (gethash "harnessName" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/harness)
+          (gethash "trialNum" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/trial-num)
+          (gethash "status" ht) (string-downcase (symbol-name (or (autopoiesis.substrate:entity-attr eid :eval-trial/status) :unknown)))
+          (gethash "duration" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/duration)
+          (gethash "cost" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/cost)
+          (gethash "turns" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/turns)
+          (gethash "passed" ht) (let ((p (autopoiesis.substrate:entity-attr eid :eval-trial/passed)))
+                                   (when p (string-downcase (symbol-name p))))
+          (gethash "judgeScores" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/judge-scores)
+          (gethash "completedAt" ht) (autopoiesis.substrate:entity-attr eid :eval-trial/completed-at))
+    ht))
+
 ;;; --- Hash-table serializers for WS handlers ---
 
 (defun department-to-json-plist (eid)
