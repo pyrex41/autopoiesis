@@ -7,8 +7,24 @@
 ;;;;
 ;;;; The read path is always native filesystem (zero overhead).
 ;;;; The write path adds minimal overhead: record path in changeset.
+;;;;
+;;;; Uses dynamic resolution (find-package/find-symbol) so this file
+;;;; compiles without autopoiesis/sandbox-backends loaded.
 
 (in-package #:autopoiesis.integration)
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Dynamic Resolution
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun %sandbox-call (fn-name &rest args)
+  "Call a function from autopoiesis.sandbox dynamically."
+  (let* ((pkg (find-package :autopoiesis.sandbox))
+         (fn (when pkg (find-symbol fn-name pkg))))
+    (if (and fn (fboundp fn))
+        (apply fn args)
+        (error "Sandbox function ~A not available. Load autopoiesis/sandbox-backends."
+               fn-name))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Sandbox Context (dynamic variables)
@@ -44,13 +60,17 @@
 (defmacro with-sandbox-context ((manager sandbox-id &key changeset) &body body)
   "Execute BODY within a sandbox context. File tool operations will
    be intercepted to track changes in the changeset."
-  (let ((root-var (gensym "ROOT")))
-    `(let* ((,root-var (autopoiesis.sandbox:backend-sandbox-root
-                        (autopoiesis.sandbox:manager-backend ,manager)
-                        ,sandbox-id))
+  (let ((root-var (gensym "ROOT"))
+        (mgr-var (gensym "MGR"))
+        (sid-var (gensym "SID")))
+    `(let* ((,mgr-var ,manager)
+            (,sid-var ,sandbox-id)
+            (,root-var (%sandbox-call "BACKEND-SANDBOX-ROOT"
+                                      (%sandbox-call "MANAGER-BACKEND" ,mgr-var)
+                                      ,sid-var))
             (*sandbox-context*
-              (list :manager ,manager
-                    :sandbox-id ,sandbox-id
+              (list :manager ,mgr-var
+                    :sandbox-id ,sid-var
                     :changeset ,changeset
                     :root-path ,root-var)))
        ,@body)))
@@ -73,8 +93,8 @@
         (when (and (in-sandbox-p) (current-changeset))
           (let* ((root (current-sandbox-root))
                  (rel-path (enough-namestring path root)))
-            (autopoiesis.sandbox:changeset-record-write
-             (current-changeset) (namestring rel-path))))
+            (%sandbox-call "CHANGESET-RECORD-WRITE"
+                           (current-changeset) (namestring rel-path))))
         (format nil "Successfully wrote ~A bytes to ~A"
                 (length content) path))
     (error (e)
@@ -89,8 +109,8 @@
         (when (and (in-sandbox-p) (current-changeset))
           (let* ((root (current-sandbox-root))
                  (rel-path (enough-namestring path root)))
-            (autopoiesis.sandbox:changeset-record-delete
-             (current-changeset) (namestring rel-path))))
+            (%sandbox-call "CHANGESET-RECORD-DELETE"
+                           (current-changeset) (namestring rel-path))))
         (format nil "Deleted ~A" path))
     (error (e)
       (format nil "Error deleting ~A: ~A" path e))))
@@ -101,17 +121,13 @@
   (if (in-sandbox-p)
       (let* ((manager (getf *sandbox-context* :manager))
              (sandbox-id (current-sandbox-id))
-             (result (autopoiesis.sandbox:manager-exec
-                      manager sandbox-id command
-                      :timeout timeout :workdir workdir)))
-        ;; After exec, we don't know exactly which files changed,
-        ;; so we can't track specific paths. The changeset will still
-        ;; catch subsequent tool-based writes. For full tracking after
-        ;; exec, a snapshot re-scan is needed.
+             (result (%sandbox-call "MANAGER-EXEC"
+                                    manager sandbox-id command
+                                    :timeout timeout :workdir workdir)))
         (format nil "Exit code: ~A~%~A~@[~%STDERR: ~A~]"
-                (autopoiesis.sandbox:exec-result-exit-code result)
-                (autopoiesis.sandbox:exec-result-stdout result)
-                (let ((err (autopoiesis.sandbox:exec-result-stderr result)))
+                (%sandbox-call "EXEC-RESULT-EXIT-CODE" result)
+                (%sandbox-call "EXEC-RESULT-STDOUT" result)
+                (let ((err (%sandbox-call "EXEC-RESULT-STDERR" result)))
                   (when (and err (> (length err) 0)) err))))
       ;; Not in sandbox — direct execution
       (handler-case
@@ -142,13 +158,13 @@
   (let* ((manager (getf *sandbox-context* :manager))
          (sandbox-id (current-sandbox-id))
          (changeset (current-changeset))
-         (snapshot (autopoiesis.sandbox:manager-snapshot
-                    manager sandbox-id :label label)))
+         (snapshot (%sandbox-call "MANAGER-SNAPSHOT"
+                                  manager sandbox-id :label label)))
     ;; Reset changeset after successful snapshot
     (when changeset
-      (autopoiesis.sandbox:changeset-reset
-       changeset
-       :new-base-tree (autopoiesis.snapshot:snapshot-tree-entries snapshot)))
+      (%sandbox-call "CHANGESET-RESET"
+                     changeset
+                     :new-base-tree (autopoiesis.snapshot:snapshot-tree-entries snapshot)))
     snapshot))
 
 (defun sandbox-fork (new-id &key label)
@@ -156,19 +172,19 @@
    Returns new sandbox-id."
   (unless (in-sandbox-p)
     (error "Not in sandbox context. Use with-sandbox-context."))
-  (autopoiesis.sandbox:manager-fork
-   (getf *sandbox-context* :manager)
-   (current-sandbox-id)
-   new-id
-   :label label))
+  (%sandbox-call "MANAGER-FORK"
+                 (getf *sandbox-context* :manager)
+                 (current-sandbox-id)
+                 new-id
+                 :label label))
 
 (defun sandbox-restore (snapshot)
   "Restore the current sandbox to a snapshot state.
    Must be in sandbox context. Returns operation count."
   (unless (in-sandbox-p)
     (error "Not in sandbox context. Use with-sandbox-context."))
-  (autopoiesis.sandbox:manager-restore
-   (getf *sandbox-context* :manager)
-   (current-sandbox-id)
-   snapshot
-   :incremental t))
+  (%sandbox-call "MANAGER-RESTORE"
+                 (getf *sandbox-context* :manager)
+                 (current-sandbox-id)
+                 snapshot
+                 :incremental t))

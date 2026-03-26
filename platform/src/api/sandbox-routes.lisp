@@ -10,9 +10,23 @@
 ;;;; - POST   /api/sandboxes/:id/fork            - fork sandbox
 ;;;; - POST   /api/sandboxes/:id/restore/:snap   - restore to snapshot
 ;;;; - GET    /api/sandboxes/:id/tree            - current filesystem tree
-;;;; - GET    /api/sandboxes/:id/diff/:a/:b      - diff two snapshots
+;;;;
+;;;; Uses dynamic resolution for autopoiesis.sandbox so this compiles
+;;;; without autopoiesis/sandbox-backends loaded.
 
 (in-package #:autopoiesis.api)
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Dynamic Resolution
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun %sbx (fn-name &rest args)
+  "Call a function from autopoiesis.sandbox dynamically."
+  (let* ((pkg (find-package :autopoiesis.sandbox))
+         (fn (when pkg (find-symbol fn-name pkg))))
+    (if (and fn (fboundp fn))
+        (apply fn args)
+        (error "Sandbox function ~A not available." fn-name))))
 
 ;;; ═══════════════════════════════════════════════════════════════════
 ;;; Sandbox Manager Reference
@@ -74,8 +88,7 @@
 
 (defun rest-list-sandboxes ()
   "GET /api/sandboxes - List all active sandboxes."
-  (let ((sandboxes (autopoiesis.sandbox:manager-list-sandboxes
-                    *api-sandbox-manager*)))
+  (let ((sandboxes (%sbx "MANAGER-LIST-SANDBOXES" *api-sandbox-manager*)))
     (json-ok (mapcar #'sandbox-info-to-json sandboxes))))
 
 (defun rest-create-sandbox ()
@@ -85,24 +98,21 @@
                          (format nil "sb-~A" (autopoiesis.core:make-uuid))))
          (config (list :memory-mb (cdr (assoc :memory--mb body))
                        :image (cdr (assoc :image body)))))
-    (autopoiesis.sandbox:manager-create-sandbox
-     *api-sandbox-manager* sandbox-id :config config)
+    (%sbx "MANAGER-CREATE-SANDBOX" *api-sandbox-manager* sandbox-id :config config)
     (json-ok `((:id . ,sandbox-id)
                (:status . "ready")
                (:created . t)))))
 
 (defun rest-get-sandbox (sandbox-id)
   "GET /api/sandboxes/:id - Get sandbox info."
-  (let ((info (autopoiesis.sandbox:manager-sandbox-info
-               *api-sandbox-manager* sandbox-id)))
+  (let ((info (%sbx "MANAGER-SANDBOX-INFO" *api-sandbox-manager* sandbox-id)))
     (if info
         (json-ok (sandbox-info-to-json info))
         (json-not-found "Sandbox" sandbox-id))))
 
 (defun rest-destroy-sandbox (sandbox-id)
   "DELETE /api/sandboxes/:id - Destroy a sandbox."
-  (autopoiesis.sandbox:manager-destroy-sandbox
-   *api-sandbox-manager* sandbox-id)
+  (%sbx "MANAGER-DESTROY-SANDBOX" *api-sandbox-manager* sandbox-id)
   (json-ok `((:id . ,sandbox-id) (:destroyed . t))))
 
 (defun rest-sandbox-exec (sandbox-id)
@@ -114,20 +124,19 @@
     (unless command
       (return-from rest-sandbox-exec
         (json-error "Missing 'command' field")))
-    (let ((result (autopoiesis.sandbox:manager-exec
-                   *api-sandbox-manager* sandbox-id command
-                   :timeout timeout :workdir workdir)))
-      (json-ok `((:exit--code . ,(autopoiesis.sandbox:exec-result-exit-code result))
-                 (:stdout . ,(autopoiesis.sandbox:exec-result-stdout result))
-                 (:stderr . ,(autopoiesis.sandbox:exec-result-stderr result))
-                 (:duration--ms . ,(autopoiesis.sandbox:exec-result-duration-ms result)))))))
+    (let ((result (%sbx "MANAGER-EXEC" *api-sandbox-manager* sandbox-id command
+                        :timeout timeout :workdir workdir)))
+      (json-ok `((:exit--code . ,(%sbx "EXEC-RESULT-EXIT-CODE" result))
+                 (:stdout . ,(%sbx "EXEC-RESULT-STDOUT" result))
+                 (:stderr . ,(%sbx "EXEC-RESULT-STDERR" result))
+                 (:duration--ms . ,(%sbx "EXEC-RESULT-DURATION-MS" result)))))))
 
 (defun rest-sandbox-snapshot (sandbox-id)
   "POST /api/sandboxes/:id/snapshot - Create a snapshot."
   (let* ((body (parse-json-body))
          (label (cdr (assoc :label body)))
-         (snapshot (autopoiesis.sandbox:manager-snapshot
-                    *api-sandbox-manager* sandbox-id :label label)))
+         (snapshot (%sbx "MANAGER-SNAPSHOT" *api-sandbox-manager* sandbox-id
+                         :label label)))
     (json-ok `((:snapshot--id . ,(autopoiesis.snapshot:snapshot-id snapshot))
                (:tree--hash . ,(autopoiesis.snapshot:snapshot-tree-root snapshot))
                (:file--count . ,(when (autopoiesis.snapshot:snapshot-tree-entries snapshot)
@@ -141,8 +150,8 @@
          (new-id (or (cdr (assoc :new--id body))
                      (format nil "fork-~A" (autopoiesis.core:make-uuid))))
          (label (cdr (assoc :label body)))
-         (result (autopoiesis.sandbox:manager-fork
-                  *api-sandbox-manager* sandbox-id new-id :label label)))
+         (result (%sbx "MANAGER-FORK" *api-sandbox-manager* sandbox-id new-id
+                        :label label)))
     (json-ok `((:source--id . ,sandbox-id)
                (:new--id . ,result)
                (:label . ,label)))))
@@ -151,8 +160,8 @@
   "POST /api/sandboxes/:id/restore/:snapshot - Restore to snapshot."
   (handler-case
       (let* ((snapshot (autopoiesis.snapshot:load-snapshot snapshot-ref))
-             (ops (autopoiesis.sandbox:manager-restore
-                   *api-sandbox-manager* sandbox-id snapshot :incremental t)))
+             (ops (%sbx "MANAGER-RESTORE" *api-sandbox-manager* sandbox-id
+                        snapshot :incremental t)))
         (json-ok `((:sandbox--id . ,sandbox-id)
                    (:snapshot--ref . ,snapshot-ref)
                    (:operations . ,ops))))
@@ -162,9 +171,9 @@
 
 (defun rest-sandbox-tree (sandbox-id)
   "GET /api/sandboxes/:id/tree - Get current filesystem tree."
-  (let* ((backend (autopoiesis.sandbox:manager-backend *api-sandbox-manager*))
-         (store (autopoiesis.sandbox:manager-content-store *api-sandbox-manager*))
-         (tree (autopoiesis.sandbox:backend-snapshot backend sandbox-id store)))
+  (let* ((backend (%sbx "MANAGER-BACKEND" *api-sandbox-manager*))
+         (store (%sbx "MANAGER-CONTENT-STORE" *api-sandbox-manager*))
+         (tree (%sbx "BACKEND-SNAPSHOT" backend sandbox-id store)))
     (json-ok `((:sandbox--id . ,sandbox-id)
                (:file--count . ,(autopoiesis.snapshot:tree-file-count tree))
                (:total--size . ,(autopoiesis.snapshot:tree-total-size tree))

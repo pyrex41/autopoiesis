@@ -495,7 +495,6 @@
       (:file "persistent-agent-tests")
       (:file "learning-integration-tests")
       (:file "mailbox-integration-tests")
-      (:file "sandbox-backend-tests")
       (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
