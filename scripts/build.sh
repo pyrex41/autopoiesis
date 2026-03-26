@@ -26,9 +26,12 @@ if [ ! -f "$QUICKLISP_SETUP" ]; then
 fi
 
 # Try to load the system
+# Register all packages/ subdirectories for ASDF discovery
 sbcl --noinform --non-interactive \
     --load "$QUICKLISP_SETUP" \
-    --eval "(push #P\"$PROJECT_ROOT/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir (directory #P\"$PROJECT_ROOT/packages/*/\"))
+              (push dir asdf:*central-registry*))" \
+    --eval "(push #P\"$PROJECT_ROOT/vendor/\" asdf:*central-registry*)" \
     --eval "(handler-case
               (progn
                 (ql:quickload :autopoiesis :silent t)

@@ -50,33 +50,40 @@ RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
 WORKDIR /app
 
 # Copy system definitions first (for better layer caching)
-COPY autopoiesis.asd substrate.asd ./
+COPY packages/substrate/substrate.asd packages/substrate/substrate.asd
+COPY packages/core/autopoiesis.asd packages/core/autopoiesis.asd
+COPY packages/api-server/api-server.asd packages/api-server/api-server.asd
+COPY packages/jarvis/jarvis.asd packages/jarvis/jarvis.asd
+COPY packages/paperclip/paperclip.asd packages/paperclip/paperclip.asd
+
+# Helper: register all package dirs with ASDF
+# We use a consistent pattern across all sbcl invocations
+ENV ASDF_REGISTRY_EVAL="(dolist (dir (directory #P\\\"/app/packages/*/\\\")) (push dir asdf:*central-registry*)) (push #P\\\"/app/vendor/\\\" asdf:*central-registry*)"
 
 # Pre-load dependencies in batches to stay within SBCL default heap
 RUN sbcl --noinform --non-interactive \
-    --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
     --eval "(ql:quickload '(:alexandria :bordeaux-threads :cl-json :local-time :cl-ppcre :log4cl :ironclad :flexi-streams :babel :fset) :silent t)" \
     --eval "(quit)"
 
 RUN sbcl --noinform --non-interactive \
-    --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
     --eval "(ql:quickload '(:dexador :cl-charms :hunchentoot :fiveam :lparallel) :silent t)" \
     --eval "(quit)"
 
 RUN sbcl --noinform --non-interactive \
-    --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
     --eval "(ql:quickload '(:clack :lack :websocket-driver :com.inuoe.jzon :cl-messagepack :lmdb) :silent t)" \
     --eval "(quit)"
 
 # Copy source code and vendored dependencies
-COPY src/ src/
+COPY packages/ packages/
 COPY scripts/ scripts/
-COPY test/ test/
 COPY vendor/ vendor/
 
-# Load and compile the full system (core + API)
+# Load and compile the full system (core + API + extensions)
 RUN sbcl --noinform --non-interactive \
-    --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
     --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
     --eval "(handler-case \
               (progn \
@@ -107,10 +114,10 @@ EXPOSE 8080 8081 8082
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
     CMD curl -sf http://localhost:8080/health || exit 1
 
-# Start the API server (matches Earthfile +server target)
+# Start the API server
 ENTRYPOINT []
 CMD ["sbcl", "--noinform", "--non-interactive", \
-     "--eval", "(push #P\"/app/\" asdf:*central-registry*)", \
+     "--eval", "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))", \
      "--eval", "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)", \
      "--eval", "(ql:quickload '(:autopoiesis/api :autopoiesis/jarvis) :silent t)", \
      "--eval", "(progn (autopoiesis.substrate:open-store) (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api~%\") (loop (sleep 60)))"]

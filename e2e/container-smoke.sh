@@ -29,7 +29,7 @@ trap cleanup EXIT
 
 # 1. Build image
 info "Building Docker image..."
-cd "$(dirname "$0")/../platform"
+cd "$(dirname "$0")/.."
 docker build -t autopoiesis-smoke:latest -f Dockerfile . || {
   fail "Docker build failed"
   exit 1

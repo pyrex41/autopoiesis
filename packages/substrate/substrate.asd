@@ -17,7 +17,7 @@
                #:babel
                #:lmdb)
   :components
-  ((:module "src/substrate"
+  ((:module "src"
     :serial t
     :components
     ((:file "packages")
@@ -34,4 +34,19 @@
      (:file "entity-type")
      (:file "system")
      (:file "lmdb-backend")
-     (:file "blob")))))
+     (:file "blob")
+     (:file "builtin-types")
+     (:file "migration")))))
+
+;;; Substrate test system
+(asdf:defsystem #:substrate/test
+  :description "Tests for the substrate datom store"
+  :depends-on (#:substrate #:fiveam)
+  :serial t
+  :components
+  ((:module "test"
+    :serial t
+    :components
+    ((:file "substrate-tests"))))
+  :perform (test-op (o c)
+             (symbol-call :autopoiesis.substrate.test :run-substrate-tests)))

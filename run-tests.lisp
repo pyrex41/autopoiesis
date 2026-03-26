@@ -1,6 +1,8 @@
 (require :asdf)
-;; Only use platform path - the root .asd files reference non-existent src/ paths
-(push #p"/Users/reuben/projects/ap/platform/" asdf:*central-registry*)
+;; Register all package directories for ASDF discovery
+(dolist (dir (directory #p"packages/*/"))
+  (push dir asdf:*central-registry*))
+(push #p"vendor/" asdf:*central-registry*)
 (handler-case
     (progn
       (asdf:load-system :autopoiesis)

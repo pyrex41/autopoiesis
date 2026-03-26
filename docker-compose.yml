@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "sbcl", "--noinform", "--non-interactive",
-             "--eval", "(push #P\"/app/\" asdf:*central-registry*)",
+             "--eval", "(dolist (dir (directory #P\\\"/app/packages/*/\\\")) (push dir asdf:*central-registry*))",
              "--eval", "(ql:quickload :autopoiesis :silent t)",
              "--eval", "(if (autopoiesis:health-check-ok-p) (quit :unix-status 0) (quit :unix-status 1))"]
       interval: 30s
@@ -90,7 +90,7 @@ services:
     # Start the full API server (WebSocket + REST)
     command: >
       sbcl --noinform
-           --eval "(push #P\"/app/\" asdf:*central-registry*)"
+           --eval "(dolist (dir (directory #P\\\"/app/packages/*/\\\")) (push dir asdf:*central-registry*))"
            --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)"
            --eval "(ql:quickload :autopoiesis/api :silent t)"
            --eval "(ql:quickload :slynk :silent t)"

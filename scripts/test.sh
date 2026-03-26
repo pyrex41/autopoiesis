@@ -25,17 +25,28 @@ if [ ! -f "$QUICKLISP_SETUP" ]; then
     exit 1
 fi
 
+# Register all packages/ subdirectories and vendor/ for ASDF discovery
 sbcl --noinform --non-interactive \
     --load "$QUICKLISP_SETUP" \
-    --eval "(push #P\"$PROJECT_ROOT/\" asdf:*central-registry*)" \
-    --eval "(push #P\"$PROJECT_ROOT/vendor/woo/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir (directory #P\"$PROJECT_ROOT/packages/*/\"))
+              (push dir asdf:*central-registry*))" \
+    --eval "(push #P\"$PROJECT_ROOT/vendor/\" asdf:*central-registry*)" \
     --eval "(handler-case
               (progn
+                ;; Load and run core tests
                 (ql:quickload :autopoiesis/test :silent t)
-                (handler-case (progn
-                               (ql:quickload :autopoiesis/api :silent t)
-                               (asdf:load-system :autopoiesis/api-test))
-                  (error (e) (format t \"~%Note: Skipping API tests (~a)~%\" e)))
+                ;; Try loading optional extension tests
+                (dolist (ext '(:autopoiesis/api-test
+                               :autopoiesis/swarm-test
+                               :autopoiesis/supervisor-test
+                               :autopoiesis/crystallize-test
+                               :autopoiesis/team-test
+                               :autopoiesis/jarvis-test
+                               :autopoiesis/holodeck-test
+                               :autopoiesis/eval-test
+                               :autopoiesis/paperclip-test))
+                  (handler-case (ql:quickload ext :silent t)
+                    (error (e) (format t \"~%Note: Skipping ~a (~a)~%\" ext e))))
                 (asdf:test-system :autopoiesis)
                 (format t \"~%Tests complete!~%\")
                 (quit :unix-status 0))

@@ -28,21 +28,25 @@ deps:
     WORKDIR /app
 
     # Copy system definitions for layer caching
-    COPY autopoiesis.asd substrate.asd ./
+    COPY packages/substrate/substrate.asd packages/substrate/substrate.asd
+    COPY packages/core/autopoiesis.asd packages/core/autopoiesis.asd
+    COPY packages/api-server/api-server.asd packages/api-server/api-server.asd
+    COPY packages/jarvis/jarvis.asd packages/jarvis/jarvis.asd
+    COPY packages/paperclip/paperclip.asd packages/paperclip/paperclip.asd
 
     # Pre-load dependencies in batches
     RUN sbcl --noinform --non-interactive \
-        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
         --eval "(ql:quickload '(:alexandria :bordeaux-threads :cl-json :local-time :cl-ppcre :log4cl :ironclad :flexi-streams :babel :fset) :silent t)" \
         --eval "(quit)"
 
     RUN sbcl --noinform --non-interactive \
-        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
         --eval "(ql:quickload '(:dexador :cl-charms :hunchentoot :fiveam :lparallel) :silent t)" \
         --eval "(quit)"
 
     RUN sbcl --noinform --non-interactive \
-        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
         --eval "(ql:quickload '(:clack :lack :websocket-driver :com.inuoe.jzon :cl-messagepack :lmdb :slynk) :silent t)" \
         --eval "(quit)"
 
@@ -51,17 +55,16 @@ deps:
 build:
     FROM +deps
 
-    COPY src/ src/
+    COPY packages/ packages/
     COPY scripts/ scripts/
-    COPY test/ test/
     COPY vendor/ vendor/
 
     # Clear stale FASL cache so ASDF recompiles from fresh source
-    RUN rm -rf /root/.cache/common-lisp/sbcl-*/app/src/
+    RUN rm -rf /root/.cache/common-lisp/sbcl-*/app/packages/
 
     # Compile full system
     RUN sbcl --noinform --non-interactive \
-        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
         --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
         --eval "(handler-case \
                   (progn \
@@ -88,7 +91,7 @@ test:
     FROM +build
 
     RUN sbcl --noinform --non-interactive \
-        --eval "(push #P\"/app/\" asdf:*central-registry*)" \
+        --eval "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))" \
         --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
         --eval "(ql:quickload :autopoiesis/test :silent t)" \
         --eval "(let ((result (5am:run! 'autopoiesis.test::all-tests))) \
@@ -101,7 +104,7 @@ server:
 
     ENTRYPOINT []
     CMD ["sbcl", "--noinform", "--non-interactive", \
-        "--eval", "(push #P\"/app/\" asdf:*central-registry*)", \
+        "--eval", "(dolist (dir (directory #P\"/app/packages/*/\")) (push dir asdf:*central-registry*))", \
         "--eval", "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)", \
         "--eval", "(ql:quickload '(:autopoiesis/api :autopoiesis/jarvis :autopoiesis/paperclip :slynk) :silent t)", \
         "--eval", "(progn (autopoiesis.substrate:open-store) (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (slynk:create-server :port 4005 :dont-close t) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api | Slynk port 4005~%\") (loop (sleep 60)))"]
