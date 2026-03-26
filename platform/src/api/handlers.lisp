@@ -996,3 +996,208 @@ for data stream messages. Control messages are always JSON."
   (ok-response "evolution_status"
                "running" (if *evolution-running* t :false)
                "generation" *evolution-generation*))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Widget Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun broadcast-widget (widget-id source &key css title height text agent-id)
+  "Broadcast a widget_show message to connections subscribed to the agents channel."
+  (let ((msg (ok-response "widget_show"
+                          "widgetId" widget-id
+                          "source" source
+                          "agentId" (or agent-id "jarvis"))))
+    (when css (setf (gethash "css" msg) css))
+    (when title (setf (gethash "title" msg) title))
+    (when height (setf (gethash "height" msg) height))
+    (when text (setf (gethash "text" msg) text))
+    (broadcast-message (encode-message msg)
+                       :subscription-type "agents")))
+
+(defun stream-widget-to-connections (widget-id source &key css title height text agent-id)
+  "Stream a widget's source code in chunks via widget_stream_start/delta/end."
+  (let ((chunk-size 4096)
+        (aid (or agent-id "jarvis")))
+    ;; Start message with metadata
+    (let ((start-msg (ok-response "widget_stream_start"
+                                  "widgetId" widget-id
+                                  "agentId" aid)))
+      (when title (setf (gethash "title" start-msg) title))
+      (when height (setf (gethash "height" start-msg) height))
+      (when css (setf (gethash "css" start-msg) css))
+      (when text (setf (gethash "text" start-msg) text))
+      (broadcast-message (encode-message start-msg)
+                         :subscription-type "agents"))
+    ;; Stream source in chunks
+    (loop for offset from 0 below (length source) by chunk-size
+          for chunk = (subseq source offset (min (+ offset chunk-size) (length source)))
+          do (broadcast-message
+              (encode-message (ok-response "widget_stream_delta"
+                                           "widgetId" widget-id
+                                           "delta" chunk))
+              :subscription-type "agents"))
+    ;; End message
+    (broadcast-message
+     (encode-message (ok-response "widget_stream_end"
+                                  "widgetId" widget-id
+                                  "agentId" aid))
+     :subscription-type "agents")))
+
+(define-handler handle-widget-output "widget_output" (msg conn)
+  "Handle widget output data from the frontend."
+  (declare (ignore conn))
+  (let ((widget-id (gethash "widgetId" msg))
+        (data (gethash "data" msg)))
+    (log:info "Widget output from ~a: ~a" widget-id data)
+    ;; Emit as integration event so the agentic loop can observe
+    (handler-case
+        (emit-event :widget-output :ui
+                    :data (list :widget-id widget-id :output data))
+      (error (e)
+        (log:warn "Failed to emit widget output event: ~a" e)))
+    (ok-response "widget_output_received" "widgetId" widget-id)))
+
+;;; ═══════════════════════════════════════════════════════════════════
+;;; Eval Lab Handlers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(define-handler handle-list-eval-scenarios "list_eval_scenarios" (msg conn)
+  (declare (ignore msg conn))
+  (let ((eids (autopoiesis.substrate:find-entities :entity/type :eval-scenario)))
+    (ok-response "eval_scenarios"
+                 "scenarios" (mapcar #'eval-scenario-to-json-plist eids))))
+
+(define-handler handle-create-eval-scenario "create_eval_scenario" (msg conn)
+  (declare (ignore conn))
+  (let ((name (gethash "name" msg))
+        (description (gethash "description" msg))
+        (prompt (gethash "prompt" msg))
+        (domain (let ((d (gethash "domain" msg)))
+                  (when d (intern (string-upcase d) :keyword))))
+        (verifier (gethash "verifier" msg))
+        (rubric (gethash "rubric" msg)))
+    (unless (and name description prompt)
+      (return-from handle-create-eval-scenario
+        (error-response "missing_field" "create_eval_scenario requires 'name', 'description', and 'prompt'")))
+    (let* ((pkg (find-package :autopoiesis.eval))
+           (fn (when pkg (find-symbol "CREATE-SCENARIO" pkg))))
+      (unless (and fn (fboundp fn))
+        (return-from handle-create-eval-scenario
+          (error-response "not_loaded" "Eval module not loaded")))
+      (let ((eid (funcall fn :name name :description description :prompt prompt
+                          :domain domain :verifier verifier :rubric rubric)))
+        (let ((plist (eval-scenario-to-json-plist eid)))
+          (broadcast-stream-data (ok-response "eval_scenario_created" "scenario" plist)
+                                 :subscription-type "eval")
+          (ok-response "eval_scenario_created" "scenario" plist))))))
+
+(define-handler handle-list-eval-harnesses "list_eval_harnesses" (msg conn)
+  (declare (ignore msg conn))
+  (let ((pkg (find-package :autopoiesis.eval)))
+    (if pkg
+        (let ((fn (find-symbol "LIST-HARNESSES" pkg)))
+          (if (and fn (fboundp fn))
+              (let ((harnesses (funcall fn)))
+                (ok-response "eval_harnesses"
+                             "harnesses"
+                             (mapcar (lambda (h)
+                                       (let ((ht (make-hash-table :test 'equal))
+                                             (name-fn (find-symbol "HARNESS-NAME" pkg))
+                                             (desc-fn (find-symbol "HARNESS-DESCRIPTION" pkg)))
+                                         (setf (gethash "name" ht)
+                                               (when (and name-fn (fboundp name-fn)) (funcall name-fn h))
+                                               (gethash "description" ht)
+                                               (when (and desc-fn (fboundp desc-fn)) (funcall desc-fn h))
+                                               (gethash "type" ht)
+                                               (string-downcase (symbol-name (type-of h))))
+                                         ht))
+                                     harnesses)))
+              (ok-response "eval_harnesses" "harnesses" nil)))
+        (ok-response "eval_harnesses" "harnesses" nil))))
+
+(define-handler handle-list-eval-runs "list_eval_runs" (msg conn)
+  (declare (ignore msg conn))
+  (let ((eids (autopoiesis.substrate:find-entities :entity/type :eval-run)))
+    (ok-response "eval_runs"
+                 "runs" (mapcar #'eval-run-to-json-plist eids))))
+
+(define-handler handle-start-eval-run "start_eval_run" (msg conn)
+  (declare (ignore conn))
+  (let ((name (gethash "name" msg))
+        (scenarios (gethash "scenarios" msg))
+        (harnesses (gethash "harnesses" msg))
+        (trials (or (gethash "trials" msg) 3))
+        (judge (gethash "judge" msg)))
+    (unless (and name scenarios harnesses)
+      (return-from handle-start-eval-run
+        (error-response "missing_field" "start_eval_run requires 'name', 'scenarios', 'harnesses'")))
+    (let* ((pkg (find-package :autopoiesis.eval))
+           (create-fn (when pkg (find-symbol "CREATE-EVAL-RUN" pkg)))
+           (exec-fn (when pkg (find-symbol "EXECUTE-EVAL-RUN" pkg))))
+      (unless (and create-fn (fboundp create-fn) exec-fn (fboundp exec-fn))
+        (return-from handle-start-eval-run
+          (error-response "not_loaded" "Eval module not loaded")))
+      (let ((run-id (funcall create-fn :name name :scenarios scenarios
+                             :harnesses harnesses :trials trials)))
+        ;; Execute in background thread
+        (bordeaux-threads:make-thread
+         (lambda ()
+           (handler-case
+               (funcall exec-fn run-id
+                        :judge judge
+                        :on-trial-complete
+                        (lambda (trial-eid trial-plist)
+                          (declare (ignore trial-plist))
+                          (broadcast-stream-data
+                           (ok-response "eval_trial_complete"
+                                        "trial" (eval-trial-to-json-plist trial-eid))
+                           :subscription-type "eval")))
+             (error (e)
+               (log:error "Eval run ~a failed: ~a" run-id e)
+               (broadcast-stream-data
+                (ok-response "eval_run_failed" "runId" run-id "error" (format nil "~a" e))
+                :subscription-type "eval"))))
+         :name (format nil "eval-run-~a" run-id))
+        (ok-response "eval_run_started" "run" (eval-run-to-json-plist run-id))))))
+
+(define-handler handle-stop-eval-run "stop_eval_run" (msg conn)
+  (declare (ignore conn))
+  (let ((run-id (gethash "runId" msg)))
+    (unless run-id
+      (return-from handle-stop-eval-run
+        (error-response "missing_field" "stop_eval_run requires 'runId'")))
+    (let* ((pkg (find-package :autopoiesis.eval))
+           (fn (when pkg (find-symbol "CANCEL-EVAL-RUN" pkg))))
+      (if (and fn (fboundp fn))
+          (progn
+            (funcall fn run-id)
+            (broadcast-stream-data
+             (ok-response "eval_run_cancelled" "runId" run-id)
+             :subscription-type "eval")
+            (ok-response "eval_run_cancelled" "runId" run-id))
+          (error-response "not_loaded" "Eval module not loaded")))))
+
+(define-handler handle-eval-run-status "eval_run_status" (msg conn)
+  (declare (ignore conn))
+  (let ((run-id (gethash "runId" msg)))
+    (if run-id
+        (let ((name (autopoiesis.substrate:entity-attr run-id :eval-run/name)))
+          (if name
+              (ok-response "eval_run_status" "run" (eval-run-to-json-plist run-id))
+              (error-response "not_found" (format nil "Run not found: ~a" run-id))))
+        ;; No run-id: return all runs
+        (let ((eids (autopoiesis.substrate:find-entities :entity/type :eval-run)))
+          (ok-response "eval_runs" "runs" (mapcar #'eval-run-to-json-plist eids))))))
+
+(define-handler handle-eval-compare "eval_compare" (msg conn)
+  (declare (ignore conn))
+  (let ((run-id (gethash "runId" msg)))
+    (unless run-id
+      (return-from handle-eval-compare
+        (error-response "missing_field" "eval_compare requires 'runId'")))
+    (let* ((pkg (find-package :autopoiesis.eval))
+           (fn (when pkg (find-symbol "COMPARE-HARNESSES" pkg))))
+      (if (and fn (fboundp fn))
+          (let ((result (funcall fn run-id)))
+            (ok-response "eval_comparison" "comparison" result))
+          (error-response "not_loaded" "Eval module not loaded")))))

@@ -35,7 +35,8 @@ export type ClientMessage =
   | { type: "add_team_member"; teamId: string; agentName: string }
   | { type: "remove_team_member"; teamId: string; agentName: string }
   | { type: "query_team"; teamId: string }
-  | { type: "set_stream_format"; format: "json" | "msgpack" };
+  | { type: "set_stream_format"; format: "json" | "msgpack" }
+  | { type: "widget_output"; widgetId: string; data: unknown };
 
 type MessageHandler = (msg: ServerMessage) => void;
 

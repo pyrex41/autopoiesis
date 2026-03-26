@@ -2,7 +2,8 @@ import { type Component, Show, For, createSignal, createEffect, createMemo, onMo
 import { agentStore, type ChatMessage } from "../stores/agents";
 import { wsStore } from "../stores/ws";
 import { renderMarkdown } from "../lib/markdown";
-import { commands, type Command } from "../lib/commands";
+import { commands, type Command, navigateTo, type ViewId } from "../lib/commands";
+import WidgetSandbox from "./WidgetSandbox";
 
 const JarvisBar: Component = () => {
   let inputRef!: HTMLInputElement;
@@ -19,6 +20,20 @@ const JarvisBar: Component = () => {
     "view.tasks": "/tasks", "view.holodeck": "/holodeck",
     "system.connect": "/connect", "system.refresh": "/refresh",
   };
+
+  // Widget output handler — receives data from sandboxed widget iframes
+  function handleWidgetOutput(data: unknown) {
+    if (!data || typeof data !== "object") return;
+    const d = data as Record<string, unknown>;
+    // Forward to backend
+    if (d.widgetId) {
+      wsStore.send({ type: "widget_output", widgetId: d.widgetId as string, data } as any);
+    }
+    // Handle local navigation actions
+    if (d.action === "navigate" && typeof d.view === "string") {
+      navigateTo(d.view as ViewId, (d.label as string) ?? d.view);
+    }
+  }
 
   const cliMode = createMemo(() => {
     const v = input();
@@ -183,11 +198,28 @@ const JarvisBar: Component = () => {
                 <span class="jarvis-msg-sender">
                   {msg.sender === "user" ? "you" : chatTarget()}
                 </span>
-                {msg.sender === "jarvis" ? (
-                  <span class="jarvis-msg-content jarvis-markdown" innerHTML={renderMarkdown(msg.content)} />
-                ) : (
-                  <span class="jarvis-msg-content">{msg.content}</span>
-                )}
+                <Show when={msg.widget} fallback={
+                  msg.sender === "jarvis" ? (
+                    <span class="jarvis-msg-content jarvis-markdown" innerHTML={renderMarkdown(msg.content)} />
+                  ) : (
+                    <span class="jarvis-msg-content">{msg.content}</span>
+                  )
+                }>
+                  {(widget) => (
+                    <div class="jarvis-msg-widget">
+                      <Show when={widget().title}>
+                        <div class="widget-header">{widget().title}</div>
+                      </Show>
+                      <WidgetSandbox
+                        widget={widget()}
+                        onOutput={handleWidgetOutput}
+                      />
+                      <Show when={msg.content}>
+                        <span class="jarvis-msg-content jarvis-markdown" innerHTML={renderMarkdown(msg.content)} />
+                      </Show>
+                    </div>
+                  )}
+                </Show>
               </div>
             )}
           </For>

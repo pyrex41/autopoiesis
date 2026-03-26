@@ -1391,6 +1391,212 @@
                    (:recurring . ,(if (and recurring (not (eq recurring :false))) t :false))))))))
 
 ;;; ===================================================================
+;;; Eval Lab Endpoints
+;;; ===================================================================
+
+(defun eval-pkg-available-p ()
+  "Check if autopoiesis.eval is loaded."
+  (find-package :autopoiesis.eval))
+
+(defun %call-eval (fn-name &rest args)
+  "Call a function from the eval package by name. Signals error if not loaded."
+  (let ((pkg (find-package :autopoiesis.eval)))
+    (unless pkg
+      (return-from %call-eval
+        (json-error "Eval module not loaded. Load autopoiesis/eval first."
+                    :status 503 :error-type "Service Unavailable")))
+    (let ((fn (find-symbol fn-name pkg)))
+      (unless (and fn (fboundp fn))
+        (return-from %call-eval
+          (json-error (format nil "Eval function not found: ~a" fn-name)
+                      :status 500 :error-type "Internal Error")))
+      (apply fn args))))
+
+(defun rest-handle-eval (request)
+  "Dispatch /api/eval/* requests."
+  (let* ((uri (hunchentoot:request-uri request))
+         (qpos (position #\? uri)))
+    (when qpos (setf uri (subseq uri 0 qpos)))
+    (let ((method (hunchentoot:request-method request))
+          (sub-path (if (> (length uri) 10) (subseq uri 10) "")))
+      (cond
+        ;; /api/eval/scenarios
+        ((or (string= sub-path "scenarios")
+             (string= sub-path "scenarios/"))
+         (cond
+           ((eq method :get) (rest-list-eval-scenarios))
+           ((eq method :post) (rest-create-eval-scenario))
+           (t (json-error "Method not allowed" :status 405))))
+        ;; /api/eval/scenarios/:id
+        ((and (> (length sub-path) 10)
+              (string= "scenarios/" (subseq sub-path 0 10)))
+         (let ((id (parse-integer (subseq sub-path 10) :junk-allowed t)))
+           (if (and (eq method :get) id)
+               (rest-get-eval-scenario id)
+               (json-error "Invalid scenario ID or method"))))
+        ;; /api/eval/harnesses
+        ((or (string= sub-path "harnesses")
+             (string= sub-path "harnesses/"))
+         (rest-list-eval-harnesses))
+        ;; /api/eval/runs
+        ((or (string= sub-path "runs")
+             (string= sub-path "runs/"))
+         (cond
+           ((eq method :get) (rest-list-eval-runs))
+           ((eq method :post) (rest-create-eval-run))
+           (t (json-error "Method not allowed" :status 405))))
+        ;; /api/eval/runs/:id/...
+        ((and (> (length sub-path) 5)
+              (string= "runs/" (subseq sub-path 0 5)))
+         (let* ((rest-path (subseq sub-path 5))
+                (slash-pos (position #\/ rest-path))
+                (id-str (if slash-pos (subseq rest-path 0 slash-pos) rest-path))
+                (action (when slash-pos (subseq rest-path (1+ slash-pos))))
+                (id (parse-integer id-str :junk-allowed t)))
+           (unless id
+             (return-from rest-handle-eval (json-error "Invalid run ID")))
+           (cond
+             ((and (eq method :get) (null action))
+              (rest-get-eval-run id))
+             ((and (eq method :post) (equal action "execute"))
+              (rest-execute-eval-run id))
+             ((and (eq method :post) (equal action "cancel"))
+              (rest-cancel-eval-run id))
+             ((and (eq method :get) (equal action "trials"))
+              (rest-list-eval-trials id))
+             ((and (eq method :get) (equal action "compare"))
+              (rest-compare-eval-run id))
+             (t (json-error "Unknown eval run action" :status 404)))))
+        (t (json-not-found "Eval route" sub-path))))))
+
+;;; --- Eval Scenario endpoints ---
+
+(defun rest-list-eval-scenarios ()
+  (require-permission :read)
+  (let ((eids (autopoiesis.substrate:find-entities :entity/type :eval-scenario)))
+    (json-ok (or (mapcar #'eval-scenario-to-json-alist eids) #()))))
+
+(defun rest-create-eval-scenario ()
+  (require-permission :write)
+  (let* ((body (parse-json-body))
+         (name (cdr (assoc :name body)))
+         (description (cdr (assoc :description body)))
+         (prompt (cdr (assoc :prompt body)))
+         (domain (let ((d (cdr (assoc :domain body))))
+                   (when d (intern (string-upcase d) :keyword))))
+         (verifier (cdr (assoc :verifier body)))
+         (rubric (cdr (assoc :rubric body))))
+    (unless (and name description prompt)
+      (return-from rest-create-eval-scenario
+        (json-error "Eval scenario requires 'name', 'description', and 'prompt'")))
+    (let ((eid (%call-eval "CREATE-SCENARIO"
+                           :name name :description description :prompt prompt
+                           :domain domain :verifier verifier :rubric rubric)))
+      (when (integerp eid)
+        (sse-broadcast "eval_scenario_created" (eval-scenario-to-json-alist eid))
+        (json-ok (eval-scenario-to-json-alist eid) :status 201)))))
+
+(defun rest-get-eval-scenario (eid)
+  (require-permission :read)
+  (let ((name (autopoiesis.substrate:entity-attr eid :eval-scenario/name)))
+    (if name
+        (json-ok (eval-scenario-to-json-alist eid))
+        (json-not-found "Eval scenario" eid))))
+
+;;; --- Eval Harness endpoints ---
+
+(defun rest-list-eval-harnesses ()
+  (require-permission :read)
+  (let ((pkg (find-package :autopoiesis.eval)))
+    (if pkg
+        (let ((fn (find-symbol "LIST-HARNESSES" pkg)))
+          (if (and fn (fboundp fn))
+              (json-ok (or (mapcar (lambda (h)
+                                     (let ((name-fn (find-symbol "HARNESS-NAME" pkg))
+                                           (desc-fn (find-symbol "HARNESS-DESCRIPTION" pkg)))
+                                       `((:name . ,(when (and name-fn (fboundp name-fn))
+                                                     (funcall name-fn h)))
+                                         (:description . ,(when (and desc-fn (fboundp desc-fn))
+                                                            (funcall desc-fn h)))
+                                         (:type . ,(string-downcase (symbol-name (type-of h)))))))
+                                   (funcall fn))
+                          #()))
+              (json-ok #())))
+        (json-ok #()))))
+
+;;; --- Eval Run endpoints ---
+
+(defun rest-list-eval-runs ()
+  (require-permission :read)
+  (let ((eids (autopoiesis.substrate:find-entities :entity/type :eval-run)))
+    (json-ok (or (mapcar #'eval-run-to-json-alist eids) #()))))
+
+(defun rest-create-eval-run ()
+  (require-permission :write)
+  (let* ((body (parse-json-body))
+         (name (cdr (assoc :name body)))
+         (scenarios (cdr (assoc :scenarios body)))
+         (harnesses (cdr (assoc :harnesses body)))
+         (trials (or (cdr (assoc :trials body)) 3)))
+    (unless (and name scenarios harnesses)
+      (return-from rest-create-eval-run
+        (json-error "Eval run requires 'name', 'scenarios', and 'harnesses'")))
+    (let ((eid (%call-eval "CREATE-EVAL-RUN"
+                           :name name :scenarios scenarios
+                           :harnesses harnesses :trials trials)))
+      (when (integerp eid)
+        (sse-broadcast "eval_run_created" (eval-run-to-json-alist eid))
+        (json-ok (eval-run-to-json-alist eid) :status 201)))))
+
+(defun rest-get-eval-run (eid)
+  (require-permission :read)
+  (let ((name (autopoiesis.substrate:entity-attr eid :eval-run/name)))
+    (if name
+        (json-ok (eval-run-to-json-alist eid))
+        (json-not-found "Eval run" eid))))
+
+(defun rest-execute-eval-run (eid)
+  (require-permission :write)
+  (let ((name (autopoiesis.substrate:entity-attr eid :eval-run/name)))
+    (unless name
+      (return-from rest-execute-eval-run (json-not-found "Eval run" eid)))
+    ;; Execute in background thread
+    (let ((body (parse-json-body)))
+      (bordeaux-threads:make-thread
+       (lambda ()
+         (handler-case
+             (let ((judge (cdr (assoc :judge body))))
+               (%call-eval "EXECUTE-EVAL-RUN" eid
+                           :judge judge
+                           :on-trial-complete
+                           (lambda (trial-eid trial-plist)
+                             (declare (ignore trial-plist))
+                             (sse-broadcast "eval_trial_complete"
+                                            (eval-trial-to-json-alist trial-eid)))))
+           (error (e)
+             (log:error "Eval run ~a failed: ~a" eid e))))
+       :name (format nil "eval-run-~a" eid))
+      (json-ok `((:status . "started") (:run-id . ,eid))))))
+
+(defun rest-cancel-eval-run (eid)
+  (require-permission :write)
+  (%call-eval "CANCEL-EVAL-RUN" eid)
+  (sse-broadcast "eval_run_cancelled" (eval-run-to-json-alist eid))
+  (json-ok `((:status . "cancelled") (:run-id . ,eid))))
+
+(defun rest-list-eval-trials (run-id)
+  (require-permission :read)
+  (let ((eids (autopoiesis.substrate:find-entities :eval-trial/run run-id)))
+    (json-ok (or (mapcar #'eval-trial-to-json-alist eids) #()))))
+
+(defun rest-compare-eval-run (run-id)
+  (require-permission :read)
+  (let ((result (%call-eval "COMPARE-HARNESSES" run-id)))
+    (if (listp result)
+        (json-ok result)
+        result)))
+
+;;; ===================================================================
 ;;; Main Router
 ;;; ===================================================================
 
@@ -1475,6 +1681,11 @@
                (and (> (length uri) 16)
                     (string= "/api/sandboxes/" (subseq uri 0 16))))
            (rest-handle-sandboxes request))
+          ;; /api/eval or /api/eval/...
+          ((or (string= uri "/api/eval")
+               (and (> (length uri) 10)
+                    (string= "/api/eval/" (subseq uri 0 10))))
+           (rest-handle-eval request))
           ;; Unknown API route
           (t
            (json-not-found "API route" uri)))

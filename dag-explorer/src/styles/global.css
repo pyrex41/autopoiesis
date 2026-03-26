@@ -28,4 +28,6 @@
 @import './taskboard.css';
 @import './evolution.css';
 @import './audit.css';
+@import './eval.css';
+@import './widgets.css';
 @import './utilities.css';

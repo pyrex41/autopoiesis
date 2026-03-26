@@ -189,3 +189,79 @@ export interface Approval {
   default: string | null;
   createdAt: number;
 }
+
+// ── Eval Lab types ─────────────────────────────────────────────────
+
+export interface EvalScenario {
+  id: number;
+  name: string;
+  description: string;
+  prompt: string;
+  domain: string | null;
+  tags: string[];
+  hasVerifier: boolean;
+  hasRubric: boolean;
+  timeout: number | null;
+  createdAt: number;
+}
+
+export interface EvalRun {
+  id: number;
+  name: string;
+  status: string;
+  scenarios: number[];
+  harnesses: string[];
+  trialsPerCombo: number;
+  totalTrials: number;
+  completedTrials: number;
+  createdAt: number;
+  completedAt: number | null;
+}
+
+export interface EvalTrial {
+  id: number;
+  runId: number;
+  scenarioId: number;
+  harnessName: string;
+  trialNum: number;
+  status: string;
+  duration: number | null;
+  cost: number | null;
+  turns: number | null;
+  passed: string | null;
+  judgeScores: Record<string, number> | null;
+  completedAt: number | null;
+}
+
+export interface EvalHarness {
+  name: string;
+  description: string;
+  type: string;
+}
+
+export interface EvalComparison {
+  runId: number;
+  runName: string;
+  scenarios: Array<{
+    scenarioId: number;
+    scenarioName: string;
+    harnessResults: Array<{
+      harness: string;
+      passRate: number;
+      avgDuration: number | null;
+      avgCost: number | null;
+      avgTurns: number | null;
+      totalTrials: number;
+      avgScore: number | null;
+    }>;
+  }>;
+  aggregate: Array<{
+    harness: string;
+    overallPassRate: number;
+    avgDuration: number | null;
+    totalCost: number | null;
+    avgTurns: number | null;
+    totalTrials: number;
+    avgScore: number | null;
+  }>;
+}
