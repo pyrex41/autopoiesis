@@ -34,4 +34,14 @@
    #:invoke-tool
 
    ;; Human-in-the-loop
-   #:jarvis-request-human-input))
+   #:jarvis-request-human-input
+
+   ;; Query tools (generative UI)
+   #:make-block
+   #:result-with-blocks
+   #:query-snapshots
+   #:diff-snapshots
+   #:sandbox-file-tree
+   #:list-sandboxes
+   #:rollback-sandbox
+   #:query-events))

@@ -37,6 +37,52 @@
       result)))
 
 ;;; ═══════════════════════════════════════════════════════════════════
+;;; Generative UI Block Helpers
+;;; ═══════════════════════════════════════════════════════════════════
+
+(defun extract-response-parts (response)
+  "Extract text and blocks from a response.
+   If RESPONSE is a string, returns (values response nil).
+   If RESPONSE is a plist with :text and :blocks, extracts both.
+   Returns (values text blocks)."
+  (cond
+    ((stringp response) (values response nil))
+    ((and (listp response) (getf response :text))
+     (values (getf response :text) (getf response :blocks)))
+    ((null response) (values nil nil))
+    (t (values (format nil "~A" response) nil))))
+
+(defun serialize-blocks (blocks)
+  "Serialize block plists to a list of hash-tables for JSON encoding.
+   Each block is a plist (:type TYPE :data DATA :title TITLE)."
+  (when blocks
+    (mapcar (lambda (block)
+              (let ((ht (make-hash-table :test 'equal)))
+                (setf (gethash "type" ht) (getf block :type))
+                (setf (gethash "data" ht) (serialize-block-data (getf block :data)))
+                (when (getf block :title)
+                  (setf (gethash "title" ht) (getf block :title)))
+                ht))
+            blocks)))
+
+(defun serialize-block-data (data)
+  "Serialize block data (plist or nested plists) to hash-tables for JSON."
+  (cond
+    ((null data) nil)
+    ((hash-table-p data) data)
+    ((and (listp data) (keywordp (first data)))
+     ;; Plist — convert to hash-table
+     (let ((ht (make-hash-table :test 'equal)))
+       (loop for (k v) on data by #'cddr
+             do (setf (gethash (string-downcase (symbol-name k)) ht)
+                      (serialize-block-data v)))
+       ht))
+    ((and (listp data) (listp (first data)))
+     ;; List of plists or lists
+     (mapcar #'serialize-block-data data))
+    (t data)))
+
+;;; ═══════════════════════════════════════════════════════════════════
 ;;; Jarvis bridge (runtime-resolved — jarvis is an optional extension)
 ;;; ═══════════════════════════════════════════════════════════════════
 
@@ -145,26 +191,34 @@
                            (setf (gethash "requestId" end-msg) request-id))
                          (send-to-connection conn (encode-message end-msg)))
                        ;; Send full response (or error if empty)
-                       (let* ((final-text (if (and response-text
-                                                   (not (string= "" response-text)))
-                                              response-text
-                                              "Provider returned empty response. Check API credentials (XAI_API_KEY) and rho-cli configuration."))
-                              (result (ok-response "chat_response"
-                                                   "agentId" agent-id
-                                                   "text" final-text
-                                                   "sessionId" (format nil "~a" agent-id))))
+                       ;; Check if response is structured (plist with :text and :blocks)
+                       (multiple-value-bind (final-text blocks)
+                           (extract-response-parts response-text)
+                         (let ((result (ok-response "chat_response"
+                                                    "agentId" agent-id
+                                                    "text" (or final-text
+                                                               "Provider returned empty response. Check API credentials (XAI_API_KEY) and rho-cli configuration.")
+                                                    "sessionId" (format nil "~a" agent-id))))
+                           (when blocks
+                             (setf (gethash "blocks" result)
+                                   (serialize-blocks blocks)))
+                           (when request-id
+                             (setf (gethash "requestId" result) request-id))
+                           (send-to-connection conn (encode-message result))))))
+                   ;; Non-streaming fallback
+                   (let* ((response-text (call-jarvis "JARVIS-PROMPT" session text)))
+                     (multiple-value-bind (final-text blocks)
+                         (extract-response-parts response-text)
+                       (let ((result (ok-response "chat_response"
+                                                  "agentId" agent-id
+                                                  "text" (or final-text "")
+                                                  "sessionId" (format nil "~a" agent-id))))
+                         (when blocks
+                           (setf (gethash "blocks" result)
+                                 (serialize-blocks blocks)))
                          (when request-id
                            (setf (gethash "requestId" result) request-id))
-                         (send-to-connection conn (encode-message result)))))
-                   ;; Non-streaming fallback
-                   (let* ((response-text (call-jarvis "JARVIS-PROMPT" session text))
-                          (result (ok-response "chat_response"
-                                               "agentId" agent-id
-                                               "text" response-text
-                                               "sessionId" (format nil "~a" agent-id))))
-                     (when request-id
-                       (setf (gethash "requestId" result) request-id))
-                     (send-to-connection conn (encode-message result)))))
+                         (send-to-connection conn (encode-message result)))))))
            (error (e)
              (let ((err-result (error-response "chat_error"
                                                (format nil "~a" e))))

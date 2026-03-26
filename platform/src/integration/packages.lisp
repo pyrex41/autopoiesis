@@ -393,4 +393,18 @@
    #:persistent-agentic-agent
    #:make-persistent-agentic-agent
    #:persistent-provider-agent
-   #:make-persistent-provider-agent))
+   #:make-persistent-provider-agent
+
+   ;; Sandbox context and DAG-aware tools
+   #:*sandbox-context*
+   #:in-sandbox-p
+   #:current-sandbox-id
+   #:current-changeset
+   #:current-sandbox-root
+   #:with-sandbox-context
+   #:sandbox-write-file
+   #:sandbox-delete-file
+   #:sandbox-exec-command
+   #:sandbox-snapshot
+   #:sandbox-fork
+   #:sandbox-restore))

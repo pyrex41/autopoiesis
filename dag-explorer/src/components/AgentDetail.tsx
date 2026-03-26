@@ -1,8 +1,6 @@
 import { type Component, Show, For, createMemo, createSignal, onMount, onCleanup } from "solid-js";
 import { agentStore } from "../stores/agents";
 import { activityStore } from "../stores/activity";
-import { holodeckStore } from "../stores/holodeck";
-import { setCurrentView } from "../lib/commands";
 import AgentActions from "./AgentActions";
 import ThoughtStream from "./ThoughtStream";
 import ContextGauge from "./ContextGauge";
@@ -87,23 +85,6 @@ const AgentDetail: Component = () => {
               </div>
 
               <AgentActions agent={a()} />
-
-              <Show when={holodeckStore.entityCount() > 0}>
-                <div class="agent-detail-holo-link">
-                  <button
-                    class="btn-secondary btn-compact"
-                    onClick={() => {
-                      holodeckStore.focusOnAgent(a().id);
-                      setCurrentView("holodeck");
-                    }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M6 1L10.5 3.5v5L6 11 1.5 8.5v-5L6 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-                    </svg>
-                    View in Holodeck
-                  </button>
-                </div>
-              </Show>
 
               <div class="agent-detail-sections">
                 {/* Capabilities — interactive inspector */}

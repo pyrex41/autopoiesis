@@ -89,7 +89,8 @@
        (:file "diff-engine")
        (:file "time-travel")
        (:file "consistency")
-       (:file "backup")))
+       (:file "backup")
+       (:file "filesystem-tree")))
      (:module "interface"
       :serial t
       :depends-on ("core" "agent" "snapshot")
@@ -143,7 +144,8 @@
        (:file "openai-bridge")
        (:file "provider-inference")
        (:file "agentic-persistent")
-       (:file "provider-persistent")))
+       (:file "provider-persistent")
+       (:file "sandbox-tools")))
      (:module "skel"
       :serial t
       :depends-on ("core" "integration")
@@ -202,6 +204,7 @@
        (:file "serialization")
        (:file "sse")
        (:file "routes")
+       (:file "sandbox-routes")
        (:file "mcp-server")
        (:file "rest-server")))
       ;; Optional extensions moved to separate ASDF systems:
@@ -375,7 +378,8 @@
      (:file "session")
      (:file "dispatch")
      (:file "loop")
-     (:file "human-in-the-loop")))))
+     (:file "human-in-the-loop")
+     (:file "query-tools")))))
 
 ;;; Paperclip AI BYOA adapter (optional)
 (asdf:defsystem #:autopoiesis/paperclip
@@ -491,11 +495,33 @@
       (:file "persistent-agent-tests")
       (:file "learning-integration-tests")
       (:file "mailbox-integration-tests")
+      (:file "sandbox-backend-tests")
       (:file "run-tests"))))
   :perform (test-op (o c)
              (symbol-call :autopoiesis.test :run-all-tests)))
 
-;;; Sandbox integration (squashd container runtime)
+;;; Content-addressed sandbox with pluggable execution backends
+;;; No external runtime dependencies — just needs autopoiesis core
+(asdf:defsystem #:autopoiesis/sandbox-backends
+  :description "Content-addressed sandbox with pluggable execution backends"
+  :author "Autopoiesis Contributors"
+  :license "MIT"
+  :version "0.1.0"
+  :serial t
+  :depends-on (#:autopoiesis)
+  :components
+  ((:module "src/sandbox"
+    :serial t
+    :components
+    ((:file "packages")
+     (:file "entity-types")
+     (:file "execution-backend")
+     (:file "local-backend")
+     (:file "docker-backend")
+     (:file "changeset")
+     (:file "sandbox-lifecycle")))))
+
+;;; Sandbox integration (squashd container runtime) — legacy
 ;;; Separate system requiring Linux + privileged container for full operation
 (asdf:defsystem #:autopoiesis/sandbox
   :description "Container sandbox integration via squashd"
@@ -511,6 +537,9 @@
     :components
     ((:file "packages")
      (:file "entity-types")
+     (:file "execution-backend")
+     (:file "local-backend")
+     (:file "docker-backend")
      (:file "sandbox-provider")
      (:file "conductor-dispatch")
      (:file "workspace-backend")))))
