@@ -17,7 +17,7 @@
                #:babel
                #:lmdb)
   :components
-  ((:module "src/substrate"
+  ((:module "src"
     :serial t
     :components
     ((:file "packages")
