@@ -5,9 +5,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-cd "$PROJECT_ROOT"
+cd "$REPO_ROOT"
 
 echo "Building Autopoiesis..."
 
@@ -25,10 +25,14 @@ if [ ! -f "$QUICKLISP_SETUP" ]; then
     exit 1
 fi
 
-# Try to load the system
+# Register all package directories with ASDF
 sbcl --noinform --non-interactive \
     --load "$QUICKLISP_SETUP" \
-    --eval "(push #P\"$PROJECT_ROOT/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir '(\"$REPO_ROOT/packages/core/\"
+                          \"$REPO_ROOT/packages/substrate/\"
+                          \"$REPO_ROOT/packages/api-server/\"
+                          \"$REPO_ROOT/vendor/platform-vendor/woo/\"))
+              (push (pathname dir) asdf:*central-registry*))" \
     --eval "(handler-case
               (progn
                 (ql:quickload :autopoiesis :silent t)

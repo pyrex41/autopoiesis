@@ -5,9 +5,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# scripts/ is inside packages/core/, so project root is three levels up
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-cd "$PROJECT_ROOT"
+cd "$REPO_ROOT"
 
 echo "Running Autopoiesis tests..."
 
@@ -25,10 +26,24 @@ if [ ! -f "$QUICKLISP_SETUP" ]; then
     exit 1
 fi
 
+# Register all package directories with ASDF
 sbcl --noinform --non-interactive \
     --load "$QUICKLISP_SETUP" \
-    --eval "(push #P\"$PROJECT_ROOT/\" asdf:*central-registry*)" \
-    --eval "(push #P\"$PROJECT_ROOT/vendor/woo/\" asdf:*central-registry*)" \
+    --eval "(dolist (dir '(\"$REPO_ROOT/packages/core/\"
+                          \"$REPO_ROOT/packages/substrate/\"
+                          \"$REPO_ROOT/packages/api-server/\"
+                          \"$REPO_ROOT/packages/eval/\"
+                          \"$REPO_ROOT/packages/sandbox/\"
+                          \"$REPO_ROOT/packages/jarvis/\"
+                          \"$REPO_ROOT/packages/swarm/\"
+                          \"$REPO_ROOT/packages/team/\"
+                          \"$REPO_ROOT/packages/supervisor/\"
+                          \"$REPO_ROOT/packages/crystallize/\"
+                          \"$REPO_ROOT/packages/holodeck/\"
+                          \"$REPO_ROOT/packages/paperclip/\"
+                          \"$REPO_ROOT/packages/research/\"
+                          \"$REPO_ROOT/vendor/platform-vendor/woo/\"))
+              (push (pathname dir) asdf:*central-registry*))" \
     --eval "(handler-case
               (progn
                 (ql:quickload :autopoiesis/test :silent t)
