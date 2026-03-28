@@ -199,4 +199,5 @@ The code is on [GitHub](https://github.com/pyrex41/autopoiesis). Contributions w
 - [Part 2: Orchestrating the Orchestra](/blog/part-2) -- Conductors, workers, and multi-agent coordination
 - [Part 3: Time Travel for Agents](/blog/part-3) -- Snapshots, branching, and content-addressable agent state
 - [Part 4: The Eval Lab](/blog/part-4) -- Benchmarking agents like software
+- [Part 4b: Under the Hood — Shen Prolog](part-4b.md)
 - **Part 5: Logic Meets Learning** -- Prolog-powered agent reasoning

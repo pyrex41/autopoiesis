@@ -155,4 +155,5 @@ In the next post, we'll look at how to ground agent reasoning in formal logic --
 - [Part 2: Orchestrating the Orchestra](/blog/part-2) -- Conductors, workers, and multi-agent coordination
 - [Part 3: Time Travel for Agents](/blog/part-3) -- Snapshots, branching, and content-addressable agent state
 - **Part 4: The Eval Lab** -- Benchmarking agents like software
+- [Part 4b: Under the Hood — Shen Prolog](part-4b.md)
 - [Part 5: Logic Meets Learning](/blog/part-5) -- Prolog-powered agent reasoning

@@ -245,6 +245,7 @@ In the next post, we will look at how Autopoiesis orchestrates multiple agents w
 - [Part 2: Multi-Agent Orchestration](part-2.md)
 - [Part 3: Git for Agent State](part-3.md)
 - [Part 4: The Eval Lab](part-4.md)
+- [Part 4b: Under the Hood — Shen Prolog](part-4b.md)
 - [Part 5: Logic Meets Learning](part-5.md)
 
 [GitHub Repository](https://github.com/pyrex41/autopoiesis) | [Documentation](https://github.com/pyrex41/autopoiesis/blob/main/packages/core/docs/QUICKSTART.md)
