@@ -955,7 +955,10 @@ for data stream messages. Control messages are always JSON."
                                          collect (autopoiesis.agent:make-persistent-agent
                                                   :name (format nil "evo-~a" (gensym))
                                                   :capabilities '(:observe :decide :act))))
-                            (evaluator (autopoiesis.agent:make-standard-pa-evaluator)))
+                            (evaluator (let ((swarm-pkg (find-package :autopoiesis.swarm)))
+                                              (when swarm-pkg
+                                                (let ((fn (find-symbol "MAKE-STANDARD-PA-EVALUATOR" swarm-pkg)))
+                                                  (when (and fn (fboundp fn)) (funcall fn)))))))
                         (declare (ignore agents evaluator))
                         (dotimes (gen generations)
                           (unless *evolution-running* (return))

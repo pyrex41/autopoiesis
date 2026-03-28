@@ -36,26 +36,40 @@
 ;;; ===================================================================
 
 (defun find-shen-install ()
-  "Try to locate shen-cl's install.lsp in common locations.
+  "Try to locate shen-cl's bootstrap file in common locations.
+   Searches for both install.lsp (older versions) and boot.lsp (v3.x).
    Returns pathname or NIL."
   (let ((candidates (list
-                     ;; Relative to AP repo
+                     ;; load-into-sbcl.lsp (custom loader that doesn't save-and-die)
+                     (merge-pathnames "shen-cl/load-into-sbcl.lsp"
+                                      (user-homedir-pathname))
+                     (merge-pathnames "vendor/shen-cl/load-into-sbcl.lsp"
+                                      (asdf:system-source-directory :autopoiesis))
+                     ;; boot.lsp (v3.x sources tarball — WARNING: calls save-lisp-and-die)
+                     (merge-pathnames "shen-cl/boot.lsp"
+                                      (user-homedir-pathname))
+                     (merge-pathnames "vendor/shen-cl/boot.lsp"
+                                      (asdf:system-source-directory :autopoiesis))
+                     ;; install.lsp (older versions)
                      (merge-pathnames "vendor/shen-cl/install.lsp"
                                       (asdf:system-source-directory :autopoiesis))
-                     ;; Home directory
                      (merge-pathnames "shen-cl/install.lsp"
                                       (user-homedir-pathname))
                      ;; Quicklisp local-projects
+                     (merge-pathnames "quicklisp/local-projects/shen-cl/boot.lsp"
+                                      (user-homedir-pathname))
                      (merge-pathnames "quicklisp/local-projects/shen-cl/install.lsp"
                                       (user-homedir-pathname))
                      ;; System-wide
+                     #P"/usr/local/share/shen-cl/boot.lsp"
                      #P"/usr/local/share/shen-cl/install.lsp"
+                     #P"/opt/shen-cl/boot.lsp"
                      #P"/opt/shen-cl/install.lsp")))
     (find-if #'probe-file candidates)))
 
 (defun ensure-shen-loaded (&key path)
   "Load the Shen kernel if not already loaded. Idempotent.
-   PATH overrides auto-detection of install.lsp location.
+   PATH overrides auto-detection of boot.lsp/install.lsp location.
    Returns T on success, signals error on failure."
   (when *shen-loaded-p*
     (return-from ensure-shen-loaded t))
@@ -67,21 +81,37 @@
                             *shen-install-path*
                             (find-shen-install))))
       (unless install-path
-        (error "Cannot find shen-cl install.lsp. ~
+        (error "Cannot find shen-cl boot.lsp or install.lsp. ~
                 Set autopoiesis.shen:*shen-install-path* or pass :path, ~
                 or install shen-cl to ~/shen-cl/ or vendor/shen-cl/."))
       (unless (probe-file install-path)
-        (error "Shen install.lsp not found at ~A" install-path))
-      (handler-case
-          (progn
-            (load install-path :verbose nil :print nil)
-            (unless (find-package :shen)
-              (error "Shen loaded but :SHEN package not found"))
-            (setf *shen-loaded-p* t)
-            (setf *shen-install-path* install-path)
-            t)
-        (error (e)
-          (error "Failed to load Shen from ~A: ~A" install-path e))))))
+        (error "Shen bootstrap file not found at ~A" install-path))
+      (let* ((original-dir (uiop:getcwd))
+             (original-defaults *default-pathname-defaults*)
+             (shen-dir (uiop:pathname-directory-pathname
+                        (truename install-path))))
+        ;; boot.lsp / load-into-sbcl.lsp use relative paths,
+        ;; so cd to their directory first (both OS and CL level)
+        (uiop:chdir shen-dir)
+        (setf *default-pathname-defaults* shen-dir)
+        (unwind-protect
+             (handler-case
+                 (load install-path :verbose nil :print nil)
+               (error (e)
+                 ;; Non-fatal: initialization warnings are OK
+                 ;; as long as the :SHEN package exists afterward
+                 (warn "Shen load had non-fatal errors: ~A" e)))
+          ;; Always restore original directory
+          (uiop:chdir original-dir)
+          (setf *default-pathname-defaults* original-defaults))
+        ;; Check if the kernel loaded successfully
+        (let ((eval-fn (or (find-symbol "eval-kl" :shen)
+                           (find-symbol "EVAL-KL" :shen))))
+          (unless (and (find-package :shen) eval-fn (fboundp eval-fn))
+            (error "Shen loaded but eval-kl not available"))
+          (setf *shen-loaded-p* t)
+          (setf *shen-install-path* install-path)
+          t)))))
 
 ;;; ===================================================================
 ;;; Evaluation
@@ -95,7 +125,8 @@
   (unless (shen-available-p)
     (error "Shen is not loaded. Call (ensure-shen-loaded) first."))
   (bt:with-lock-held (*shen-lock*)
-    (let* ((eval-fn (find-symbol "EVAL-KL" :shen))
+    (let* ((eval-fn (or (find-symbol "eval-kl" :shen)    ; v3.x (case-preserved)
+                        (find-symbol "EVAL-KL" :shen)))  ; older versions
            (result (when (and eval-fn (fboundp eval-fn))
                      (funcall eval-fn form))))
       (shen-to-cl result))))
@@ -110,7 +141,8 @@
   (bt:with-lock-held (*shen-lock*)
     ;; Build: (prolog? <query-form> (return Result))
     (let* ((wrapped `(prolog? ,@query-form (return Result)))
-           (eval-fn (find-symbol "EVAL-KL" :shen))
+           (eval-fn (or (find-symbol "eval-kl" :shen)    ; v3.x
+                        (find-symbol "EVAL-KL" :shen)))
            (result (when (and eval-fn (fboundp eval-fn))
                      (handler-case
                          (funcall eval-fn wrapped)
