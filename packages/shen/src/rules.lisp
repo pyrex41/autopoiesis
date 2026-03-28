@@ -22,7 +22,9 @@
 ;;; ===================================================================
 
 (defvar *rule-store* (make-hash-table :test 'eq)
-  "Registry of Prolog rules. Keyword name → list of clause S-expressions.")
+  "Global registry of Prolog rules. Keyword name → list of clause S-expressions.
+   NOTE: This is process-global. When multiple agents use Shen reasoning,
+   load-agent-knowledge clears and reloads per agent under *shen-lock*.")
 
 (defvar *compiled-rules* (make-hash-table :test 'eq)
   "Tracks which rules have been compiled into the current Shen session.")
@@ -106,16 +108,20 @@
 ;;; Rule Querying
 ;;; ===================================================================
 
-(defun query-rules (name &rest args)
-  "Query a named rule with the given arguments.
+(defun query-rules (name &key tree output exit-code context)
+  "Query a named rule with the given context.
    Returns the query result or NIL if the query fails.
+   Use :context for raw argument lists, or :tree/:output/:exit-code
+   for structured eval context.
 
    Example:
-     (query-rules :member 1 '(1 2 3)) → T"
+     (query-rules :member :context '(1 (1 2 3))) → T"
   (unless (shen-available-p)
     (error "Shen is not loaded. Call (ensure-shen-loaded) first."))
   (ensure-rule-compiled name)
-  (let ((shen-name (rule-name-to-shen name)))
+  (let* ((shen-name (rule-name-to-shen name))
+         (args (or context
+                   (remove nil (list tree output exit-code)))))
     (shen-query `((,shen-name ,@args)))))
 
 ;;; ===================================================================

@@ -83,9 +83,9 @@
         (let* ((metadata (getf result :metadata))
                (after-tree (getf metadata :after-tree))
                (query-result (query-rules expected
-                                          (or after-tree '())
-                                          (or output "")
-                                          (or (getf result :exit-code) -1))))
+                                          :tree (or after-tree '())
+                                          :output (or output "")
+                                          :exit-code (or (getf result :exit-code) -1))))
           (if query-result :pass :fail))
       (error () :error))))
 
@@ -108,12 +108,47 @@
 
 (defun cl-fallback-verify (rule-name output result)
   "Attempt verification using CL helpers when Shen is not available.
+   Inspects the rule's clauses for recognizable CL-checkable patterns.
    Returns :pass, :fail, or :error."
-  (declare (ignore output))
-  (let* ((metadata (getf result :metadata))
-         (after-tree (getf metadata :after-tree)))
-    ;; Can only do tree-based checks without Shen
-    (if after-tree :error :error)))
+  (let ((clauses (gethash rule-name *rule-store*)))
+    (unless clauses
+      (return-from cl-fallback-verify :error))
+    (let ((spec (clauses-to-cl-check clauses)))
+      (if spec
+          (cl-check-verify spec output result)
+          :error))))
+
+(defun clauses-to-cl-check (clauses)
+  "Try to convert Prolog clauses to a CL check spec.
+   Returns a check spec or NIL if the clauses aren't CL-checkable.
+   Recognizes patterns like (has-file Tree \"path\") -> (:files-exist ...)."
+  (let ((file-paths nil)
+        (output-substrings nil))
+    (dolist (clause clauses)
+      (when (listp clause)
+        (let ((body (rest (member '<-- clause))))
+          (dolist (term body)
+            (when (listp term)
+              (cond
+                ((and (eq (first term) 'has-file)
+                      (stringp (third term)))
+                 (push (third term) file-paths))
+                ((and (eq (first term) 'output-contains)
+                      (stringp (second term)))
+                 (push (second term) output-substrings))))))))
+    (cond
+      ((and file-paths output-substrings)
+       `(:all (:files-exist ,(nreverse file-paths))
+              ,@(mapcar (lambda (s) `(:output-contains ,s))
+                        (nreverse output-substrings))))
+      (file-paths
+       `(:files-exist ,(nreverse file-paths)))
+      (output-substrings
+       (if (= 1 (length output-substrings))
+           `(:output-contains ,(first output-substrings))
+           `(:all ,@(mapcar (lambda (s) `(:output-contains ,s))
+                            (nreverse output-substrings)))))
+      (t nil))))
 
 (defun cl-check-verify (spec output result)
   "Run a CL-based check specification.

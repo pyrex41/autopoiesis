@@ -26,4 +26,9 @@
 
    ;; Agent reasoning — mixin for Prolog-powered reasoning phase
    #:shen-reasoning-mixin
-   #:agent-knowledge-base))
+   #:agent-knowledge-base
+   #:add-knowledge
+   #:remove-knowledge
+   #:clear-knowledge
+   #:save-knowledge-to-pmap
+   #:load-knowledge-from-pmap))

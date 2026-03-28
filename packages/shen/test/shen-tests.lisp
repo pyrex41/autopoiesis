@@ -118,6 +118,38 @@
                                :result (list :metadata nil))))
           (is (eq :error result)))))))
 
+(test cl-fallback-with-recognizable-rule
+  "CL fallback can verify rules with has-file patterns."
+  (unless (autopoiesis.shen:shen-available-p)
+    (let ((autopoiesis.shen:*rule-store* (make-hash-table :test 'eq)))
+      (autopoiesis.shen:define-rule :project-valid
+        '((project-valid Tree)
+          <-- (has-file Tree "src/main.py")
+              (has-file Tree "README.md")))
+      ;; Register verifiers
+      (autopoiesis.shen:register-shen-verifiers)
+      ;; Test with a tree that has the required files
+      (let ((result (autopoiesis.shen::cl-fallback-verify
+                     :project-valid "output"
+                     (list :metadata
+                           (list :after-tree
+                                 '((:file "src/main.py" :hash "abc")
+                                   (:file "README.md" :hash "def")
+                                   (:file "test.py" :hash "ghi")))))))
+        (is (eq :pass result)))
+      ;; Test with a tree missing a file
+      (let ((result (autopoiesis.shen::cl-fallback-verify
+                     :project-valid "output"
+                     (list :metadata
+                           (list :after-tree
+                                 '((:file "src/main.py" :hash "abc")))))))
+        (is (eq :fail result)))
+      ;; Test with unknown rule
+      (let ((result (autopoiesis.shen::cl-fallback-verify
+                     :nonexistent "output"
+                     (list :metadata nil))))
+        (is (eq :error result))))))
+
 ;;; ===================================================================
 ;;; Reasoning Mixin Tests (work without Shen loaded)
 ;;; ===================================================================
@@ -131,19 +163,19 @@
   "Knowledge base add/remove/clear operations."
   (let ((mixin (make-instance 'autopoiesis.shen:shen-reasoning-mixin)))
     ;; Add
-    (autopoiesis.shen::add-knowledge mixin :rule-a '((rule-a X) <--))
+    (autopoiesis.shen:add-knowledge mixin :rule-a '((rule-a X) <--))
     (is (= 1 (length (autopoiesis.shen:agent-knowledge-base mixin))))
     ;; Add another
-    (autopoiesis.shen::add-knowledge mixin :rule-b '((rule-b X) <--))
+    (autopoiesis.shen:add-knowledge mixin :rule-b '((rule-b X) <--))
     (is (= 2 (length (autopoiesis.shen:agent-knowledge-base mixin))))
     ;; Redefine
-    (autopoiesis.shen::add-knowledge mixin :rule-a '((rule-a Y) <--))
+    (autopoiesis.shen:add-knowledge mixin :rule-a '((rule-a Y) <--))
     (is (= 2 (length (autopoiesis.shen:agent-knowledge-base mixin))))
     ;; Remove
-    (autopoiesis.shen::remove-knowledge mixin :rule-a)
+    (autopoiesis.shen:remove-knowledge mixin :rule-a)
     (is (= 1 (length (autopoiesis.shen:agent-knowledge-base mixin))))
     ;; Clear
-    (autopoiesis.shen::clear-knowledge mixin)
+    (autopoiesis.shen:clear-knowledge mixin)
     (is (= 0 (length (autopoiesis.shen:agent-knowledge-base mixin))))))
 
 ;;; ===================================================================
@@ -163,5 +195,5 @@
       (autopoiesis.shen:define-rule :test-mem
         '((test-mem X [X | _] <--)
           (test-mem X [_ | Y] <-- (test-mem X Y))))
-      (is (autopoiesis.shen::query-rules :test-mem 1 '(1 2 3)))
-      (is (not (autopoiesis.shen::query-rules :test-mem 4 '(1 2 3)))))))
+      (is (autopoiesis.shen:query-rules :test-mem :context '(1 (1 2 3))))
+      (is (not (autopoiesis.shen:query-rules :test-mem :context '(4 (1 2 3))))))))

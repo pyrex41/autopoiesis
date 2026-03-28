@@ -58,7 +58,9 @@ Example:
 
 (defun load-agent-knowledge (agent)
   "Load an agent's knowledge base into Shen's rule store.
-   Called before each reasoning phase."
+   Clears previous rules first to prevent cross-agent contamination.
+   Called before each reasoning phase (under *shen-lock*)."
+  (clear-rules)
   (dolist (entry (agent-knowledge-base agent))
     (define-rule (car entry) (cdr entry))))
 
@@ -78,7 +80,7 @@ Example:
           (dolist (entry (agent-knowledge-base agent))
             (let* ((rule-name (car entry))
                    (result (handler-case
-                               (query-rules rule-name observations)
+                               (query-rules rule-name :context observations)
                              (error () nil))))
               (when result
                 (push (list :derived rule-name result) results))))
@@ -97,19 +99,23 @@ Example:
 
 ;; Specialize the `reason` generic for agents with the mixin.
 ;; Uses :around to augment (not replace) existing reasoning.
+;; NOTE: autopoiesis is a declared dependency so the package should always
+;; exist at load time. The warning catches misconfiguration early.
 (let* ((agent-pkg (find-package :autopoiesis.agent))
        (reason-fn (when agent-pkg (find-symbol "REASON" agent-pkg))))
-  (when (and reason-fn (fboundp reason-fn))
-    (eval
-     `(defmethod ,(intern "REASON" agent-pkg) :around
-        ((agent shen-reasoning-mixin) observations)
-        (let* ((prolog-results (reason-with-prolog agent observations))
-               ;; Augment observations with Prolog-derived facts
-               (augmented (if prolog-results
-                              (append (when (listp observations) observations)
-                                      (list :prolog-derived prolog-results))
-                              observations)))
-          (call-next-method agent augmented))))))
+  (if (and reason-fn (fboundp reason-fn))
+      (eval
+       `(defmethod ,(intern "REASON" agent-pkg) :around
+          ((agent shen-reasoning-mixin) observations)
+          (let* ((prolog-results (reason-with-prolog agent observations))
+                 ;; Augment observations with Prolog-derived facts
+                 (augmented (if prolog-results
+                                (append (when (listp observations) observations)
+                                        (list :prolog-derived prolog-results))
+                                observations)))
+            (call-next-method agent augmented))))
+      (warn "autopoiesis.shen: Could not install REASON :around method. ~
+             Is :autopoiesis loaded? shen-reasoning-mixin will be inert.")))
 
 ;;; ===================================================================
 ;;; Persistent Agent Integration (via metadata pmap)
