@@ -51,10 +51,13 @@ deps:
 build:
     FROM +deps
 
-    COPY src/ src/
-    COPY scripts/ scripts/
-    COPY test/ test/
+    COPY packages/ packages/
     COPY vendor/ vendor/
+
+    # Create symlinks so root-level .asd files can resolve their relative paths
+    RUN ln -s packages/core/src src && \
+        ln -s packages/core/test test && \
+        ln -s packages/core/scripts scripts
 
     # Clear stale FASL cache so ASDF recompiles from fresh source
     RUN rm -rf /root/.cache/common-lisp/sbcl-*/app/src/
@@ -62,7 +65,7 @@ build:
     # Compile full system
     RUN sbcl --noinform --non-interactive \
         --eval "(push #P\"/app/\" asdf:*central-registry*)" \
-        --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
+        --eval "(push #P\"/app/vendor/platform-vendor/woo/\" asdf:*central-registry*)" \
         --eval "(handler-case \
                   (progn \
                     (ql:quickload '(:autopoiesis/api :autopoiesis/jarvis :autopoiesis/paperclip) :silent t) \
@@ -89,7 +92,7 @@ test:
 
     RUN sbcl --noinform --non-interactive \
         --eval "(push #P\"/app/\" asdf:*central-registry*)" \
-        --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)" \
+        --eval "(push #P\"/app/vendor/platform-vendor/woo/\" asdf:*central-registry*)" \
         --eval "(ql:quickload :autopoiesis/test :silent t)" \
         --eval "(let ((result (5am:run! 'autopoiesis.test::all-tests))) \
                   (if (5am:results-status result) \
@@ -102,7 +105,7 @@ server:
     ENTRYPOINT []
     CMD ["sbcl", "--noinform", "--non-interactive", \
         "--eval", "(push #P\"/app/\" asdf:*central-registry*)", \
-        "--eval", "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)", \
+        "--eval", "(push #P\"/app/vendor/platform-vendor/woo/\" asdf:*central-registry*)", \
         "--eval", "(ql:quickload '(:autopoiesis/api :autopoiesis/jarvis :autopoiesis/paperclip :slynk) :silent t)", \
         "--eval", "(progn (autopoiesis.substrate:open-store) (autopoiesis.orchestration:start-system) (autopoiesis.api:start-api-server) (autopoiesis.api:start-rest-server :port 8082) (slynk:create-server :port 4005 :dont-close t) (format t \"~%Ready. WebSocket ws://0.0.0.0:8080/ws | REST http://0.0.0.0:8082/api | Slynk port 4005~%\") (loop (sleep 60)))"]
 

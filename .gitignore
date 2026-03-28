@@ -4,3 +4,11 @@ repomix-output.xml
 holodeck/target/
 **/*.rs.bk
 *.pdb
+
+node_modules/
+dag-explorer/
+dist/
+.env
+.env.local
+*.fasl
+.DS_Store

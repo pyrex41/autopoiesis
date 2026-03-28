@@ -1,6 +1,6 @@
 (require :asdf)
-;; Only use platform path - the root .asd files reference non-existent src/ paths
-(push #p"/Users/reuben/projects/ap/platform/" asdf:*central-registry*)
+;; Use the current working directory so tests work from any checkout location
+(push (uiop:getcwd) asdf:*central-registry*)
 (handler-case
     (progn
       (asdf:load-system :autopoiesis)

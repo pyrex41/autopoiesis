@@ -25,7 +25,7 @@ services:
   autopoiesis:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.platform
     image: autopoiesis:latest
     container_name: autopoiesis
     hostname: autopoiesis
@@ -48,21 +48,18 @@ services:
       - autopoiesis-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "sbcl", "--noinform", "--non-interactive",
-             "--eval", "(push #P\"/app/\" asdf:*central-registry*)",
-             "--eval", "(ql:quickload :autopoiesis :silent t)",
-             "--eval", "(if (autopoiesis:health-check-ok-p) (quit :unix-status 0) (quit :unix-status 1))"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 45s
 
   # Autopoiesis API server with WebSocket + REST + monitoring
   # Exposes /ws (WebSocket), /health, /api/*, /metrics
   autopoiesis-server:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.platform
     image: autopoiesis:latest
     container_name: autopoiesis-server
     hostname: autopoiesis-server
@@ -91,7 +88,7 @@ services:
     command: >
       sbcl --noinform
            --eval "(push #P\"/app/\" asdf:*central-registry*)"
-           --eval "(push #P\"/app/vendor/woo/\" asdf:*central-registry*)"
+           --eval "(push #P\"/app/vendor/platform-vendor/woo/\" asdf:*central-registry*)"
            --eval "(ql:quickload :autopoiesis/api :silent t)"
            --eval "(ql:quickload :slynk :silent t)"
            --eval "(progn (autopoiesis.substrate:open-store)

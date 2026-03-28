@@ -10,8 +10,8 @@
 # Build backend via Earthly
 local_resource(
   'earthly-build',
-  cmd='cd platform && earthly +server',
-  deps=['platform/src', 'platform/autopoiesis.asd', 'platform/vendor'],
+  cmd='earthly +server',
+  deps=['packages/', 'autopoiesis.asd', 'vendor/'],
   labels=['backend']
 )
 
@@ -22,8 +22,8 @@ dc_resource('autopoiesis-server', resource_deps=['earthly-build'], labels=['back
 # Frontend dev server
 local_resource(
   'frontend',
-  serve_cmd='cd dag-explorer && AP_WS_PORT=14401 AP_REST_PORT=14402 bun run dev -- --port 14403',
-  deps=['dag-explorer/src'],
+  serve_cmd='cd frontends/command-center && AP_WS_PORT=14401 AP_REST_PORT=14402 bun run dev -- --port 14403',
+  deps=['frontends/command-center/src'],
   readiness_probe=probe(http_get=http_get_action(port=14403, path='/'), period_secs=2),
   labels=['frontend']
 )
