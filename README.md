@@ -21,7 +21,7 @@ Because Lisp is homoiconic — code and data are the same thing — you get prop
 
 ---
 
-**Start here** -> [`platform/docs/QUICKSTART.md`](platform/docs/QUICKSTART.md) — Full setup guide, first agent swarm, web console, self-extension walkthrough, scaling guidance, and multi-language navigation.
+**Start here** -> [`packages/core/docs/QUICKSTART.md`](packages/core/docs/QUICKSTART.md) — Full setup guide, first agent swarm, web console, self-extension walkthrough, scaling guidance, and multi-language navigation.
 
 ---
 
@@ -55,17 +55,17 @@ Tilt orchestrates the full stack:
 | Tilt UI | 14400 | Dev dashboard |
 | Backend (WS) | 14401 | WebSocket API |
 | Backend (REST) | 14402 | REST API + MCP |
-| Command Center | 14403 | SolidJS dashboard (11 views) |
+| Command Center | 14403 | SolidJS dashboard (15 views) |
 
 ### Manual Start
 
 ```bash
 # Build and test the Lisp platform
-./platform/scripts/build.sh
-./platform/scripts/test.sh
+./packages/core/scripts/build.sh
+./packages/core/scripts/test.sh
 
 # Start the web console
-cd dag-explorer && bun install && bun run dev -- --port 14403
+cd frontends/command-center && bun install && bun run dev -- --port 14403
 ```
 
 ### Hello World
@@ -610,13 +610,13 @@ curl -X POST http://localhost:8082/api/paperclip/heartbeat \
 # => {"status":"completed","role":"analyst","heartbeat_id":"run-42",...}
 ```
 
-Agents are created on-demand per role, persist across heartbeats, and accumulate thought history. Budget limits can be set per role. See **[platform/docs/paperclip.md](platform/docs/paperclip.md)** for the full setup guide.
+Agents are created on-demand per role, persist across heartbeats, and accumulate thought history. Budget limits can be set per role. See **[packages/core/docs/paperclip.md](packages/core/docs/paperclip.md)** for the full setup guide.
 
 ---
 
 ## Architecture
 
-**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. The primary frontend is **dag-explorer** (SolidJS Command Center, 11 views) connecting over WebSocket/REST. Two additional Rust frontends (**Holodeck** — Bevy 3D visualization, **Nexus** — ratatui TUI cockpit) exist but are frozen and not actively maintained. See `platform/docs/layers.md` for the current layered architecture with Mermaid diagrams.
+**Updated March 2026:** The architecture has been simplified to focus on 6-7 core layers that capture the unique homoiconic agent substrate, with powerful extensions available separately. The primary frontend is **Command Center** (SolidJS, 15 views) connecting over WebSocket/REST. Two additional Rust frontends (**Holodeck** — Bevy 3D visualization, **Nexus** — ratatui TUI cockpit) exist but are frozen and not actively maintained. See `packages/core/docs/layers.md` for the current layered architecture with Mermaid diagrams.
 
 **Legacy view (17 layers):**
 
@@ -671,80 +671,80 @@ Agents are created on-demand per role, persist across heartbeats, and accumulate
 │                        Value Index  •  Interning  •  defsystem       │
 └──────────────────────────────────────────────────────────────────────┘
 
-Primary frontend: dag-explorer (SolidJS Command Center, 11 views)
+Primary frontend: frontends/command-center (SolidJS Command Center, 15 views)
 Frozen frontends: holodeck/ (Rust/Bevy 3D, 4.7K LOC), nexus/ (Rust TUI, 10K LOC)
 Separate ASDF systems: Holodeck (CL-native ECS), Sandbox (squashd containers), Research (parallel campaigns)
 ```
 
-### Substrate Layer (`platform/src/substrate/`)
+### Substrate Layer (`packages/substrate/src/`)
 
 Datom store with EAV triples, three synchronized indexes (EAVT, AEVT, EA-CURRENT), and an inverted value index for O(1) queries. Linda coordination via `take!` for atomic state transitions. Monotonic-counter interning maps symbolic names to compact integers (no hash collisions). Reactive `defsystem` dispatch with topological ordering. Batch transactions via `with-batch-transaction`. LMDB persistence optional.
 
-### Core Layer (`platform/src/core/`)
+### Core Layer (`packages/core/src/core/`)
 
 The homoiconic foundation. S-expression diff/patch/hash with type-tagged SHA-256 digesting. Five cognitive primitives (Thought, Decision, Action, Observation, Reflection) as CLOS classes with S-expression content. Append-only thought streams with O(1) ID lookup. Persistent data structures via FSet wrappers: `pmap-*` (maps), `pvec-*` (vectors), `pset-*` (sets) with structural sharing for O(1) forking. Sandboxed extension compiler with code walking, forbidden-symbol checking, and package restrictions. Condition/restart error recovery. Nanosecond profiling.
 
-### Agent Layer (`platform/src/agent/`)
+### Agent Layer (`packages/core/src/agent/`)
 
 Five-phase cognitive loop (perceive -> reason -> decide -> act -> reflect) as CLOS generic functions. `defcapability` macro for declaring capabilities with parameter specs and permissions. Priority-queue context window for working memory (default 100K tokens). Learning system: n-gram action sequence analysis, frequency-based context patterns, heuristic generation with confidence decay. Parent-child agent spawning with mailbox messaging. Persistent agents: immutable `defstruct` with pvec thoughts, pset capabilities, pmap membrane/metadata — O(1) fork via structural sharing, immutable cognitive cycle, lineage tracking, membrane boundary rules. Dual-agent bridge wraps mutable CLOS agents with thread-safe persistent root + automatic version history.
 
-### Swarm Layer (`platform/src/swarm/`)
+### Swarm Layer (`packages/swarm/src/`)
 
 Evolutionary optimization of agent configurations. Genomes encode capabilities, heuristic weights, and parameters. Uniform crossover, stochastic mutation, tournament/roulette/elitism selection. Production rules bridge learned heuristics to genome transformations. Optional parallel fitness evaluation. Persistent agent genome bridge: extract genomes from persistent agents, run evolution, patch results back. Three built-in fitness functions (thought diversity, capability breadth, genome efficiency) composable via `make-standard-pa-evaluator`.
 
-### Snapshot Layer (`platform/src/snapshot/`)
+### Snapshot Layer (`packages/core/src/snapshot/`)
 
 Content-addressable DAG persistence. SHA-256 structural hashing for deduplication. LRU-cached filesystem storage with two-character prefix sharding. Lightweight branches as named pointers. Structural diffing via S-expression edit operations with `:car`/`:cdr` path navigation. Time-travel with common ancestor finding, path discovery, and DAG traversal. Lazy-loading proxies via `slot-unbound` MOP method. Six-check consistency verification with repair.
 
-### Conversation Layer (`platform/src/conversation/`)
+### Conversation Layer (`packages/core/src/conversation/`)
 
 Turns stored as substrate datoms linked by `:turn/parent` pointers. Content stored as content-addressed blobs. O(1) context forking via shared head pointers. Single-transaction turn writes for crash safety. Dual-track: in-memory message list for API calls, substrate entities for durable history.
 
-### Workspace Layer (`platform/src/workspace/`)
+### Workspace Layer (`packages/team/src/workspace/`)
 
 Per-task ephemeral execution contexts with pluggable isolation backends (`:none`, `:directory`, `:sandbox`). Agent home directories with persistent file storage. Team coordination via shared workspace datoms and atomic task claiming.
 
-### Interface Layer (`platform/src/interface/`)
+### Interface Layer (`packages/core/src/interface/`)
 
 Thread-safe blocking requests using condition variables. CLI REPL session with 15 commands. Navigator with history stack. Viewport with focus path, filter predicates, and detail levels. Annotator for human commentary. Human override/approve/reject of agent decisions. 2D ANSI terminal timeline explorer with 256-color rendering, hjkl navigation, and branch cycling.
 
-### Supervisor Layer (`platform/src/supervisor/`)
+### Supervisor Layer (`packages/supervisor/src/`)
 
 Checkpoint-and-revert wrapper for high-risk agent operations. `with-checkpoint` captures agent state before risky operations and automatically reverts on failure. Stable state tracking, promotion, and dual-agent bridge for persistent root checkpointing.
 
-### Crystallize Layer (`platform/src/crystallize/`)
+### Crystallize Layer (`packages/crystallize/src/`)
 
 Emits live runtime changes — capabilities, heuristics, genomes — as Lisp source files stored in the snapshot DAG. Capability crystallizer, heuristic crystallizer, genome crystallizer, ASDF fragment generator, and Git export for version-controlled runtime artifacts.
 
-### API Layer (`platform/src/api/`)
+### API Layer (`packages/api-server/src/`)
 
 Multi-protocol API server: REST endpoints via Hunchentoot, WebSocket via Clack/Woo for real-time frontends, MCP server support, SSE for streaming events. JSON and MessagePack serialization. Authentication middleware. Command Center endpoints: departments, goals, budgets, audit log, approvals, agent scheduling, evolution control. 30+ WS handlers, entity type serialization for org hierarchy and budget tracking.
 
-### Integration Layer (`platform/src/integration/`)
+### Integration Layer (`packages/core/src/integration/`)
 
 Multi-provider agentic loops: direct API (Anthropic, OpenAI, Ollama) and CLI subprocess (Claude Code, Codex, OpenCode). `define-cli-provider` macro generates providers from declarative specs. Bidirectional tool mapping: kebab-case capabilities <-> snake_case tools, Lisp types <-> JSON Schema. MCP client speaking JSON-RPC 2.0 over stdio. Skel typed LLM function framework with structured types, JSON schema generation, and streaming. Built-in tools for filesystem, web, shell, and git. Pub/sub event bus with 1000-event history.
 
-### Orchestration Layer (`platform/src/orchestration/`)
+### Orchestration Layer (`packages/core/src/orchestration/`)
 
 Conductor tick loop (100ms heartbeat) with substrate-backed event queue. Linda `take!` for atomic event claiming. Timer heap for scheduled actions including `:agent-wakeup` (one-shot and recurring agent task scheduling). Worker management as substrate entities. Claude CLI subprocess spawning with streaming JSON, timeout handling, and exponential backoff. HTTP webhook endpoint.
 
-### Team Layer (`platform/src/team/`)
+### Team Layer (`packages/team/src/`)
 
 Multi-agent coordination with five pluggable strategies as CLOS generic function specializations. Teams persist to substrate, maintain thread-safe in-memory registries, and coordinate via shared workspace datoms. Task assignment uses Linda `take!` for atomic claiming. CV-based await for zero-polling agent completion detection. Thread-safe per-agent mailboxes. Strategies: leader-worker, parallel, pipeline, debate, consensus.
 
-### Jarvis Layer (`platform/src/jarvis/`)
+### Jarvis Layer (`packages/jarvis/src/`)
 
 Unified conversational loop using Pi RPC provider for NL→tool dispatch. Integrates agent backing, supervisor checkpoints, and human-in-the-loop approval into a single interactive session.
 
-### Holodeck Layer (`platform/src/holodeck/`, separate ASDF system)
+### Holodeck Layer (`packages/holodeck/src/`, separate ASDF system)
 
 3D ECS visualization of the snapshot DAG and persistent agent state. Uses `cl-fast-ecs` for entity management. Persistent agent embodiment with cognitive/metabolic/lineage/genome ECS components. Orbit and fly cameras, HUD panels, ray picking, 32 key bindings.
 
 ### Cross-Cutting
 
-**Security** (`platform/src/security/`): Permission matrix, audit logging with thread-safe 10MB rotation, input validation with 17 types and combinators, HTML sanitization.
+**Security** (`packages/core/src/security/`): Permission matrix, audit logging with thread-safe 10MB rotation, input validation with 17 types and combinators, HTML sanitization.
 
-**Monitoring** (`platform/src/monitoring/`): Prometheus-compatible `/metrics`, Kubernetes-style probes (`/healthz`, `/readyz`), thread-safe counters/gauges/histograms, Hunchentoot HTTP server.
+**Monitoring** (`packages/core/src/monitoring/`): Prometheus-compatible `/metrics`, Kubernetes-style probes (`/healthz`, `/readyz`), thread-safe counters/gauges/histograms, Hunchentoot HTTP server.
 
 ---
 
@@ -752,59 +752,55 @@ Unified conversational loop using Pi RPC provider for NL→tool dispatch. Integr
 
 ```
 ap/
-├── platform/          # Common Lisp agent platform
-│   ├── autopoiesis.asd
-│   ├── substrate.asd
-│   ├── src/
-│   │   ├── substrate/     # Datom store, Linda, interning, defsystem
-│   │   ├── core/          # S-expr utils, cognitive prims, persistent structs (fset)
-│   │   ├── agent/         # Cognitive loop, capabilities, persistent agents, dual-agent
-│   │   ├── workspace/     # Ephemeral execution contexts, agent homes, team coordination
-│   │   ├── swarm/         # Genome evolution, persistent agent evolution, fitness
-│   │   ├── snapshot/      # Content-addressable DAG, branches, diff, time-travel
-│   │   ├── supervisor/    # Checkpoint/revert, stable state, risk-wrapped ops
-│   │   ├── crystallize/   # Emit runtime → source, Git export
-│   │   ├── conversation/  # Turn DAG, context forking
-│   │   ├── interface/     # CLI, blocking input, viewport, 2D viz
-│   │   ├── integration/   # LLM providers, MCP, tools, skel, agentic loops
-│   │   ├── skel/          # Typed LLM functions, BAML parser, SAP preprocessor
-│   │   ├── api/           # REST, WebSocket, MCP server, SSE
-│   │   ├── team/          # Multi-agent coordination (5 strategies)
-│   │   ├── orchestration/ # Conductor, event queue, workers
-│   │   ├── jarvis/        # NL→tool conversational loop
-│   │   ├── paperclip/     # Paperclip AI BYOA adapter
-│   │   ├── holodeck/      # 3D ECS visualization (separate ASDF system)
-│   │   ├── sandbox/       # Squashd container integration (separate ASDF system)
-│   │   ├── research/      # Parallel research campaigns (separate ASDF system)
-│   │   ├── security/      # Permissions, audit, validation
-│   │   └── monitoring/    # Metrics, health checks
-│   ├── test/              # 28 test suites, 4,300+ assertions
-│   ├── scripts/
-│   ├── docs/
-│   └── Dockerfile
-├── dag-explorer/      # SolidJS Command Center (primary frontend)
-│   ├── src/
-│   │   ├── components/   # 50+ view components (11 views)
-│   │   ├── stores/       # Reactive state stores (agents, org, budget, etc.)
-│   │   ├── api/          # REST client + TypeScript types
-│   │   ├── styles/       # CSS modules
-│   │   └── lib/          # Commands, navigation, utilities
-│   └── package.json
+├── packages/              # Common Lisp agent platform (monorepo)
+│   ├── substrate/         # Datom store, Linda, interning, defsystem
+│   ├── core/              # Main platform (depends on substrate)
+│   │   ├── src/
+│   │   │   ├── core/          # S-expr utils, cognitive prims, persistent structs (fset)
+│   │   │   ├── agent/         # Cognitive loop, capabilities, persistent agents, dual-agent
+│   │   │   ├── snapshot/      # Content-addressable DAG, branches, diff, time-travel
+│   │   │   ├── conversation/  # Turn DAG, context forking
+│   │   │   ├── interface/     # CLI, blocking input, viewport, 2D viz
+│   │   │   ├── integration/   # LLM providers, MCP, tools, skel, agentic loops
+│   │   │   ├── orchestration/ # Conductor, event queue, workers
+│   │   │   ├── security/      # Permissions, audit, validation
+│   │   │   └── monitoring/    # Metrics, health checks
+│   │   ├── test/              # 28 test suites, 4,300+ assertions
+│   │   ├── scripts/
+│   │   └── docs/
+│   ├── api-server/        # REST, WebSocket, MCP server, SSE
+│   ├── swarm/             # Genome evolution, persistent agent evolution, fitness
+│   ├── supervisor/        # Checkpoint/revert, stable state, risk-wrapped ops
+│   ├── crystallize/       # Emit runtime → source, Git export
+│   ├── team/              # Multi-agent coordination (5 strategies) + workspace
+│   ├── jarvis/            # NL→tool conversational loop
+│   ├── holodeck/          # 3D ECS visualization (separate ASDF system)
+│   └── eval/              # Agent evaluation framework
+├── frontends/
+│   └── command-center/    # SolidJS Command Center (primary frontend, 15 views)
+│       ├── src/
+│       │   ├── components/   # 50+ view components
+│       │   ├── stores/       # Reactive state stores (agents, org, budget, etc.)
+│       │   ├── api/          # REST client + TypeScript types
+│       │   ├── styles/       # CSS modules
+│       │   └── lib/          # Commands, navigation, utilities
+│       └── package.json
 ├── holodeck/          # Bevy/Rust 3D visualization (frozen)
 │   ├── Cargo.toml
 │   └── src/
 ├── nexus/             # Rust TUI cockpit (frozen)
 │   ├── Cargo.toml
 │   └── crates/        # 5 workspace crates (protocol, tui, holodeck, voice, mcp)
+├── ralph/             # Automation tooling for implementation
 ├── sdk/               # Client SDKs
 │   └── go/            # Go SDK
 ├── thoughts/          # Research & planning docs
 └── CLAUDE.md
 ```
 
-## Command Center (`dag-explorer/`)
+## Command Center (`frontends/command-center/`)
 
-The primary frontend is a SolidJS dashboard with 11 views organized into Observe and Manage groups, connected to the backend via REST + WebSocket.
+The primary frontend is a SolidJS dashboard with 15 views organized into Observe and Manage groups, connected to the backend via REST + WebSocket.
 
 **Observe views** (keyboard shortcuts 1-6):
 | View | Key | Purpose |
@@ -828,7 +824,7 @@ The primary frontend is a SolidJS dashboard with 11 views organized into Observe
 Additional features: Jarvis chat bar, command palette (Ctrl+K), agent detail panel, team management, thought stream inspection, snapshot timeline, capability inspector.
 
 ```bash
-cd dag-explorer && bun install && bun run dev
+cd frontends/command-center && bun install && bun run dev
 ```
 
 ## Tests
@@ -893,21 +889,21 @@ Total:              4,095+ assertions   All passing
 
 ## Documentation
 
-- **[Quick Start](platform/docs/QUICKSTART.md)** — Setup, first agent, walkthrough
-- **[User Stories](platform/docs/user-stories.md)** — 15 practical examples with code
-- **[Specifications](platform/docs/specs/)** — Detailed architecture documents
-  - [00 Overview](platform/docs/specs/00-overview.md) — Vision and key differentiators
-  - [01 Core Architecture](platform/docs/specs/01-core-architecture.md) — S-expression foundation
-  - [02 Cognitive Model](platform/docs/specs/02-cognitive-model.md) — Agent architecture and thought representation
-  - [03 Snapshot System](platform/docs/specs/03-snapshot-system.md) — DAG model, branching, diffing
-  - [04 Human Interface](platform/docs/specs/04-human-interface.md) — Human-in-the-loop protocol
-  - [05 Visualization](platform/docs/specs/05-visualization.md) — ECS architecture, holodeck design
-  - [06 Integration](platform/docs/specs/06-integration.md) — Claude bridge, MCP integration
-  - [07 Implementation Roadmap](platform/docs/specs/07-implementation-roadmap.md) — Phased plan
-  - [08 Addendum](platform/docs/specs/08-specification-addendum.md) — Event sourcing, security, resources
-  - [08 Remaining Phases](platform/docs/specs/08-remaining-phases.md) — Phase 7-10 specifications
-- **[Paperclip Integration](platform/docs/paperclip.md)** — BYOA adapter setup, heartbeat protocol, API reference
-- **[Deployment](platform/docs/DEPLOYMENT.md)** — Docker deployment
+- **[Quick Start](packages/core/docs/QUICKSTART.md)** — Setup, first agent, walkthrough
+- **[User Stories](packages/core/docs/user-stories.md)** — 15 practical examples with code
+- **[Specifications](packages/core/docs/specs/)** — Detailed architecture documents
+  - [00 Overview](packages/core/docs/specs/00-overview.md) — Vision and key differentiators
+  - [01 Core Architecture](packages/core/docs/specs/01-core-architecture.md) — S-expression foundation
+  - [02 Cognitive Model](packages/core/docs/specs/02-cognitive-model.md) — Agent architecture and thought representation
+  - [03 Snapshot System](packages/core/docs/specs/03-snapshot-system.md) — DAG model, branching, diffing
+  - [04 Human Interface](packages/core/docs/specs/04-human-interface.md) — Human-in-the-loop protocol
+  - [05 Visualization](packages/core/docs/specs/05-visualization.md) — ECS architecture, holodeck design
+  - [06 Integration](packages/core/docs/specs/06-integration.md) — Claude bridge, MCP integration
+  - [07 Implementation Roadmap](packages/core/docs/specs/07-implementation-roadmap.md) — Phased plan
+  - [08 Addendum](packages/core/docs/specs/08-specification-addendum.md) — Event sourcing, security, resources
+  - [08 Remaining Phases](packages/core/docs/specs/08-remaining-phases.md) — Phase 7-10 specifications
+- **[Paperclip Integration](packages/core/docs/paperclip.md)** — BYOA adapter setup, heartbeat protocol, API reference
+- **[Deployment](packages/core/docs/DEPLOYMENT.md)** — Docker deployment
 - **[CLAUDE.md](CLAUDE.md)** — Development guidelines and code conventions
 
 ## License

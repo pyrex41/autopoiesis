@@ -6,16 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Autopoiesis is a self-configuring, self-extending agent platform built on Common Lisp's homoiconic foundation. Agent cognition, conversation, and configuration are represented as S-expressions (code-as-data, data-as-code), enabling agents to modify their own behavior, full state snapshots for time-travel debugging, and human-in-the-loop interaction at any point.
 
-**Current Status:** All phases (0-11) complete plus Command Center frontend. Pure Common Lisp architecture with substrate-backed state management, conductor orchestration, multi-provider agentic loops, and persistent functional agents with O(1) forking via structural sharing. The LFE layer has been removed. The dag-explorer frontend is a SolidJS Command Center with 11 views (dashboard, DAG, timeline, tasks, holodeck, constellation, org chart, budget, approvals, evolution lab, audit log).
+**Current Status:** All phases (0-11) complete plus Command Center frontend. Pure Common Lisp architecture with substrate-backed state management, conductor orchestration, multi-provider agentic loops, and persistent functional agents with O(1) forking via structural sharing. The LFE layer has been removed. The Command Center frontend is a SolidJS dashboard with 15 views (dashboard, DAG, timeline, tasks, holodeck, constellation, org chart, budget, approvals, evolution lab, audit log, and more).
 
 ## Build & Development Commands
 
 ```bash
 # Run all tests (from repo root)
-./platform/scripts/test.sh
+./packages/core/scripts/test.sh
 
 # Build/load the system
-./platform/scripts/build.sh
+./packages/core/scripts/build.sh
 ```
 
 ```lisp
@@ -37,30 +37,30 @@ Autopoiesis is a self-configuring, self-extending agent platform built on Common
 
 Autopoiesis adopts a three-layer mental model to reduce cognitive load while preserving all functionality. The platform is organized into **6-7 focused core layers** that represent the unique homoiconic agent substrate, with additional powerful capabilities available as optional extensions.
 
-See `platform/docs/layers.md` for the complete layered architecture with Mermaid diagrams and detailed descriptions.
+See `packages/core/docs/layers.md` for the complete layered architecture with Mermaid diagrams and detailed descriptions.
 
 ### Core Platform (6–7 focused layers)
 
-1. **Substrate Layer** (`platform/src/substrate/`) - Datom store with EAV triples, Linda coordination (take!), entity types (event, worker, agent, session, snapshot, turn, context, prompt, department, goal, budget), value indexing, interning, LMDB persistence, blob store
-2. **Core Layer** (`platform/src/core/`) - S-expression utilities, cognitive primitives, persistent data structures (fset wrappers: pmap/pvec/pset), extension compiler, recovery, profiling, config
-3. **Agent Layer** (`platform/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes, persistent agents (O(1) fork, immutable cognition, lineage, membrane), dual-agent bridge
-4. **Snapshot Layer** (`platform/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
-5. **Orchestration Layer** (`platform/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue
-6. **Integration + API Layer** (`platform/src/integration/`, `platform/src/api/`) - Claude bridge, MCP client, multi-provider agentic loops, REST/WebSocket (Clack/Woo), MCP server, SSE, JSON/MessagePack, Command Center endpoints (departments, goals, budgets, audit, approvals, evolution)
-7. **Interface Layer** (`platform/src/interface/`, `platform/src/viz/`) - Navigator, viewport, CLI session, blocking input, 2D ANSI terminal timeline
+1. **Substrate Layer** (`packages/substrate/src/`) - Datom store with EAV triples, Linda coordination (take!), entity types (event, worker, agent, session, snapshot, turn, context, prompt, department, goal, budget), value indexing, interning, LMDB persistence, blob store
+2. **Core Layer** (`packages/core/src/core/`) - S-expression utilities, cognitive primitives, persistent data structures (fset wrappers: pmap/pvec/pset), extension compiler, recovery, profiling, config
+3. **Agent Layer** (`packages/core/src/agent/`) - Agent runtime, capability registry, cognitive loop, learning system, agent spawner, thread-safe mailboxes, persistent agents (O(1) fork, immutable cognition, lineage, membrane), dual-agent bridge
+4. **Snapshot Layer** (`packages/core/src/snapshot/`) - Content-addressable storage, branch manager, diff engine, time-travel, backup
+5. **Orchestration Layer** (`packages/core/src/orchestration/`) - Conductor tick loop, timer heap, Claude CLI worker, substrate-backed event queue
+6. **Integration + API Layer** (`packages/core/src/integration/`, `packages/api-server/src/`) - Claude bridge, MCP client, multi-provider agentic loops, REST/WebSocket (Clack/Woo), MCP server, SSE, JSON/MessagePack, Command Center endpoints (departments, goals, budgets, audit, approvals, evolution)
+7. **Interface Layer** (`packages/core/src/interface/`, `packages/core/src/viz/`) - Navigator, viewport, CLI session, blocking input, 2D ANSI terminal timeline
 
 ### Optional Extensions
 
 Powerful capabilities that extend the core platform for specific use cases:
 
-- **Swarm Layer** (`platform/src/swarm/`) - Genome evolution, crossover/mutation, selection, persistent agent evolution, fitness functions
-- **Supervisor Layer** (`platform/src/supervisor/`) - Checkpoint/revert for high-risk ops, stable state tracking, dual-agent bridge
-- **Crystallize Layer** (`platform/src/crystallize/`) - Emit runtime changes to source files, ASDF fragments, Git export
-- **Conversation Layer** (`platform/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
-- **Workspace Layer** (`platform/src/workspace/`) - Ephemeral execution contexts, isolation backends, agent home directories, team coordination
-- **Team Layer** (`platform/src/team/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
-- **Jarvis Layer** (`platform/src/jarvis/`) - NL→tool conversational loop, Pi RPC provider, human-in-the-loop
-- **Security/Monitoring** (`platform/src/security/`, `platform/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
+- **Swarm Layer** (`packages/swarm/src/`) - Genome evolution, crossover/mutation, selection, persistent agent evolution, fitness functions
+- **Supervisor Layer** (`packages/supervisor/src/`) - Checkpoint/revert for high-risk ops, stable state tracking, dual-agent bridge
+- **Crystallize Layer** (`packages/crystallize/src/`) - Emit runtime changes to source files, ASDF fragments, Git export
+- **Conversation Layer** (`packages/core/src/conversation/`) - Turn-based conversation context, fork/merge, history tracking
+- **Workspace Layer** (`packages/team/src/workspace/`) - Ephemeral execution contexts, isolation backends, agent home directories, team coordination
+- **Team Layer** (`packages/team/src/`) - Multi-agent coordination with 5 strategies (leader-worker, parallel, pipeline, debate, consensus), shared workspace, CV-based await
+- **Jarvis Layer** (`packages/jarvis/src/`) - NL→tool conversational loop, Pi RPC provider, human-in-the-loop
+- **Security/Monitoring** (`packages/core/src/security/`, `packages/core/src/monitoring/`) - Permissions, audit logging, input validation, health endpoints, metrics
 - **Separate systems**: Holodeck (3D ECS viz), Sandbox (squashd containers), Research (parallel campaigns)
 
 ## Implementation Status
@@ -136,18 +136,18 @@ Powerful capabilities that extend the core platform for specific use cases:
 
 ## Specification Documents
 
-- `platform/docs/specs/00-overview.md` - Vision, architecture overview, key differentiators
-- `platform/docs/specs/01-core-architecture.md` - Core layer design, packages, S-expression foundation
-- `platform/docs/specs/02-cognitive-model.md` - Agent architecture, thought representation, cognitive loop
-- `platform/docs/specs/03-snapshot-system.md` - Snapshot DAG model, branching, diffing
-- `platform/docs/specs/04-human-interface.md` - Human-in-the-loop protocol, entry points
-- `platform/docs/specs/05-visualization.md` - ECS architecture, 3D holodeck design
-- `platform/docs/specs/06-integration.md` - Claude bridge, MCP integration
-- `platform/docs/specs/07-implementation-roadmap.md` - Phased implementation plan
-- `platform/docs/specs/08-specification-addendum.md` - Event sourcing, security architecture, resource management
-- `platform/docs/specs/08-remaining-phases.md` - Phase 7-10 detailed specifications
-- `platform/docs/user-stories.md` - 15 practical user stories with examples
-- `platform/docs/DEPLOYMENT.md` - Docker deployment documentation
+- `packages/core/docs/specs/00-overview.md` - Vision, architecture overview, key differentiators
+- `packages/core/docs/specs/01-core-architecture.md` - Core layer design, packages, S-expression foundation
+- `packages/core/docs/specs/02-cognitive-model.md` - Agent architecture, thought representation, cognitive loop
+- `packages/core/docs/specs/03-snapshot-system.md` - Snapshot DAG model, branching, diffing
+- `packages/core/docs/specs/04-human-interface.md` - Human-in-the-loop protocol, entry points
+- `packages/core/docs/specs/05-visualization.md` - ECS architecture, 3D holodeck design
+- `packages/core/docs/specs/06-integration.md` - Claude bridge, MCP integration
+- `packages/core/docs/specs/07-implementation-roadmap.md` - Phased implementation plan
+- `packages/core/docs/specs/08-specification-addendum.md` - Event sourcing, security architecture, resource management
+- `packages/core/docs/specs/08-remaining-phases.md` - Phase 7-10 detailed specifications
+- `packages/core/docs/user-stories.md` - 15 practical user stories with examples
+- `packages/core/docs/DEPLOYMENT.md` - Docker deployment documentation
 
 ## Code Conventions
 
@@ -237,8 +237,8 @@ Powerful capabilities that extend the core platform for specific use cases:
 
 ## Development Notes
 
-- The `platform/ralph/` directory contains automation tooling for implementation
-- See `platform/ralph/IMPLEMENTATION_PLAN.md` for current task status
+- The `ralph/` directory contains automation tooling for implementation
+- See `ralph/IMPLEMENTATION_PLAN.md` for current task status
 - Research documents are in `thoughts/shared/research/`
 - The LFE layer has been removed; all orchestration is now in pure Common Lisp
 - Substrate special variables (`*intern-table*`, `*resolve-table*`, etc.) are NOT exported — use `autopoiesis.substrate::*intern-table*` when capturing bindings for child threads

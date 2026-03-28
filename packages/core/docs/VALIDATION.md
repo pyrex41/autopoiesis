@@ -3,15 +3,14 @@
 This document provides a **complete, step-by-step validation plan** to fire up the full Autopoiesis system (core + all extensions), explore every layer, and verify it's ready as a base for agentic development. It replaces tools like OpenClaw/Cursor with homoiconic agents, self-extension, and time-travel debugging.
 
 **Time:** ~30-60 min  
-**Prerequisites:** SBCL + Quicklisp (see [QUICKSTART.md](QUICKSTART.md)). Run from repo root (`/Users/reuben/projects/ap`).  
+**Prerequisites:** SBCL + Quicklisp (see [QUICKSTART.md](QUICKSTART.md)). Run from repo root.  
 **Success Criteria:** All tests pass + all snippets execute without errors.
 
 ## 1. Setup & Core Load (5 min)
 
 ```bash
-cd platform
-./scripts/build.sh  # Builds core system + deps
-./scripts/test.sh   # Full core tests (4,300+ assertions) - MUST PASS ALL
+./packages/core/scripts/build.sh  # Builds core system + deps
+./packages/core/scripts/test.sh   # Full core tests (4,300+ assertions) - MUST PASS ALL
 ```
 
 In **SBCL REPL**:
@@ -147,7 +146,7 @@ rm -rf test-store/  # Cleanup
 
 ## Validation Checklist
 
-- [ ] `./scripts/test.sh` passes (core tests)
+- [ ] `./packages/core/scripts/test.sh` passes (core tests)
 - [ ] All REPL snippets succeed
 - [ ] Endpoints respond correctly
 - [ ] Nexus/Holodeck connect & show agents
