@@ -15,7 +15,11 @@ export interface Command {
   handler: () => void;
 }
 
-export type ViewId = "command" | "dag" | "timeline" | "dashboard";
+export type ViewId =
+  | "command" | "dag" | "timeline" | "dashboard"
+  | "tasks" | "constellation" | "holodeck"
+  | "org" | "budget" | "approvals" | "evolution"
+  | "eval" | "audit" | "conductor" | "widgets";
 
 // View state — managed here so commands + ViewSwitcher share it
 import { createSignal } from "solid-js";
@@ -137,7 +141,7 @@ export const commands: Command[] = [
     },
   },
 
-  // ── Views (simplified: 4 core views) ─────────────────────
+  // ── Views (15 views) ──────────────────────────────────────
   {
     id: "view.command",
     name: "Command",
@@ -173,6 +177,99 @@ export const commands: Command[] = [
     category: "views",
     icon: "◫",
     handler: () => navigateTo("dashboard", "Dashboard"),
+  },
+  {
+    id: "view.tasks",
+    name: "Tasks",
+    description: "Task board and scheduling",
+    shortcut: "5",
+    category: "views",
+    icon: "☐",
+    handler: () => navigateTo("tasks", "Tasks"),
+  },
+  {
+    id: "view.constellation",
+    name: "Constellation",
+    description: "Agent network visualization",
+    shortcut: "6",
+    category: "views",
+    icon: "✦",
+    handler: () => navigateTo("constellation", "Constellation"),
+  },
+  {
+    id: "view.holodeck",
+    name: "Holodeck",
+    description: "3D agent visualization",
+    shortcut: "7",
+    category: "views",
+    icon: "◈",
+    handler: () => navigateTo("holodeck", "Holodeck"),
+  },
+  {
+    id: "view.org",
+    name: "Org Chart",
+    description: "Department hierarchy and goals",
+    shortcut: "8",
+    category: "views",
+    icon: "⊟",
+    handler: () => navigateTo("org", "Org Chart"),
+  },
+  {
+    id: "view.eval",
+    name: "Eval Lab",
+    description: "Agent evaluation and benchmarking",
+    shortcut: "9",
+    category: "views",
+    icon: "⚗",
+    handler: () => navigateTo("eval", "Eval Lab"),
+  },
+  {
+    id: "view.budget",
+    name: "Budget",
+    description: "Agent budget allocation",
+    category: "views",
+    icon: "◆",
+    handler: () => navigateTo("budget", "Budget"),
+  },
+  {
+    id: "view.approvals",
+    name: "Approvals",
+    description: "Pending approval requests",
+    category: "views",
+    icon: "✓",
+    handler: () => navigateTo("approvals", "Approvals"),
+  },
+  {
+    id: "view.evolution",
+    name: "Evolution",
+    description: "Swarm evolution lab",
+    category: "views",
+    icon: "⧖",
+    handler: () => navigateTo("evolution", "Evolution"),
+  },
+  {
+    id: "view.audit",
+    name: "Audit Log",
+    description: "System audit trail",
+    category: "views",
+    icon: "⊡",
+    handler: () => navigateTo("audit", "Audit Log"),
+  },
+  {
+    id: "view.conductor",
+    name: "Conductor",
+    description: "Orchestration conductor dashboard",
+    category: "views",
+    icon: "♪",
+    handler: () => navigateTo("conductor", "Conductor"),
+  },
+  {
+    id: "view.widgets",
+    name: "Widgets",
+    description: "Widget sandbox",
+    category: "views",
+    icon: "⊞",
+    handler: () => navigateTo("widgets", "Widgets"),
   },
 
   // ── Navigation (DAG) ──────────────────────────────────────
