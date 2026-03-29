@@ -479,5 +479,6 @@ This is the same principle that makes the entire Autopoiesis platform work -- re
 - [Part 4: The Eval Lab](part-4.md)
 - **Part 4b: Under the Hood -- Shen Prolog** (you are here)
 - [Part 5: Logic Meets Learning](part-5.md)
+- [Part 6: Specs That Compile Themselves](part-6.md)
 
 [GitHub Repository](https://github.com/pyrex41/autopoiesis)

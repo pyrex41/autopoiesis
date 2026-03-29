@@ -261,5 +261,6 @@ In the next post, we will look at how Autopoiesis orchestrates multiple agents w
 - [Part 4: The Eval Lab](part-4.md)
 - [Part 4b: Under the Hood — Shen Prolog](part-4b.md)
 - [Part 5: Logic Meets Learning](part-5.md)
+- [Part 6: Specs That Compile Themselves](part-6.md)
 
 [GitHub Repository](https://github.com/pyrex41/autopoiesis) | [Documentation](https://github.com/pyrex41/autopoiesis/blob/main/packages/core/docs/QUICKSTART.md)

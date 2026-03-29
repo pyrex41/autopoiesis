@@ -160,3 +160,4 @@ In the next post, we'll look at how to ground agent reasoning in formal logic --
 - **Part 4: The Eval Lab** -- Benchmarking agents like software
 - [Part 4b: Under the Hood — Shen Prolog](part-4b.md)
 - [Part 5: Logic Meets Learning](/blog/part-5) -- Prolog-powered agent reasoning
+- [Part 6: Specs That Compile Themselves](part-6.md)
