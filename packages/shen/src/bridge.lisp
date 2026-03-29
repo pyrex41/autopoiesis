@@ -140,14 +140,36 @@
     (error "Shen is not loaded. Call (ensure-shen-loaded) first."))
   (bt:with-lock-held (*shen-lock*)
     ;; Build: (prolog? <query-form> (return Result))
-    (let* ((wrapped `(prolog? ,@query-form (return Result)))
-           (eval-fn (or (find-symbol "eval-kl" :shen)    ; v3.x
-                        (find-symbol "EVAL-KL" :shen)))
+    ;; Use Shen-package symbols for prolog? and return
+    (let* ((prolog?-sym (intern "prolog?" :shen))
+           (return-sym (intern "return" :shen))
+           (true-sym (intern "true" :shen))
+           (wrapped `(,prolog?-sym ,@query-form (,return-sym ,true-sym)))
+           ;; Use Shen's eval (not eval-kl) since prolog? is a macro
+           (eval-fn (or (find-symbol "eval" :shen)
+                        (find-symbol "eval-kl" :shen)))
            (result (when (and eval-fn (fboundp eval-fn))
                      (handler-case
                          (funcall eval-fn wrapped)
                        (error () nil)))))
       (shen-to-cl result))))
+
+(defun shen-eval-string (shen-source)
+  "Evaluate a Shen source string. Thread-safe.
+   Parses the string with Shen's reader, then evaluates each form
+   with Shen's eval (which handles macros like defprolog).
+   Returns the result of the last form, converted to CL values."
+  (unless (shen-available-p)
+    (error "Shen is not loaded. Call (ensure-shen-loaded) first."))
+  (bt:with-lock-held (*shen-lock*)
+    (let ((read-fn (find-symbol "read-from-string" :shen))
+          (eval-fn (find-symbol "eval" :shen)))
+      (unless (and read-fn (fboundp read-fn) eval-fn (fboundp eval-fn))
+        (error "Shen read-from-string or eval not available"))
+      (let* ((forms (funcall read-fn shen-source))
+             (result nil))
+        (dolist (form forms result)
+          (setf result (shen-to-cl (funcall eval-fn form))))))))
 
 ;;; ===================================================================
 ;;; Value Conversion

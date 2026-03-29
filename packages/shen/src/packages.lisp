@@ -8,6 +8,7 @@
    #:shen-available-p
    #:ensure-shen-loaded
    #:shen-eval
+   #:shen-eval-string
    #:shen-query
    #:*shen-lock*
 
