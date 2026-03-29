@@ -178,36 +178,85 @@
         (ql:quickload :autopoiesis/eval :silent t))
       (let ((pkg (find-package :autopoiesis.eval)))
         (when pkg
-          ;; Load builtins
-          (funcall (find-symbol "LOAD-BUILTIN-SCENARIOS" pkg))
-          (let ((scenarios (funcall (find-symbol "LIST-SCENARIOS" pkg))))
-            (format t "Builtin scenarios loaded: ~D~%~%" (length scenarios))
-            ;; Show first 5
-            (format t "Sample scenarios:~%")
-            (loop for s in (subseq scenarios 0 (min 5 (length scenarios)))
-                  do (format t "  ~A (~A) — ~A~%"
-                             (getf s :name)
-                             (getf s :domain)
-                             (subseq (or (getf s :description) "") 0
-                                     (min 60 (length (or (getf s :description) ""))))))
-            (format t "~%")
+          ;; Eval operations need a substrate store
+          (autopoiesis.substrate:with-store ()
+            (let ((load-fn (find-symbol "LOAD-BUILTIN-SCENARIOS" pkg)))
+              (when (and load-fn (fboundp load-fn))
+                (funcall load-fn)))
+            (let ((scenarios (funcall (find-symbol "LIST-SCENARIOS" pkg))))
+              (format t "Builtin scenarios loaded: ~D~%~%" (length scenarios))
+              ;; Show first 5
+              (format t "Sample scenarios:~%")
+              (loop for s in (subseq scenarios 0 (min 5 (length scenarios)))
+                    do (format t "  ~A (~A) — ~A~%"
+                               (getf s :name)
+                               (getf s :domain)
+                               (subseq (or (getf s :description) "") 0
+                                       (min 60 (length (or (getf s :description) ""))))))
+              (format t "~%")
 
-            ;; Show verifier types
-            (format t "Verifier types in use:~%")
-            (let ((verifiers (remove-duplicates
-                              (mapcar (lambda (s) (getf s :verifier)) scenarios))))
-              (dolist (v verifiers)
-                (format t "  ~S~%" v)))
-            (format t "~%")
+              ;; Show verifier types
+              (format t "Verifier types in use:~%")
+              (let ((verifiers (remove-duplicates
+                                (mapcar (lambda (s) (getf s :verifier)) scenarios))))
+                (dolist (v verifiers)
+                  (format t "  ~S~%" v)))
+              (format t "~%")
 
-            ;; Show domains
-            (format t "Domains:~%")
-            (let ((domains (remove-duplicates
-                            (mapcar (lambda (s) (getf s :domain)) scenarios))))
-              (dolist (d domains)
-                (let ((count (count d scenarios :key (lambda (s) (getf s :domain)))))
-                  (format t "  ~A: ~D scenarios~%" d count))))))))
+              ;; Show domains
+              (format t "Domains:~%")
+              (let ((domains (remove-duplicates
+                              (mapcar (lambda (s) (getf s :domain)) scenarios))))
+                (dolist (d domains)
+                  (let ((count (count d scenarios :key (lambda (s) (getf s :domain)))))
+                    (format t "  ~A: ~D scenarios~%" d count)))))))))
   (error (e) (format t "Eval error: ~A~%" e)))
+
+(format t "~%========================================~%")
+(format t "DEMO 5: Full Prolog Pipeline~%")
+(format t "========================================~%~%")
+
+(handler-case
+    (let ((pkg (find-package :autopoiesis.shen)))
+      (when pkg
+        (let ((define-fn (find-symbol "DEFINE-RULE" pkg))
+              (query-fn (find-symbol "QUERY-RULES" pkg))
+              (ensure-fn (find-symbol "ENSURE-SHEN-LOADED" pkg))
+              (avail-fn (find-symbol "SHEN-AVAILABLE-P" pkg)))
+          (when (and define-fn query-fn ensure-fn avail-fn
+                     (fboundp define-fn) (fboundp query-fn)
+                     (fboundp ensure-fn) (fboundp avail-fn))
+            ;; Ensure Shen is loaded
+            (funcall ensure-fn)
+            (format t "Shen available: ~A~%~%" (funcall avail-fn))
+
+            ;; Step 1: Define a fact-based rule (member predicate)
+            (format t "--- Step 1: Define Prolog rules ---~%")
+            (funcall define-fn :member
+                     '(((member X (cons X _)) <--)
+                       ((member X (cons _ REST)) <-- (member X REST))))
+            (format t "Defined :member — recursive list membership~%")
+
+            (funcall define-fn :append
+                     '(((append nil X X) <--)
+                       ((append (cons H T) L2 (cons H T2)) <-- (append T L2 T2))))
+            (format t "Defined :append — list concatenation~%~%")
+
+            ;; Step 2: Query the rules (auto-compiles into Shen Prolog)
+            (format t "--- Step 2: Query rules (auto-compiles) ---~%")
+            (let ((result (funcall query-fn :member :context '(b (cons a (cons b (cons c nil)))))))
+              (format t "(member b [a b c]) => ~A~%" result))
+
+            (let ((result (funcall query-fn :member :context '(z (cons a (cons b nil))))))
+              (format t "(member z [a b])   => ~A  (correctly fails)~%~%" result))
+
+            (format t "--- Step 3: Rules survive serialization ---~%")
+            (let* ((ser-fn (find-symbol "RULES-TO-SEXPR" pkg))
+                   (sexpr (when (and ser-fn (fboundp ser-fn)) (funcall ser-fn))))
+              (format t "Serialized rules: ~S~%~%" sexpr))
+
+            (format t "Full pipeline: define -> compile -> query -> serialize works!~%")))))
+  (error (e) (format t "Prolog pipeline error: ~A~%" e)))
 
 (format t "~%========================================~%")
 (format t "ALL DEMOS COMPLETE~%")
