@@ -1,0 +1,66 @@
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/api-server/api-server.asd" contains definition for system "autopoiesis/api". Please only define "api-server" and secondary systems with a name starting with "api-server/" (e.g. "api-server/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/api-server/api-server.asd" contains definition for system "autopoiesis/api-test". Please only define "api-server" and secondary systems with a name starting with "api-server/" (e.g. "api-server/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/eval/eval.asd" contains definition for system "autopoiesis/eval". Please only define "eval" and secondary systems with a name starting with "eval/" (e.g. "eval/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/eval/eval.asd" contains definition for system "autopoiesis/eval-test". Please only define "eval" and secondary systems with a name starting with "eval/" (e.g. "eval/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/eval/eval.asd" contains definition for system "autopoiesis/eval-sandbox-test". Please only define "eval" and secondary systems with a name starting with "eval/" (e.g. "eval/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/swarm/swarm.asd" contains definition for system "autopoiesis/swarm". Please only define "swarm" and secondary systems with a name starting with "swarm/" (e.g. "swarm/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/swarm/swarm.asd" contains definition for system "autopoiesis/swarm-test". Please only define "swarm" and secondary systems with a name starting with "swarm/" (e.g. "swarm/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/team/team.asd" contains definition for system "autopoiesis/team". Please only define "team" and secondary systems with a name starting with "team/" (e.g. "team/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/team/team.asd" contains definition for system "autopoiesis/team-test". Please only define "team" and secondary systems with a name starting with "team/" (e.g. "team/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/supervisor/supervisor.asd" contains definition for system "autopoiesis/supervisor". Please only define "supervisor" and secondary systems with a name starting with "supervisor/" (e.g. "supervisor/test") in that file.
+WARNING: System definition file #P"/Users/reuben/projects/autopoiesis/packages/supervisor/supervisor.asd" contains definition for system "autopoiesis/supervisor-test". Please only define "supervisor" and secondary systems with a name starting with "supervisor/" (e.g. "supervisor/test") in that file.
+
+=== Loading core ===
+Core loaded.
+
+=== Loading API server ===
+API server loaded.
+Eval loaded.
+Shen extension loaded.
+
+=== Starting system ===
+Store opened.
+
+=== Creating demo agents ===
+Running cognitive cycles...
+Cognitive cycles complete.
+Forking architect...
+Forked: architect-v2
+Taking snapshots...
+Snapshots created.
+
+=== Loading eval scenarios ===
+18 builtin scenarios loaded.
+
+=== Defining Prolog rules ===
+3 Prolog rules defined.
+
+=== Starting API server ===
+ <INFO> [15:50:11] autopoiesis.api events.lisp (top level form start-event-bridge) -
+  API event bridge started
+ <INFO> [15:50:11] autopoiesis.api events.lisp (top level form start-blocking-notifier) -
+  Blocking request notifier started
+ <INFO> [15:50:11] autopoiesis.api activity-tracker.lisp (top level form start-activity-tracker) -
+  Activity tracker started
+ <INFO> [15:50:11] autopoiesis.api holodeck-bridge.lisp (top level form start-holodeck-bridge) -
+  Holodeck bridge started (10fps)
+Authentication system initialized
+ <INFO> [15:50:11] autopoiesis.api web-console.lisp (top level form init-web-console) -
+  Web console initialized
+NOTICE: Running in debug mode. Debugger will be invoked on errors.
+  Specify ':debug nil' to turn it off on remote environments.
+ <INFO> [15:50:11] autopoiesis.api server.lisp (top level form start-api-server) -
+  API server started on 0.0.0.0:9090
+Autopoiesis API server running at http://0.0.0.0:9090
+  WebSocket: ws://0.0.0.0:9090/ws
+  Health:    http://0.0.0.0:9090/health
+
+API server started.
+  WebSocket: ws://localhost:9090/ws
+  REST:      http://localhost:9090/api/
+
+=== Backend ready for screenshots ===
+Start frontend: cd frontends/command-center && AP_WS_PORT=9090 AP_REST_PORT=9090 bun run dev
+Press Ctrl-C to stop.
+ <INFO> [15:56:20] autopoiesis.api connections.lisp (top level form register-connection) - API connection registered: 9F353527-D632-4F46-98CF-EBD456C558BA
+ <INFO> [15:57:25] autopoiesis.api connections.lisp (top level form unregister-connection) - API connection unregistered: 9F353527-D632-4F46-98CF-EBD456C558BA

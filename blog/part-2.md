@@ -61,21 +61,7 @@ The `pvec-push` call returns a new persistent vector with the thought appended. 
 
 ## Creating Agents
 
-You have three ways to bring an agent into existence.
-
-**Through the Command Center UI.** The create dialog lets you name the agent, assign capabilities, and optionally attach it to a team. Point and click.
-
-![Create Agent](images/p2-create-agent.png)
-
-**Through the REST API.** If you are integrating Autopoiesis into an existing system:
-
-```bash
-curl -X POST http://localhost:8080/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{"name": "security-reviewer", "capabilities": ["code", "security", "analyze"]}'
-```
-
-**Through Lisp directly.** If you are working at the REPL or building custom orchestration:
+The most direct way to create an agent is through Lisp:
 
 ```lisp
 (make-persistent-agent
@@ -83,7 +69,7 @@ curl -X POST http://localhost:8080/api/agents \
   :capabilities '(:code :security :analyze))
 ```
 
-The capabilities list is stored as a persistent set (`pset`). When the agent's cognitive cycle reaches the "act" phase, it checks whether the requested capability exists in its set before invoking it:
+This is verified working code. The capabilities list is stored as a persistent set (`pset`). When the agent's cognitive cycle reaches the "act" phase, it checks whether the requested capability exists in its set before invoking it:
 
 ```lisp
 (if (pset-contains-p (persistent-agent-capabilities agent)
@@ -94,11 +80,15 @@ The capabilities list is stored as a persistent set (`pset`). When the agent's c
 
 Capabilities are not just labels --- they gate what the agent can actually do.
 
+The Command Center UI also provides a create dialog for naming agents and assigning capabilities, and the REST API supports agent creation when the API server is running.
+
+![Create Agent](images/p2-create-agent.png)
+
 ![Agent Detail](images/p2-agent-detail.png)
 
 ## Teams and Coordination Strategies
 
-A single agent running its cognitive cycle is useful. Multiple agents coordinating on a shared goal is where things get interesting. Autopoiesis provides five coordination strategies out of the box, each implemented as a strategy object with a clean protocol:
+A single agent running its cognitive cycle is useful. Multiple agents coordinating on a shared goal is where things get interesting. The platform provides five coordination strategies, each implemented as a strategy object with a clean protocol:
 
 ```lisp
 ;; Create a strategy from a keyword
@@ -143,6 +133,8 @@ A team is a real object with lifecycle state, a member list, and an associated w
 
 Every strategy implements the same protocol: `strategy-initialize`, `strategy-assign-work`, `strategy-collect-results`, `strategy-handle-failure`, and `strategy-complete-p`. Swap out the strategy object and the team's coordination pattern changes completely. The agents do not need to know or care.
 
+Note: team coordination requires the team package loaded with the substrate store active. The architecture and strategy protocol are implemented; the code examples above show the real class definitions and API. Running teams end-to-end requires the full system context (substrate, conductor, and team package).
+
 ![Team Panel](images/p2-team-panel.png)
 
 ## The Command Center
@@ -151,17 +143,17 @@ The Command Center is a SolidJS frontend with 11 views, each showing a different
 
 **Dashboard.** System status at a glance --- active agents, running teams, event throughput, conductor health. This is your landing page.
 
-**Constellation.** A force-directed graph of agents and teams. Agents cluster by team membership. Connections show communication patterns. You can see at a glance which agents are collaborating and which are isolated.
+**Constellation.** A force-directed graph of agents and teams. Designed for visualizing which agents are collaborating and which are isolated.
 
 **Timeline.** A filterable, scrollable feed of every thought and event in the system. Filter by agent, by thought type, by time range. This is your debugging view --- when an agent makes a bad decision, scroll back through its reasoning to understand why.
 
 **DAG Explorer.** The snapshot graph, visualized. More on this in Part 3, but briefly: every agent state is a node, parent-child relationships are edges, and you can color-code by branch, agent, depth, or time.
 
-**Tasks.** Active work items, their assignments, and their status. See which teams are working on what, and how far along they are.
+**Tasks.** Active work items, their assignments, and their status.
 
-**Evolution Lab.** If you are using the swarm layer, this shows genome fitness over generations. Watch your agents get better at their jobs in real time.
+**Evolution Lab.** If you are using the swarm layer, this shows genome fitness over generations.
 
-And more --- org chart, budget tracking, approvals workflow, audit log. The Command Center is not a dashboard bolted onto the side. It is the primary interface for operating a multi-agent system.
+And more --- org chart, budget tracking, approvals workflow, audit log. The screenshots in this series show these views in their initial states; they populate with data as agents are created through the substrate-backed API and run cognitive cycles.
 
 ![Timeline](images/p2-timeline.png)
 

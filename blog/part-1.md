@@ -51,7 +51,7 @@ The trick that makes this work is an old one: homoiconicity. The word sounds aca
 
 ## The Homoiconic Advantage
 
-Let me show you what this looks like in practice. Here is the actual API from the Autopoiesis demo:
+Let me show you what this looks like in practice. Here is a demo you can run yourself against the real platform:
 
 ```lisp
 ;; Create a persistent agent
@@ -72,6 +72,18 @@ Let me show you what this looks like in practice. Here is the actual API from th
     ))
 ```
 
+Here is the actual output from running this demo:
+
+```
+Created: scout
+Capabilities: (:REPORT :SEARCH :ANALYZE)
+Thoughts: 0
+
+After perceive — thoughts: 1
+After reason  — thoughts: 2
+Original unchanged — thoughts: 0
+```
+
 Read that carefully. `persistent-perceive` does not modify `agent`. It returns a brand new agent struct with the perception appended to its thought vector. The original agent still has zero thoughts. `persistent-reason` takes the post-perception agent and returns yet another new agent with a reasoning thought added. Every cognitive operation is a pure function from one agent state to the next.
 
 This is not an implementation detail. It is the whole point.
@@ -80,27 +92,22 @@ Because the agent is an immutable struct backed by persistent data structures (m
 
 ### What the agent looks like as data
 
-Every persistent agent can be serialized to a pure S-expression with a single function call:
+Every persistent agent can be serialized to a pure S-expression with a single function call. Here is real output from calling `persistent-agent-to-sexpr` on a forked agent after one perceive and one reason cycle:
 
-```lisp
-(persistent-agent-to-sexpr agent)
-;; =>
-;; (:persistent-agent
-;;   :id           "a1b2c3d4-..."
-;;   :name         "scout"
-;;   :version      0
-;;   :timestamp    3920481234
-;;   :membrane     ()
-;;   :genome       nil
-;;   :thoughts     ()
-;;   :capabilities (:search :analyze :report)
-;;   :heuristics   nil
-;;   :children     nil
-;;   :parent-root  nil
-;;   :metadata     ())
+```
+(:PERSISTENT-AGENT :ID "F508E4AA-E652-4418-AA59-2E5C4C0A1F3B" :NAME
+ "scout-alpha" :VERSION 1 :TIMESTAMP 1.774742212504536d9 :MEMBRANE NIL :GENOME
+ NIL :THOUGHTS
+ ((:TYPE :OBSERVATION :CONTENT (:INPUT "analyze auth module") :TIMESTAMP
+   1.774742212504501d9 :ID "474BA8C4-CD1A-4D5F-B810-2AE7FF1816E4" :SOURCE
+   :ENVIRONMENT)
+  (:TYPE :REASONING :CONTENT
+   (:OBSERVATIONS-COUNT 1 :SUMMARY (:INPUT "analyze auth module")
+    :HEURISTICS-AVAILABLE 0)
+   :TIMESTAMP 1.774742212504523d9 :ID "F702EF59-DA...
 ```
 
-That is the agent's entire state. A nested list. You can write it to a file, send it over the network, store it in a database, diff it against another agent's state, or deserialize it back with `sexpr-to-persistent-agent`. Try doing that with a LangChain `AgentExecutor` or a CrewAI `Agent`.
+That is the agent's entire state -- a nested list, truncated here at 500 characters. You can write it to a file, send it over the network, store it in a database, diff it against another agent's state, or deserialize it back with `sexpr-to-persistent-agent`. Try doing that with a LangChain `AgentExecutor` or a CrewAI `Agent`.
 
 ### O(1) Forking
 
@@ -124,6 +131,18 @@ Because persistent data structures share structure, forking an agent is instanta
     (pvec-length (persistent-agent-thoughts child))       ; => 2 (unchanged)
     (pvec-length (persistent-agent-thoughts after-reason)) ; => 2 (unchanged)
     ))
+```
+
+And here is the verified output:
+
+```
+Forked child: scout-alpha
+Thoughts shared (eq): T
+Parent tracks child: T
+
+Child after work — thoughts: 3
+Original child unchanged — thoughts: 2
+Parent unchanged — thoughts: 2
 ```
 
 The fork operation creates a new agent struct that literally points to the same persistent vector of thoughts. No copying. When the child adds a new thought, only the child gets a new vector node; the parent's vector is untouched. This is the same technique that Git uses for its object store and that Clojure uses for its immutable collections.
@@ -172,29 +191,11 @@ Beyond these three core layers, optional extensions provide orchestration (condu
 
 ### Prerequisites
 
-You need [SBCL](http://www.sbcl.org/) (Steel Bank Common Lisp) with [Quicklisp](https://www.quicklisp.org/beta/) and [Bun](https://bun.sh/) for the web console. The fastest path uses [Tilt](https://tilt.dev/) for dev orchestration:
+You need [SBCL](http://www.sbcl.org/) (Steel Bank Common Lisp) with [Quicklisp](https://www.quicklisp.org/beta/) and [Bun](https://bun.sh/) for the web console.
 
-```bash
-git clone https://github.com/pyrex41/autopoiesis && cd autopoiesis
+### Creating your first agent from the REPL
 
-# Start everything: backend + frontend
-tilt up --port 14400
-
-# Open the web console
-open http://localhost:14403
-```
-
-Tilt brings up four services: the dev dashboard (14400), WebSocket API (14401), REST API (14402), and the SolidJS Command Center (14403).
-
-### Creating your first agent via the REST API
-
-```bash
-curl -X POST http://localhost:14402/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{"name": "scout", "capabilities": ["search", "analyze"]}'
-```
-
-Or from the REPL:
+The most direct way to interact with the platform is through the Lisp REPL:
 
 ```lisp
 (ql:quickload :autopoiesis)
@@ -211,23 +212,36 @@ Or from the REPL:
 ;; The original is untouched; *after-cycle* has the full thought trace
 ```
 
+The platform also provides a REST API for agent creation and management when the API server is running, and a Tilt-based dev orchestration setup for running all services together.
+
+### Running the Demo
+
+To reproduce the verified output shown in this post, load the persistent agent demo:
+
+```bash
+cd /path/to/autopoiesis
+sbcl --load blog/demo-setup.lisp
+```
+
+The demo script creates agents, runs cognitive cycles (perceive/reason), forks agents, and demonstrates structural sharing -- all the operations shown in the code examples above. It prints status as it goes, so you can see each operation succeed and verify the thought counts, fork behavior, and S-expression serialization yourself.
+
 ### The Command Center
 
-The web frontend is a SolidJS application with 15 views for managing agents at scale:
+The web frontend is a SolidJS application with 11 views for managing agents at scale:
 
 ![Dashboard](images/p1-dashboard.png)
-*The Command Center dashboard showing live agent status, thought streams, and lineage trees.*
+*The Command Center dashboard -- the landing view for system status.*
 
 ![Command View](images/p1-command.png)
 *The conversational Jarvis interface for natural language agent control.*
 
 ![Thought Stream](images/p1-thought-stream.png)
-*Real-time agent thoughts as they flow through the cognitive cycle.*
+*The thought stream view for inspecting agent cognitive output.*
 
 ![Constellation](images/p1-constellation.png)
 *Agent network visualization showing forked lineages and team relationships.*
 
-The dashboard gives you a live view of your agent swarm: which agents are active, what they are thinking, how they are related. You can fork agents, inspect their thought history, compare two agent states side-by-side, and control everything through either the UI or the Jarvis natural language chat pane.
+The Command Center provides views for the dashboard, DAG explorer, timeline, tasks, constellation, org chart, budget, approvals, evolution lab, holodeck, and audit log. The views are ready to display agent data once agents are created through the substrate-backed API. Agents created directly via `make-persistent-agent` at the REPL live in memory and are not automatically visible in the Command Center (which reads from the substrate store).
 
 ---
 

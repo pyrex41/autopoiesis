@@ -1,0 +1,89 @@
+========================================
+DEMO 1: Persistent Agents
+========================================
+Created: scout
+Capabilities: (:REPORT :SEARCH :ANALYZE)
+Thoughts: 0
+After perceive — thoughts: 1
+After reason  — thoughts: 2
+Original unchanged — thoughts: 0
+Forked child: scout-alpha
+Thoughts shared (eq): T
+Parent tracks child: T
+Child after work — thoughts: 3
+Original child unchanged — thoughts: 2
+Parent unchanged — thoughts: 2
+Agent as S-expression (first 500 chars):
+(:PERSISTENT-AGENT :ID "F508E4AA-E652-4418-AA59-2E5C4C0A1F3B" :NAME
+ "scout-alpha" :VERSION 1 :TIMESTAMP 1.77474276886223d9 :MEMBRANE NIL :GENOME
+ NIL :THOUGHTS
+ ((:TYPE :OBSERVATION :CONTENT (:INPUT "analyze auth module") :TIMESTAMP
+   1.774742768862199d9 :ID "474BA8C4-CD1A-4D5F-B810-2AE7FF1816E4" :SOURCE
+   :ENVIRONMENT)
+  (:TYPE :REASONING :CONTENT
+   (:OBSERVATIONS-COUNT 1 :SUMMARY (:INPUT "analyze auth module")
+    :HEURISTICS-AVAILABLE 0)
+   :TIMESTAMP 1.77474276886222d9 :ID "F702EF59-DAFA
+========================================
+DEMO 2: Persistent Data Structures
+========================================
+m1 (empty): 0 entries
+m4 (3 puts): 3 entries
+m4[:name] = scout
+m4[:role] = analyzer
+m2 still has only 1: 1
+v1 length: 0
+v4 length: 3
+v4[0] = thought-1
+v4[2] = thought-3
+v1 still empty: 0
+========================================
+DEMO 3: Shen Prolog
+========================================
+Shen kernel loaded successfully.
+Shen loaded: T
+--- Basic eval ---
+(+ 1 2) = 3
+(* 6 7) = 42
+(+ 100 200) = 300
+--- Rule definition ---
+                                                   COMMON-LISP-USER::QUALITY-CHECK
+                                                   is undefined.
+                                                 COMMON-LISP-USER::DEPLOY-SAFE
+                                                 is undefined.
+                                                 COMMON-LISP-USER::CODE-REVIEW
+                                                 is undefined.
+Rules defined: (QUALITY-CHECK DEPLOY-SAFE CODE-REVIEW)
+--- Serialization roundtrip ---
+Serialized: ((:QUALITY-CHECK (QUALITY-CHECK TREE) <--
+              (HAS-FILE TREE "README.md") (HAS-FILE TREE "src/")
+              (HAS-FILE TREE "tests/"))
+             (:DEPLOY-SAFE (DEPLOY-SAFE MODULE) <-- (TESTED MODULE)
+              (ALL-DEPS-TESTED MODULE))
+             (:CODE-REVIEW (CODE-REVIEW FILE) <-- (HAS-TESTS FILE)
+              (NO-LINT-ERRORS FILE) (DOCUMENTED FILE)))
+After clear: 0 rules
+                                                   COMMON-LISP-USER::QUALITY-CHECK
+                                                   is undefined.
+                                                 COMMON-LISP-USER::DEPLOY-SAFE
+                                                 is undefined.
+                                                 COMMON-LISP-USER::CODE-REVIEW
+                                                 is undefined.
+After restore: 3 rules
+--- CL fallback verification ---
+:files-exist [README.md, src/main.py] with matching tree: PASS
+:files-exist [README.md, MISSING.txt] with partial tree: FAIL
+:output-contains 'All tests passed': PASS
+:all combinator (files + output): PASS
+========================================
+DEMO 4: Eval System
+========================================
+Eval error: There is no applicable method for the generic function
+              #<STANDARD-GENERIC-FUNCTION AUTOPOIESIS.SUBSTRATE::STORE-LOCK (1)>
+            when called with arguments
+              (NIL).
+See also:
+  The ANSI Standard, Section 7.6.6
+========================================
+ALL DEMOS COMPLETE
+========================================

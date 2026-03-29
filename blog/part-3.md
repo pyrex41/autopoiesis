@@ -72,6 +72,22 @@ The platform wraps the `fset` library to provide three persistent collections:
 (pset-contains-p set :analyze) ; => T
 ```
 
+Here is verified output from the persistent data structures demo:
+
+```
+m1 (empty): 0 entries
+m4 (3 puts): 3 entries
+m4[:name] = scout
+m4[:role] = analyzer
+m2 still has only 1: 1
+
+v1 length: 0
+v4 length: 3
+v4[0] = thought-1
+v4[2] = thought-3
+v1 still empty: 0
+```
+
 Every "modification" returns a new collection. The old collection is completely untouched. Under the hood, these are tree structures where new versions share nodes with old versions --- only the path from the changed node to the root is copied.
 
 Here is what a fork looks like:
@@ -97,7 +113,7 @@ Here is what a fork looks like:
 
 Look at what happens with the `:thoughts` slot. It does not copy the thought vector. It points to the *same* persistent vector. The child agent and the parent agent literally share the same object in memory.
 
-The demo script proves this:
+The demo script proves this. Here is the verified output from running the persistent agent demo:
 
 ```lisp
 ;; Fork an agent that has been through perceive and reason
@@ -108,6 +124,12 @@ The demo script proves this:
   (eq (persistent-agent-thoughts child)
       (persistent-agent-thoughts after-reason))
   ;; => T
+```
+
+```
+Forked child: scout-alpha
+Thoughts shared (eq): T
+Parent tracks child: T
 ```
 
 In Common Lisp, `eq` means pointer equality --- same object in memory, not just equal values. The child did not get a copy of the parent's thoughts. It got the *actual same thoughts*. Zero allocation.
@@ -124,13 +146,22 @@ When the child later perceives something new, `pvec-push` creates a new vector t
   (pvec-length (persistent-agent-thoughts after-reason)))
 ```
 
+Verified output:
+
+```
+Child after work — thoughts: 3
+Original child unchanged — thoughts: 2
+Parent unchanged — thoughts: 2
+```
+
 Three agents, three different thought counts, but sharing the vast majority of their underlying data. This is analogous to git's copy-on-write for files --- a new branch does not duplicate the entire repository, just tracks what diverges.
 
 ## The DAG Explorer
 
-The Command Center includes a visual graph of agent snapshots, built with the dagre layout algorithm on an HTML canvas. Every snapshot is a node, every parent-child relationship is an edge.
+The Command Center includes a visual DAG explorer for agent snapshots, built with the dagre layout algorithm on an HTML canvas. Every snapshot is a node, every parent-child relationship is an edge.
 
 ![DAG Explorer](images/p3-dag.png)
+*The DAG explorer view. The structural sharing and forking demonstrated in the Lisp output above is the same data model this view renders -- snapshots as nodes, parent-child relationships as edges.*
 
 The visualization supports five color schemes, selectable in real time:
 
@@ -141,8 +172,6 @@ The visualization supports five color schemes, selectable in real time:
 - **Mono** -- single accent color for clean structural views.
 
 Selecting a node shows its metadata: agent name, timestamp, hash, branch membership. The inspector panel gives you the full serialized state if you want to dig in.
-
-![Node Detail](images/p3-node-detail.png)
 
 ## Diffing Agent State
 
@@ -178,8 +207,6 @@ For agents specifically, there is a higher-level diff function:
 ```
 
 This tells you exactly which thoughts were added, which capabilities changed, how the membrane evolved. When debugging a multi-agent system, this is invaluable. Instead of staring at log files trying to figure out why agent B started misbehaving after cycle 47, you diff cycle 46 and cycle 47 and see exactly what changed.
-
-![Diff View](images/p3-diff.png)
 
 ## Branching and Time Travel
 
@@ -221,8 +248,6 @@ The practical workflow looks like this. You have an agent that has been running 
 ```
 
 You can list all branches with `list-branches`, check what you are currently on with `current-branch`, and navigate the full history by following parent pointers from any snapshot.
-
-![Branch List](images/p3-branch-list.png)
 
 And there is merge. When two agents have diverged and you want to combine their learnings:
 

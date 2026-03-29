@@ -71,7 +71,14 @@ These are different. The prompts are actual shell commands: `mkdir -p src tests 
 
 ## Running an Eval
 
-From the API, it's two calls. Create the run, then execute it:
+The Eval Lab ships with 18 built-in scenarios that load successfully. From the REPL, loading them is straightforward:
+
+```lisp
+(load-builtin-scenarios)
+(list-scenarios)  ;; => 18 scenarios across 6 domains
+```
+
+To create and execute a run, the platform provides this API:
 
 ```lisp
 ;; Create a run: 5 coding scenarios x 2 harnesses x 3 trials = 30 trials
@@ -84,6 +91,8 @@ From the API, it's two calls. Create the run, then execute it:
 ;; Execute with parallel harness dispatch and LLM judging
 (execute-eval-run run-id :parallel t :judge t)
 ```
+
+Note: creating and executing eval runs requires the substrate store to be active (via `with-store`), since scenarios and trials are stored as substrate entities. The scenario definitions load and can be listed without the store, but running trials needs the full system context.
 
 The REST API exposes the same flow: `POST /api/eval/runs` to create, `POST /api/eval/runs/:id/execute` to kick it off. Progress updates stream back via SSE events as each trial completes, so the Eval Lab UI can show real-time progress bars and fill in the results table as data arrives.
 
@@ -130,12 +139,6 @@ For tracking improvement over time, `compute-normalized-gain` implements Hake's 
 Cross-run comparison via `compare-runs` lets you track these metrics across versions of your agent, prompt changes, or model upgrades.
 
 ![Eval Scenarios](images/p4-eval-scenarios.png)
-
-![Run Configuration](images/p4-eval-run.png)
-
-![Results](images/p4-eval-results.png)
-
-![Comparison Matrix](images/p4-comparison.png)
 
 ## Why This Matters
 

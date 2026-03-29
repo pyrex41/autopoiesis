@@ -4,7 +4,9 @@
 
 Part 5 showed you what Shen Prolog does for agents: rules as data, a reasoning mixin, deterministic verification alongside LLM intelligence. If you read that post and thought "OK, but how does any of this actually work?" -- this is the post for you.
 
-We're going to trace a rule from definition through compilation to query execution. We'll look at how the Shen language runtime gets loaded into a running SBCL process without saving a new binary. We'll understand why there's a single global lock for all Prolog queries, how the CL fallback verifier reverse-engineers Prolog clauses into native checks, and why storing rules as S-expressions rather than compiled predicates is the decision that makes everything else possible.
+We're going to trace a rule from definition through storage to verification. We'll look at how the Shen language runtime gets loaded into a running SBCL process without saving a new binary. We'll understand why there's a single global lock for all Shen calls, how the CL fallback verifier reverse-engineers Prolog clauses into native checks, and why storing rules as S-expressions rather than compiled predicates is the decision that makes everything else possible.
+
+A note on what works and what does not: the bridge loads Shen successfully, basic `eval-kl` evaluation works (arithmetic, list operations), rules can be defined and stored as data, serialization round-trips work, and the CL fallback verifier produces correct PASS/FAIL results. However, Prolog query execution via `eval-kl` does not work -- `defprolog` is a Shen macro that compiles to internal representations, and `eval-kl` operates at the KLambda level below where macros are expanded. This limitation is documented transparently throughout.
 
 This is the mechanical deep dive. Expect code.
 
@@ -66,6 +68,17 @@ Now, how does Autopoiesis actually trigger the load? `ensure-shen-loaded` (`brid
   ;; Double-check under lock
   (when *shen-loaded-p*
     (return-from ensure-shen-loaded t))
+```
+
+This has been verified working. The bridge successfully loads the Shen kernel and basic evaluation works:
+
+```
+Shen loaded: T
+
+--- Basic eval ---
+(+ 1 2) = 3
+(* 6 7) = 42
+(+ 100 200) = 300
 ```
 
 The file search (`find-shen-install`, line 38) looks in a cascading set of locations -- `~/shen-cl/`, `vendor/shen-cl/` relative to the ASDF system, Quicklisp local-projects, `/usr/local/share/`, `/opt/`. It checks for our custom `load-into-sbcl.lsp` first, then the standard `boot.lsp` and `install.lsp`. The first file that `probe-file` confirms exists wins.
@@ -147,9 +160,9 @@ The rule is now a hash table entry: `:member` maps to a list of clause S-express
 
 Notice the store uses `'eq` test with keyword keys (`rules.lisp`, line 24). Keywords are interned singletons in CL, so `eq` comparison is a pointer check. Fast, and no risk of string comparison subtleties.
 
-### Step 2: Compilation
+### Step 2: Compilation (and its current limitation)
 
-`compile-rule-into-shen` (`rules.lisp`, line 75) transforms the S-expression clauses into a Shen `defprolog` form and evaluates it:
+`compile-rule-into-shen` (`rules.lisp`, line 75) is designed to transform the S-expression clauses into a Shen `defprolog` form and evaluate it:
 
 ```lisp
 ;; rules.lisp, lines 78-83
@@ -158,22 +171,12 @@ Notice the store uses `'eq` test with keyword keys (`rules.lisp`, line 24). Keyw
   (setf (gethash name *compiled-rules*) t))
 ```
 
-`clauses-to-defprolog` (`rules.lisp`, line 92) does the actual translation. It converts the keyword name to a Shen symbol and wraps the clauses:
+`clauses-to-defprolog` (`rules.lisp`, line 92) does the translation. It converts the keyword name to a Shen symbol and wraps the clauses:
 
 ```lisp
 ;; rules.lisp, lines 96-97
 (let ((shen-name (rule-name-to-shen name)))
   `(defprolog ,shen-name ,@clauses))
-```
-
-`rule-name-to-shen` (`rules.lisp`, line 99) converts `:member` to the symbol `member` in the `:SHEN` package. The `string-downcase` is critical -- Shen expects lowercase identifiers, but CL's keyword `:MEMBER` has an uppercase name internally:
-
-```lisp
-;; rules.lisp, lines 102-105
-(let ((str (string-downcase (symbol-name name))))
-  (if (find-package :shen)
-      (intern str :shen)
-      (intern str)))
 ```
 
 So for our `:member` rule, the generated Shen form is:
@@ -184,11 +187,15 @@ So for our `:member` rule, the generated Shen form is:
   (mem X [_ | Y] <-- (mem X Y)))
 ```
 
-This gets passed to `shen-eval`, which acquires `*shen-lock*`, finds the `eval-kl` function, and evaluates the form in the Shen runtime. The Shen Prolog engine compiles it into its internal representation -- an indexed set of clauses with unification-ready argument patterns.
+**Here is the current limitation.** This form gets passed to `shen-eval`, which calls `eval-kl` -- the KLambda evaluator. But `defprolog` is a Shen *macro*, not a KLambda primitive. It needs Shen's macro expander to compile it down to the internal Prolog representation. `eval-kl` cannot process `defprolog` because it operates below the macro expansion layer. In practice, this means rule compilation silently fails -- the rule is stored as data in `*rule-store*` (which works), but the compiled Prolog predicate is never created in the Shen runtime.
 
-The `*compiled-rules*` hash table (`rules.lisp`, line 29) tracks which rules have been compiled in the current session. This is separate from `*rule-store*` because compilation is session-specific -- if you serialize rules and reload them in a new image, they need recompilation. `ensure-rule-compiled` (`rules.lisp`, line 85) checks this table before each query and compiles on demand.
+What *does* work is rule definition as data and the CL fallback verification path, which is where most of the practical value lives. More on that below.
 
-### Step 3: Querying
+The `*compiled-rules*` hash table (`rules.lisp`, line 29) is designed to track which rules have been compiled in the current session. This is separate from `*rule-store*` because compilation is session-specific -- if you serialize rules and reload them in a new image, they would need recompilation.
+
+### Step 3: Querying (aspirational)
+
+The query path is designed to work as follows:
 
 ```lisp
 (query-rules :member :context '(1 (1 2 3)))
@@ -207,31 +214,33 @@ The `*compiled-rules*` hash table (`rules.lisp`, line 29) tracks which rules hav
   (shen-query `((,shen-name ,@args))))
 ```
 
-This builds `((member 1 (1 2 3)))` and passes it to `shen-query` (`bridge.lisp`, line 134), which wraps it in Shen's Prolog query syntax:
+This would build `((member 1 (1 2 3)))` and pass it to `shen-query`, which wraps it in Shen's Prolog query syntax: `(prolog? (member 1 (1 2 3)) (return Result))`.
 
-```lisp
-;; bridge.lisp, line 143
-(let* ((wrapped `(prolog? ,@query-form (return Result)))
+In theory, Shen's Prolog engine would attempt unification and return success or failure. In practice, because `defprolog` compilation does not succeed via `eval-kl` (as described above), the query has no compiled predicate to run against. This is the gap that needs closing -- either by finding a way to invoke Shen's macro expander from CL, or by using `shen-cl`'s native REPL interface rather than `eval-kl`.
+
+**The practical workaround is the CL fallback verifier**, which handles the verification use cases that matter most without needing Prolog execution at all.
+
+### Step 4: Serialization (verified working)
+
+Rule serialization round-trips correctly. Here is verified output from the demo:
+
+```
+--- Rule definition ---
+Rules defined: (QUALITY-CHECK DEPLOY-SAFE CODE-REVIEW)
+
+--- Serialization roundtrip ---
+Serialized: ((:QUALITY-CHECK (QUALITY-CHECK TREE) <--
+              (HAS-FILE TREE "README.md") (HAS-FILE TREE "src/")
+              (HAS-FILE TREE "tests/"))
+             (:DEPLOY-SAFE (DEPLOY-SAFE MODULE) <-- (TESTED MODULE)
+              (ALL-DEPS-TESTED MODULE))
+             (:CODE-REVIEW (CODE-REVIEW FILE) <-- (HAS-TESTS FILE)
+              (NO-LINT-ERRORS FILE) (DOCUMENTED FILE)))
+After clear: 0 rules
+After restore: 3 rules
 ```
 
-The final form sent to `eval-kl` is:
-
-```lisp
-(prolog? (member 1 (1 2 3)) (return Result))
-```
-
-Shen's Prolog engine takes over. It attempts unification of `(1 (1 2 3))` against the first clause `(mem X [X | _])`. `X` unifies with `1`, and `[X | _]` matches `(1 2 3)` because the head is `1` (which equals `X`). The query succeeds. The result goes through `shen-to-cl` (`bridge.lisp`, line 156), which converts Shen's `true` symbol to CL's `T`.
-
-If we queried `(query-rules :member :context '(4 (1 2 3)))`, the first clause would fail (4 doesn't match 1), so Shen tries the second clause `(mem X [_ | Y] <-- (mem X Y))`. This strips the head of the list and recurses. After exhausting the list without finding 4, the query fails and `shen-query` returns `NIL`.
-
-### Step 4: Serialization
-
-```lisp
-(rules-to-sexpr)
-;; => ((:member (mem X [X | _] <--) (mem X [_ | Y] <-- (mem X Y))))
-```
-
-`rules-to-sexpr` (`rules.lisp`, line 131) walks the hash table and produces `(name . clauses)` pairs. `sexpr-to-rules` (`rules.lisp`, line 142) does the reverse -- it calls `define-rule` for each entry, which stores and optionally compiles:
+`rules-to-sexpr` (`rules.lisp`, line 131) walks the hash table and produces `(name . clauses)` pairs. `sexpr-to-rules` (`rules.lisp`, line 142) does the reverse -- it calls `define-rule` for each entry, which stores the rules:
 
 ```lisp
 ;; rules.lisp, lines 143-144
@@ -239,7 +248,7 @@ If we queried `(query-rules :member :context '(4 (1 2 3)))`, the first clause wo
   (define-rule (car entry) (cdr entry)))
 ```
 
-The serialized form is pure S-expressions. No Shen runtime state, no compiled predicate bytecode, no binary blobs. You can write it to a substrate datom, embed it in JSON, store it in a persistent agent's metadata pmap, or print it to a file. The data *is* the rule. Compilation is a derived operation that can be redone at any time.
+The serialized form is pure S-expressions. No Shen runtime state, no compiled predicate bytecode, no binary blobs. You can write it to a substrate datom, embed it in JSON, store it in a persistent agent's metadata pmap, or print it to a file. The data *is* the rule. This is the part that works unconditionally -- rules as data, portable and inspectable.
 
 ## The CL Fallback: When Shen Isn't Installed
 
@@ -315,7 +324,19 @@ The CL check runner (`cl-check-verify`, line 153) dispatches on these spec keywo
           tree))
 ```
 
-The philosophy is: always return `:pass`, `:fail`, or `:error`. Never crash. Degrade gracefully from Shen Prolog to pattern-matched CL checks to "I can't verify this, here's `:error`." The test suite (`shen-tests.lisp`, lines 121-151) explicitly tests the fallback path with rules containing `has-file` predicates, verifying that the CL path produces the same `:pass`/`:fail` results that Shen would.
+The philosophy is: always return `:pass`, `:fail`, or `:error`. Never crash. Degrade gracefully from Shen Prolog to pattern-matched CL checks to "I can't verify this, here's `:error`."
+
+This CL fallback path is verified working. Here is actual demo output:
+
+```
+--- CL fallback verification ---
+:files-exist [README.md, src/main.py] with matching tree: PASS
+:files-exist [README.md, MISSING.txt] with partial tree: FAIL
+:output-contains 'All tests passed': PASS
+:all combinator (files + output): PASS
+```
+
+The fallback correctly returns PASS when files exist in the tree and the output contains expected strings, and correctly returns FAIL when files are missing. The `:all` combinator requires every sub-check to pass. The test suite (`shen-tests.lisp`, lines 121-151) also tests the fallback path with rules containing `has-file` predicates, verifying that the CL path produces correct `:pass`/`:fail` results.
 
 ## Persistent Agent Integration: Rules That Survive Forking
 
@@ -440,9 +461,11 @@ A few lessons from integrating an external language runtime into a running appli
 
 **Global mutable state in embedded runtimes needs explicit serialization.** If the embedded runtime were purely functional, you could have per-thread instances. Shen isn't, so you get a lock. The simplicity of a single lock beats the complexity of per-thread Shen images for our throughput requirements.
 
-**Fallback paths deserve the same test coverage as the happy path.** The CL fallback verifier is tested in `shen-tests.lisp` with trees that pass and trees that fail (`lines 121-151`). If you only test the Shen path, you won't discover that your fallback silently returns `:error` for clause patterns it doesn't recognize.
+**The abstraction boundary between eval-kl and Shen macros matters.** This is the lesson we learned the hard way. `eval-kl` operates at the KLambda level -- Shen's low-level functional core. `defprolog` is a Shen macro that expands through the Shen compiler, not through KLambda. Calling `(eval-kl '(defprolog ...))` is like calling `eval` on unexpanded macro code -- it does not work. The fix would be to either invoke Shen's macro expander before calling `eval-kl`, or use a higher-level entry point like Shen's native REPL evaluation. This is an open issue.
 
-**Data over code.** This is the big one. Storing rules as S-expressions rather than compiled Prolog predicates means rules survive serialization, forking, time-travel, and cross-process transfer. The compiled predicate is an optimization, not a source of truth. The `*rule-store*` hash table holds the data; the `*compiled-rules*` hash table tracks a cache. If the cache is cold, you recompile from the data. If the data is serialized and deserialized across a network, you compile on the other side. The data is portable. The compiled state is local.
+**Fallback paths deserve the same test coverage as the happy path.** The CL fallback verifier is tested in `shen-tests.lisp` with trees that pass and trees that fail (`lines 121-151`). As it turns out, the fallback path is currently the *primary* working path for verification, which makes this lesson even more pointed. If you only test the Shen path, you won't discover that your fallback silently returns `:error` for clause patterns it doesn't recognize.
+
+**Data over code.** This is the big one. Storing rules as S-expressions rather than compiled Prolog predicates means rules survive serialization, forking, time-travel, and cross-process transfer. It also means the system works even when compilation fails. The `*rule-store*` hash table holds the data; the CL fallback verifier can inspect that data directly to perform verification. The compiled predicate would be an optimization, but the data alone is sufficient for the core use case. If the data is serialized and deserialized across a network, you can verify on the other side using the CL fallback. The data is portable. The compiled state is aspirational.
 
 This is the same principle that makes the entire Autopoiesis platform work -- represent everything as data, derive behavior from it, and you get portability, inspectability, and composability as natural consequences.
 
