@@ -82,9 +82,9 @@ Capabilities are not just labels --- they gate what the agent can actually do.
 
 The Command Center UI also provides a create dialog for naming agents and assigning capabilities, and the REST API supports agent creation when the API server is running.
 
-![Create Agent](images/p2-create-agent.png)
+![Create Agent](images/create-agent-dialog.png)
 
-![Agent Detail](images/p2-agent-detail.png)
+![Agent Detail](images/dashboard-view.png)
 
 ## Teams and Coordination Strategies
 
@@ -135,7 +135,7 @@ Every strategy implements the same protocol: `strategy-initialize`, `strategy-as
 
 Note: team coordination requires the team package loaded with the substrate store active. The architecture and strategy protocol are implemented; the code examples above show the real class definitions and API. Running teams end-to-end requires the full system context (substrate, conductor, and team package).
 
-![Team Panel](images/p2-team-panel.png)
+![Team Panel](images/dashboard-view.png)
 
 ## The Command Center
 
@@ -155,9 +155,9 @@ The Command Center is a SolidJS frontend with 11 views, each showing a different
 
 And more --- org chart, budget tracking, approvals workflow, audit log. The screenshots in this series show these views in their initial states; they populate with data as agents are created through the substrate-backed API and run cognitive cycles.
 
-![Timeline](images/p2-timeline.png)
+![Timeline](images/timeline-view.png)
 
-![Conductor](images/p2-conductor.png)
+![Conductor](images/conductor-view.png)
 
 ## Why This Matters
 

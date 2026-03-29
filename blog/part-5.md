@@ -190,7 +190,7 @@ Verified output from the CL fallback:
 :all combinator (files + output): PASS
 ```
 
-![Prolog Rules](images/p5-prolog-rules.png)
+![Prolog Rules](images/command-view.png)
 
 ## The Series in Perspective
 

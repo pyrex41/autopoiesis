@@ -21,7 +21,15 @@ Shen extension loaded.
 === Starting system ===
 Store opened.
 
-=== Creating demo agents ===
+=== Creating mutable agents (API-visible) ===
+  Registered mutable agent: architect (id: E9D30005-AFE1-4BBA-892B-68638C16A625)
+  Registered mutable agent: coder (id: 474BA8C4-CD1A-4D5F-B810-2AE7FF1816E4)
+  Registered mutable agent: reviewer (id: F702EF59-DAFA-44A1-9511-C4B3FB2A0137)
+  Registered mutable agent: researcher (id: F508E4AA-E652-4418-AA59-2E5C4C0A1F3B)
+  Registered mutable agent: reasoner (id: 2452A9DC-7D8D-4C31-B97A-A4AEA3C78807)
+5 agents registered in API registry.
+
+=== Creating persistent agents (demo) ===
 Running cognitive cycles...
 Cognitive cycles complete.
 Forking architect...
@@ -36,20 +44,20 @@ Snapshots created.
 3 Prolog rules defined.
 
 === Starting API server ===
- <INFO> [15:50:11] autopoiesis.api events.lisp (top level form start-event-bridge) -
+ <INFO> [23:52:58] autopoiesis.api events.lisp (top level form start-event-bridge) -
   API event bridge started
- <INFO> [15:50:11] autopoiesis.api events.lisp (top level form start-blocking-notifier) -
+ <INFO> [23:52:58] autopoiesis.api events.lisp (top level form start-blocking-notifier) -
   Blocking request notifier started
- <INFO> [15:50:11] autopoiesis.api activity-tracker.lisp (top level form start-activity-tracker) -
+ <INFO> [23:52:58] autopoiesis.api activity-tracker.lisp (top level form start-activity-tracker) -
   Activity tracker started
- <INFO> [15:50:11] autopoiesis.api holodeck-bridge.lisp (top level form start-holodeck-bridge) -
+ <INFO> [23:52:58] autopoiesis.api holodeck-bridge.lisp (top level form start-holodeck-bridge) -
   Holodeck bridge started (10fps)
 Authentication system initialized
- <INFO> [15:50:11] autopoiesis.api web-console.lisp (top level form init-web-console) -
+ <INFO> [23:52:58] autopoiesis.api web-console.lisp (top level form init-web-console) -
   Web console initialized
 NOTICE: Running in debug mode. Debugger will be invoked on errors.
   Specify ':debug nil' to turn it off on remote environments.
- <INFO> [15:50:11] autopoiesis.api server.lisp (top level form start-api-server) -
+ <INFO> [23:52:58] autopoiesis.api server.lisp (top level form start-api-server) -
   API server started on 0.0.0.0:9090
 Autopoiesis API server running at http://0.0.0.0:9090
   WebSocket: ws://0.0.0.0:9090/ws
@@ -62,5 +70,5 @@ API server started.
 === Backend ready for screenshots ===
 Start frontend: cd frontends/command-center && AP_WS_PORT=9090 AP_REST_PORT=9090 bun run dev
 Press Ctrl-C to stop.
- <INFO> [15:56:20] autopoiesis.api connections.lisp (top level form register-connection) - API connection registered: 9F353527-D632-4F46-98CF-EBD456C558BA
- <INFO> [15:57:25] autopoiesis.api connections.lisp (top level form unregister-connection) - API connection unregistered: 9F353527-D632-4F46-98CF-EBD456C558BA
+ <INFO> [23:55:22] autopoiesis.api connections.lisp (top level form register-connection) - API connection registered: D9B74906-6DBF-4FF8-8948-4B6CA4483D49
+ <INFO> [23:55:55] autopoiesis.api connections.lisp (top level form unregister-connection) - API connection unregistered: D9B74906-6DBF-4FF8-8948-4B6CA4483D49

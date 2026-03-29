@@ -160,7 +160,7 @@ Three agents, three different thought counts, but sharing the vast majority of t
 
 The Command Center includes a visual DAG explorer for agent snapshots, built with the dagre layout algorithm on an HTML canvas. Every snapshot is a node, every parent-child relationship is an edge.
 
-![DAG Explorer](images/p3-dag.png)
+![DAG Explorer](images/dag-view.png)
 *The DAG explorer view. The structural sharing and forking demonstrated in the Lisp output above is the same data model this view renders -- snapshots as nodes, parent-child relationships as edges.*
 
 The visualization supports five color schemes, selectable in real time:

@@ -229,16 +229,16 @@ The demo script creates agents, runs cognitive cycles (perceive/reason), forks a
 
 The web frontend is a SolidJS application with 11 views for managing agents at scale:
 
-![Dashboard](images/p1-dashboard.png)
+![Dashboard](images/dashboard-view.png)
 *The Command Center dashboard -- the landing view for system status.*
 
-![Command View](images/p1-command.png)
+![Command View](images/command-view.png)
 *The conversational Jarvis interface for natural language agent control.*
 
-![Thought Stream](images/p1-thought-stream.png)
+![Thought Stream](images/timeline-view.png)
 *The thought stream view for inspecting agent cognitive output.*
 
-![Constellation](images/p1-constellation.png)
+![Constellation](images/constellation-view.png)
 *Agent network visualization showing forked lineages and team relationships.*
 
 The Command Center provides views for the dashboard, DAG explorer, timeline, tasks, constellation, org chart, budget, approvals, evolution lab, holodeck, and audit log. The views are ready to display agent data once agents are created through the substrate-backed API. Agents created directly via `make-persistent-agent` at the REPL live in memory and are not automatically visible in the Command Center (which reads from the substrate store).

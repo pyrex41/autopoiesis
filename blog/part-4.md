@@ -138,7 +138,7 @@ For tracking improvement over time, `compute-normalized-gain` implements Hake's 
 
 Cross-run comparison via `compare-runs` lets you track these metrics across versions of your agent, prompt changes, or model upgrades.
 
-![Eval Scenarios](images/p4-eval-scenarios.png)
+![Eval Scenarios](images/eval-view.png)
 
 ## Why This Matters
 
