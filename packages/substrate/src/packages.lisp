@@ -73,6 +73,17 @@
    #:pull-many
    ;; Datomic-style query
    #:q
+   ;; Datalog rule store
+   #:define-datalog-rule
+   #:remove-datalog-rule
+   #:list-datalog-rules
+   #:clear-datalog-rules
+   #:all-rules-for-query
+   #:q-rules
+   #:datalog-rules-to-sexpr
+   #:sexpr-to-datalog-rules
+   #:convert-shen-rules-to-datalog
+   #:register-builtin-rules
    ;; Value index (backward compat accessor)
    #:*value-index*
    ;; Programming model (Phase 1.5)

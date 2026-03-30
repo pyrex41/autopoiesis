@@ -69,9 +69,16 @@
 (defun prolog-query-verifier (output expected result)
   "Verify using a named rule from *rule-store*.
    EXPECTED is a keyword naming the rule.
-   Queries the rule with context from the harness result."
+   Tries three paths in order:
+   1. Shen Prolog (if loaded)
+   2. Substrate Datalog (if available and rule has datom patterns)
+   3. CL fallback (pattern matching on clause structure)"
   (unless (shen-available-p)
-    ;; Fallback: if Shen not loaded, try CL-based verification
+    ;; Try substrate Datalog before CL fallback
+    (let ((datalog-result (datalog-fallback-verify expected output result)))
+      (when datalog-result
+        (return-from prolog-query-verifier datalog-result)))
+    ;; Fall back to CL pattern matching
     (return-from prolog-query-verifier
       (cl-fallback-verify expected output result)))
   (unless (keywordp expected)
@@ -101,6 +108,59 @@
           (cl-check-verify expected output result)
           :error)
     (error () :error)))
+
+;;; ===================================================================
+;;; Substrate Datalog Verification
+;;; ===================================================================
+
+(defun datalog-fallback-verify (rule-name output result)
+  "Try to verify using the substrate Datalog engine.
+   Converts the Shen-format rule to Datalog, runs it via `q`.
+   Returns :pass, :fail, or NIL (if Datalog is not applicable)."
+  (let ((substrate-pkg (find-package :autopoiesis.substrate)))
+    (unless substrate-pkg (return-from datalog-fallback-verify nil))
+    (let ((q-fn (find-symbol "Q" substrate-pkg))
+          (convert-fn (find-symbol "CONVERT-SHEN-RULES-TO-DATALOG" substrate-pkg)))
+      (unless (and q-fn (fboundp q-fn) convert-fn (fboundp convert-fn))
+        (return-from datalog-fallback-verify nil))
+      ;; Get the rule clauses from our store
+      (let ((clauses (gethash rule-name *rule-store*)))
+        (unless clauses (return-from datalog-fallback-verify nil))
+        ;; Convert Shen format → Datalog format
+        (handler-case
+            (let* ((dl-clauses (funcall convert-fn clauses))
+                   ;; Build a query: does the rule succeed with the given context?
+                   (metadata (getf result :metadata))
+                   (after-tree (getf metadata :after-tree))
+                   ;; For now, only handle rules that query datom patterns
+                   ;; (rules with has-file, output-contains etc. stay on CL fallback)
+                   (has-datom-patterns (some (lambda (clause)
+                                               (some (lambda (term)
+                                                       (and (listp term)
+                                                            (= 3 (length term))
+                                                            (variable-p-shen (first term))))
+                                                     (rest clause)))
+                                             dl-clauses)))
+              (if has-datom-patterns
+                  ;; This rule queries the substrate — run via Datalog
+                  (let ((query-result
+                          (funcall q-fn
+                                   `(:find ?result
+                                     :in %
+                                     :where (,(car (car (first dl-clauses)))
+                                             ,@(mapcar (lambda (x) (declare (ignore x)) '?_x)
+                                                       (rest (car (first dl-clauses))))))
+                                   dl-clauses)))
+                    (if query-result :pass :fail))
+                  ;; Not datom-based — let CL fallback handle it
+                  nil))
+          (error () nil))))))
+
+(defun variable-p-shen (x)
+  "Check if X looks like a Datalog variable (?x style)."
+  (and (symbolp x)
+       (> (length (symbol-name x)) 1)
+       (char= #\? (char (symbol-name x) 0))))
 
 ;;; ===================================================================
 ;;; CL Fallback Verification (when Shen not loaded)

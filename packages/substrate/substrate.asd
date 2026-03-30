@@ -31,6 +31,7 @@
      (:file "store")
      (:file "linda")
      (:file "datalog")
+     (:file "rules")
      (:file "entity-type")
      (:file "system")
      (:file "lmdb-backend")
