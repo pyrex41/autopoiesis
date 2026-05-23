@@ -66,10 +66,42 @@ function stateString(snap: any): string {
   );
 }
 
+// Metadata arrives in one of two shapes:
+//   - placeholder fixture: a plain JSON object  { version: 0, capabilities: 2, ... }
+//   - real API (cl-json):  a flat plist-as-array ["lineage","nimbus-0","mood","linear",...]
+// metaMap normalizes both into a Map<string, any>.
+function metaMap(snap: Snapshot): Map<string, unknown> {
+  const md = snap.metadata as unknown;
+  const m = new Map<string, unknown>();
+  if (md == null) return m;
+  if (Array.isArray(md)) {
+    for (let i = 0; i + 1 < md.length; i += 2) {
+      const k = md[i];
+      if (typeof k === "string") m.set(k, md[i + 1]);
+    }
+  } else if (typeof md === "object") {
+    for (const [k, v] of Object.entries(md as Record<string, unknown>)) m.set(k, v);
+  }
+  return m;
+}
+
+function metaNum(snap: Snapshot, key: string): number {
+  const v = metaMap(snap).get(key);
+  return typeof v === "number" ? v : 0;
+}
+
+function metaStr(snap: Snapshot, key: string): string {
+  const v = metaMap(snap).get(key);
+  return typeof v === "string" ? v : "";
+}
+
+function metaBool(snap: Snapshot, key: string): boolean {
+  return metaMap(snap).get(key) === true;
+}
+
+// Back-compat alias for any old callsites.
 function readMetaNumber(snap: Snapshot, key: string): number {
-  const md = snap.metadata as Record<string, unknown> | null;
-  if (md && typeof md[key] === "number") return md[key] as number;
-  return 0;
+  return metaNum(snap, key);
 }
 
 /** Stable hash of a string -> [0, 1). */
@@ -103,42 +135,67 @@ export interface Spectral {
 }
 
 export function spectralClass(snap: Snapshot, diffMag: number): Spectral {
-  const meta = (snap.metadata ?? {}) as Record<string, unknown>;
+  // Real-data inputs (from aether-seed): lineage / mood / ticks / depth / root.
+  const mood = metaStr(snap, "mood");
+  const lineage = metaStr(snap, "lineage");
+  const ticks = metaNum(snap, "ticks");
+  const depth = metaNum(snap, "depth");
+  const isRoot = metaBool(snap, "root");
 
-  // Pull whatever we can. Default to 0; the placeholder + Agent A fixture
-  // will populate these. If neither populates them, the string-length
-  // proxies below carry the variance.
-  const version = readMetaNumber(snap, "version");
-  const caps = readMetaNumber(snap, "capabilities");
-  const heur = readMetaNumber(snap, "heuristics");
-  const thoughts = readMetaNumber(snap, "thoughts");
+  // Placeholder-fixture fallback inputs (kept for offline dev).
+  const version = metaNum(snap, "version");
+  const caps = metaNum(snap, "capabilities");
+  const heur = metaNum(snap, "heuristics");
+  const thoughts = metaNum(snap, "thoughts");
 
   // String-length proxy for cognitive content when metadata is sparse.
   const stateLen = stateString(snap).length;
-  const lenProxy = Math.log1p(stateLen) / 8; // ~0..1
+  const lenProxy = Math.log1p(stateLen + ticks * 10) / 8; // ~0..1
 
-  // Three spectral axes, each in [0, 1].
-  // Young + exploring: high diff, low version.
-  const youngExplore = Math.min(1, diffMag / 6) * Math.exp(-version / 4);
-  // Old reflective: high version + many heuristics.
-  const oldReflect = Math.min(1, version / 6) * Math.min(1, heur / 5);
-  // Capability-rich: high cap count.
-  const capRich = Math.min(1, caps / 8);
+  // Three spectral axes — each maps to a base hue (HSL).
+  //   explorer/young  → blue-white (210°)
+  //   reflector/old   → cool red    (15°)
+  //   linear/stable   → white-yellow (50°)
+  // Real-data path: mood is the dominant axis.
+  // Placeholder path: derive axes from version/caps/heur as before.
+  let wExplore: number;
+  let wReflect: number;
+  let wStable: number;
+  if (mood === "explorer") {
+    wExplore = 1;
+    wReflect = 0;
+    wStable = 0.15;
+  } else if (mood === "reflector") {
+    wExplore = 0;
+    wReflect = 1;
+    wStable = 0.1;
+  } else if (mood === "linear") {
+    wExplore = 0;
+    wReflect = 0.05;
+    wStable = 1;
+  } else {
+    // No mood field → placeholder/object-metadata path.
+    wExplore = Math.min(1, diffMag / 6) * Math.exp(-version / 4);
+    wReflect = Math.min(1, version / 6) * Math.min(1, heur / 5);
+    wStable = Math.min(1, caps / 8);
+  }
 
-  // Pick dominant axis + secondary blend.
-  // Each axis maps to a base hue:
-  //   blue-white  → 210°
-  //   red         → 15°
-  //   yellow      → 50°
-  // We compute a weighted circular mean (treating hues as 2D unit vectors).
+  // Tick-driven energy bump on the "hot" axis — accumulated activity glows hotter.
+  const energy = Math.min(1, ticks / 8);
+  wExplore += energy * 0.25;
+
+  // Constant base so very-uniform snapshots still get *some* hue from each axis.
+  wExplore += 0.05;
+  wReflect += 0.05;
+  wStable += 0.05;
+
   const axes = [
-    { weight: youngExplore + 0.05, hue: 210, light: 0.75, sat: 0.55 },
-    { weight: oldReflect + 0.05, hue: 15, light: 0.55, sat: 0.7 },
-    { weight: capRich + 0.05, hue: 50, light: 0.7, sat: 0.6 },
+    { weight: wExplore, hue: 210, light: 0.78, sat: 0.6 },
+    { weight: wReflect, hue: 15, light: 0.55, sat: 0.72 },
+    { weight: wStable, hue: 50, light: 0.72, sat: 0.6 },
   ];
-  // Add a small constant so we never divide by zero and so very-uniform
-  // snapshots still get *some* color from each axis.
 
+  // Weighted circular mean for hue.
   let totalW = 0;
   let hx = 0;
   let hy = 0;
@@ -154,16 +211,26 @@ export function spectralClass(snap: Snapshot, diffMag: number): Spectral {
   }
   const hue = (Math.atan2(hy, hx) * 180) / Math.PI;
   const normHue = ((hue % 360) + 360) % 360;
-  const L = Math.max(0.35, Math.min(0.85, light / totalW + (lenProxy - 0.5) * 0.1));
-  const S = Math.max(0.3, Math.min(0.9, sat / totalW));
 
-  // Size: log(thoughts + 1) with a string-length fallback.
-  const sizeBase = thoughts > 0 ? thoughts : Math.max(1, Math.floor(stateLen / 30));
-  const radius = Math.log1p(sizeBase) * 3.5 + 3;
+  // Lineage gives a small, stable per-cluster hue offset so same-mood
+  // lineages drift visually apart without losing the mood's overall color.
+  const lineageHueOffset = lineage ? (hash01(lineage) - 0.5) * 30 : 0;
 
-  // Slight variation per-id so colors don't clump for identical metadata.
+  // Per-id jitter so identical-metadata snapshots don't render identically.
   const jitter = (hash01(snap.id) - 0.5) * 8;
-  const finalHue = ((normHue + jitter) % 360 + 360) % 360;
+  const finalHue = ((normHue + lineageHueOffset + jitter) % 360 + 360) % 360;
+
+  const L = Math.max(0.35, Math.min(0.9,
+    light / totalW + lenProxy * 0.12 + (isRoot ? 0.05 : 0)));
+  const S = Math.max(0.3, Math.min(0.95, sat / totalW));
+
+  // Size: prefer ticks (real data) → thoughts (placeholder) → string-length proxy.
+  // Root stars get a small bump so they read as the lineage "anchor".
+  const sizeBase =
+    ticks > 0 ? ticks
+    : thoughts > 0 ? thoughts
+    : Math.max(1, Math.floor(stateLen / 30));
+  const radius = Math.log1p(sizeBase) * 3.5 + (isRoot ? 5 : 3);
 
   const color = `hsl(${finalHue.toFixed(1)}, ${(S * 100).toFixed(0)}%, ${(L * 100).toFixed(0)}%)`;
   const haloColor = `hsla(${finalHue.toFixed(1)}, ${(S * 100).toFixed(0)}%, ${(L * 100).toFixed(0)}%, 0.25)`;
@@ -172,7 +239,7 @@ export function spectralClass(snap: Snapshot, diffMag: number): Spectral {
     color,
     haloColor,
     radius,
-    magnitude: thoughts + caps + heur + lenProxy * 4,
+    magnitude: ticks + depth * 0.5 + thoughts + caps + heur + lenProxy * 4,
   };
 }
 
@@ -188,16 +255,21 @@ export function spectralClass(snap: Snapshot, diffMag: number): Spectral {
 // arrives — `readMetaNumber` already covers that path.
 
 function diffMagnitude(parent: Snapshot, child: Snapshot): number {
-  // Prefer precomputed metadata if the backend ever adds it.
-  const pre = readMetaNumber(child, "diff_magnitude");
+  // Prefer precomputed metadata if the backend ever embeds it on snapshots.
+  const pre = metaNum(child, "diff_magnitude");
   if (pre > 0) return pre;
 
+  // Real-data path: derive from metadata deltas (mood/lineage/ticks/depth).
+  const dTicks = Math.abs(metaNum(child, "ticks") - metaNum(parent, "ticks"));
+  const dDepth = Math.abs(metaNum(child, "depth") - metaNum(parent, "depth"));
+  const moodChange = metaStr(child, "mood") !== metaStr(parent, "mood") ? 5 : 0;
+  const lineageChange = metaStr(child, "lineage") !== metaStr(parent, "lineage") ? 8 : 0;
+  const metaDiff = dTicks + dDepth + moodChange + lineageChange;
+  if (metaDiff > 0) return metaDiff;
+
+  // Placeholder fallback: state-string length + version delta + :DIVERGE hint.
   const dLen = Math.abs(stateString(child).length - stateString(parent).length);
-  const dVer = Math.abs(
-    readMetaNumber(child, "version") - readMetaNumber(parent, "version"),
-  );
-  // Optional explicit "DIVERGE" hint baked into the placeholder fixture's
-  // state strings; treated as a soft signal, not parsed.
+  const dVer = Math.abs(metaNum(child, "version") - metaNum(parent, "version"));
   const divergeMatch = stateString(child).match(/:DIVERGE\s+(\d+)/);
   const divergeBoost = divergeMatch ? parseInt(divergeMatch[1]!, 10) : 0;
 
