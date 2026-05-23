@@ -26,6 +26,7 @@ export default defineConfig({
       input: {
         main: "index.html",
         detached: "detached.html",
+        aether: "aether.html",
       },
     },
   },

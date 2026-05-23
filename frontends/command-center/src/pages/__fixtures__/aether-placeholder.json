@@ -1,0 +1,194 @@
+[
+  {
+    "id": "r1-a000",
+    "timestamp": 1704067200.0,
+    "parent": null,
+    "hash": "h-r1-000",
+    "metadata": { "version": 0, "capabilities": 2, "heuristics": 0, "thoughts": 1 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r1-a000\" :V 0 :TH (s) :C (greet think))"
+  },
+  {
+    "id": "r1-a001",
+    "timestamp": 1704067260.4,
+    "parent": "r1-a000",
+    "hash": "h-r1-001",
+    "metadata": { "version": 1, "capabilities": 2, "heuristics": 0, "thoughts": 3 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r1-a001\" :V 1 :TH (s s s) :C (greet think))"
+  },
+  {
+    "id": "r1-a002",
+    "timestamp": 1704067320.8,
+    "parent": "r1-a001",
+    "hash": "h-r1-002",
+    "metadata": { "version": 2, "capabilities": 3, "heuristics": 1, "thoughts": 5 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r1-a002\" :V 2 :TH (s s s s s) :C (greet think reflect) :HE ((h1 0.6)))"
+  },
+  {
+    "id": "r1-a003",
+    "timestamp": 1704067380.1,
+    "parent": "r1-a002",
+    "hash": "h-r1-003",
+    "metadata": { "version": 3, "capabilities": 3, "heuristics": 3, "thoughts": 7 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r1-a003\" :V 3 :TH (s s s s s s s) :C (greet think reflect) :HE ((h1 0.6) (h2 0.7) (h3 0.4)))"
+  },
+  {
+    "id": "r1-a004",
+    "timestamp": 1704067445.6,
+    "parent": "r1-a002",
+    "hash": "h-r1-004",
+    "metadata": { "version": 3, "capabilities": 5, "heuristics": 1, "thoughts": 12 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r1-a004\" :V 3 :TH (s s s s s s s s s s s s) :C (greet think reflect explore probe synthesize) :HE ((h1 0.6)) :DIVERGE 1)"
+  },
+  {
+    "id": "r1-a005",
+    "timestamp": 1704067510.2,
+    "parent": "r1-a004",
+    "hash": "h-r1-005",
+    "metadata": { "version": 4, "capabilities": 6, "heuristics": 2, "thoughts": 18 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r1-a005\" :V 4 :TH (long sequence of thoughts that grew quickly because of exploratory branch) :C (greet think reflect explore probe synthesize iterate) :HE ((h1 0.6) (h2 0.5)) :DIVERGE 2)"
+  },
+  {
+    "id": "r2-b000",
+    "timestamp": 1704067200.5,
+    "parent": null,
+    "hash": "h-r2-000",
+    "metadata": { "version": 0, "capabilities": 4, "heuristics": 0, "thoughts": 2 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r2-b000\" :V 0 :TH (s s) :C (greet plan act observe))"
+  },
+  {
+    "id": "r2-b001",
+    "timestamp": 1704067305.1,
+    "parent": "r2-b000",
+    "hash": "h-r2-001",
+    "metadata": { "version": 1, "capabilities": 4, "heuristics": 0, "thoughts": 4 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r2-b001\" :V 1 :TH (s s s s) :C (greet plan act observe))"
+  },
+  {
+    "id": "r2-b002",
+    "timestamp": 1704067410.3,
+    "parent": "r2-b001",
+    "hash": "h-r2-002",
+    "metadata": { "version": 2, "capabilities": 4, "heuristics": 0, "thoughts": 6 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r2-b002\" :V 2 :TH (s s s s s s) :C (greet plan act observe))"
+  },
+  {
+    "id": "r2-b003",
+    "timestamp": 1704067520.9,
+    "parent": "r2-b002",
+    "hash": "h-r2-003",
+    "metadata": { "version": 3, "capabilities": 4, "heuristics": 0, "thoughts": 8 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r2-b003\" :V 3 :TH (s s s s s s s s) :C (greet plan act observe))"
+  },
+  {
+    "id": "r2-b004",
+    "timestamp": 1704067630.7,
+    "parent": "r2-b003",
+    "hash": "h-r2-004",
+    "metadata": { "version": 4, "capabilities": 4, "heuristics": 1, "thoughts": 9 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r2-b004\" :V 4 :TH (s s s s s s s s s) :C (greet plan act observe) :HE ((h1 0.3)))"
+  },
+  {
+    "id": "r3-c000",
+    "timestamp": 1704067201.2,
+    "parent": null,
+    "hash": "h-r3-000",
+    "metadata": { "version": 0, "capabilities": 3, "heuristics": 0, "thoughts": 1 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r3-c000\" :V 0 :TH (s) :C (observe note recall))"
+  },
+  {
+    "id": "r3-c001",
+    "timestamp": 1704067275.5,
+    "parent": "r3-c000",
+    "hash": "h-r3-001",
+    "metadata": { "version": 1, "capabilities": 3, "heuristics": 2, "thoughts": 4 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r3-c001\" :V 1 :TH (s s s s) :C (observe note recall) :HE ((h1 0.8) (h2 0.9)))"
+  },
+  {
+    "id": "r3-c002",
+    "timestamp": 1704067350.0,
+    "parent": "r3-c000",
+    "hash": "h-r3-002",
+    "metadata": { "version": 1, "capabilities": 7, "heuristics": 0, "thoughts": 15 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r3-c002\" :V 1 :TH (lots of growth here many many many thoughts) :C (observe note recall explore probe synthesize iterate compose) :DIVERGE 3)"
+  },
+  {
+    "id": "r3-c003",
+    "timestamp": 1704067430.7,
+    "parent": "r3-c001",
+    "hash": "h-r3-003",
+    "metadata": { "version": 2, "capabilities": 3, "heuristics": 4, "thoughts": 6 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r3-c003\" :V 2 :TH (s s s s s s) :C (observe note recall) :HE ((h1 0.85) (h2 0.92) (h3 0.7) (h4 0.5)))"
+  },
+  {
+    "id": "r3-c004",
+    "timestamp": 1704067510.1,
+    "parent": "r3-c003",
+    "hash": "h-r3-004",
+    "metadata": { "version": 3, "capabilities": 3, "heuristics": 6, "thoughts": 8 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r3-c004\" :V 3 :TH (s s s s s s s s) :C (observe note recall) :HE ((h1 0.85) (h2 0.92) (h3 0.7) (h4 0.5) (h5 0.6) (h6 0.55)))"
+  },
+  {
+    "id": "r3-c005",
+    "timestamp": 1704067600.3,
+    "parent": "r3-c004",
+    "hash": "h-r3-005",
+    "metadata": { "version": 4, "capabilities": 3, "heuristics": 8, "thoughts": 9 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r3-c005\" :V 4 :TH (s s s s s s s s s) :C (observe note recall) :HE (many heuristics accumulated over time h1 h2 h3 h4 h5 h6 h7 h8))"
+  },
+  {
+    "id": "r3-c006",
+    "timestamp": 1704067680.8,
+    "parent": "r3-c002",
+    "hash": "h-r3-006",
+    "metadata": { "version": 2, "capabilities": 9, "heuristics": 0, "thoughts": 22 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r3-c006\" :V 2 :TH (sprawling thought sequence the agent has been thinking and thinking) :C (observe note recall explore probe synthesize iterate compose elaborate) :DIVERGE 5)"
+  },
+  {
+    "id": "r4-d000",
+    "timestamp": 1704067202.0,
+    "parent": null,
+    "hash": "h-r4-000",
+    "metadata": { "version": 0, "capabilities": 2, "heuristics": 0, "thoughts": 1 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r4-d000\" :V 0 :TH (s) :C (init scan))"
+  },
+  {
+    "id": "r4-d001",
+    "timestamp": 1704067290.0,
+    "parent": "r4-d000",
+    "hash": "h-r4-001",
+    "metadata": { "version": 1, "capabilities": 4, "heuristics": 1, "thoughts": 5 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r4-d001\" :V 1 :TH (s s s s s) :C (init scan dispatch claim) :HE ((h1 0.4)))"
+  },
+  {
+    "id": "r4-d002",
+    "timestamp": 1704067380.6,
+    "parent": "r4-d001",
+    "hash": "h-r4-002",
+    "metadata": { "version": 2, "capabilities": 5, "heuristics": 2, "thoughts": 7 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r4-d002\" :V 2 :TH (s s s s s s s) :C (init scan dispatch claim resolve) :HE ((h1 0.4) (h2 0.5)))"
+  },
+  {
+    "id": "r4-d003",
+    "timestamp": 1704067460.4,
+    "parent": "r4-d001",
+    "hash": "h-r4-003",
+    "metadata": { "version": 2, "capabilities": 8, "heuristics": 0, "thoughts": 14 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r4-d003\" :V 2 :TH (rapid divergent thinking many new thoughts in this branch) :C (init scan dispatch claim resolve explore probe synthesize) :DIVERGE 4)"
+  },
+  {
+    "id": "r4-d004",
+    "timestamp": 1704067545.2,
+    "parent": "r4-d002",
+    "hash": "h-r4-004",
+    "metadata": { "version": 3, "capabilities": 5, "heuristics": 3, "thoughts": 8 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r4-d004\" :V 3 :TH (s s s s s s s s) :C (init scan dispatch claim resolve) :HE ((h1 0.4) (h2 0.5) (h3 0.45)))"
+  },
+  {
+    "id": "r4-d005",
+    "timestamp": 1704067630.0,
+    "parent": "r4-d004",
+    "hash": "h-r4-005",
+    "metadata": { "version": 4, "capabilities": 5, "heuristics": 5, "thoughts": 9 },
+    "agent--state": "#S(PERSISTENT-AGENT :ID \"r4-d005\" :V 4 :TH (s s s s s s s s s) :C (init scan dispatch claim resolve) :HE ((h1 0.4) (h2 0.5) (h3 0.45) (h4 0.6) (h5 0.55)))"
+  }
+]
