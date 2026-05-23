@@ -305,13 +305,66 @@ const [edges, setEdges] = createSignal<AetherEdge[]>([]);
 const [loaded, setLoaded] = createSignal(false);
 const [usingFixture, setUsingFixture] = createSignal(false);
 
+// Selection + hover for the HUD/panel/focus layer.
+const [selectedId, setSelectedId] = createSignal<string | null>(null);
+const [hoveredId, setHoveredId] = createSignal<string | null>(null);
+
+// Retained raw snapshots (for panel display fields not on AetherNode).
+let snapshotsById = new Map<string, Snapshot>();
+// Adjacency: parent -> children ids
+let childrenOf = new Map<string, string[]>();
+
+function getSnapshot(id: string): Snapshot | undefined {
+  return snapshotsById.get(id);
+}
+
+function ancestorsOf(id: string): Set<string> {
+  const out = new Set<string>();
+  let cur = snapshotsById.get(id)?.parent ?? null;
+  while (cur) {
+    if (out.has(cur)) break;
+    out.add(cur);
+    cur = snapshotsById.get(cur)?.parent ?? null;
+  }
+  return out;
+}
+
+function descendantsOf(id: string): Set<string> {
+  const out = new Set<string>();
+  const queue = [id];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    const kids = childrenOf.get(cur) ?? [];
+    for (const k of kids) {
+      if (!out.has(k)) {
+        out.add(k);
+        queue.push(k);
+      }
+    }
+  }
+  return out;
+}
+
+/** {selectedId ∪ ancestors ∪ descendants}; empty Set when nothing selected. */
+function focusSet(): Set<string> {
+  const sid = selectedId();
+  if (!sid) return new Set();
+  const s = new Set<string>();
+  s.add(sid);
+  for (const a of ancestorsOf(sid)) s.add(a);
+  for (const d of descendantsOf(sid)) s.add(d);
+  return s;
+}
+
 // ── Build from snapshot list ─────────────────────────────────────────
 
 function buildGraph(snapshots: Snapshot[]) {
   const byId = new Map<string, Snapshot>();
   for (const s of snapshots) byId.set(s.id, s);
+  snapshotsById = byId;
 
   const builtEdges: AetherEdge[] = [];
+  const builtChildren = new Map<string, string[]>();
   for (const s of snapshots) {
     if (!s.parent) continue;
     const parent = byId.get(s.parent);
@@ -323,7 +376,11 @@ function buildGraph(snapshots: Snapshot[]) {
       diffMagnitude: mag,
       restLength: restLengthFor(mag),
     });
+    const arr = builtChildren.get(s.parent) ?? [];
+    arr.push(s.id);
+    builtChildren.set(s.parent, arr);
   }
+  childrenOf = builtChildren;
 
   // Per-node accumulated incoming edge magnitude — used as "recent diff"
   // input to spectralClass (the diff that produced this node).
@@ -450,6 +507,28 @@ export const aetherStore = {
   usingFixture,
   load: loadFromApiOrFixture,
   tick,
+  // Selection / hover / focus layer.
+  selectedId,
+  hoveredId,
+  select: (id: string | null) => setSelectedId(id),
+  hover: (id: string | null) => setHoveredId(id),
+  getSnapshot,
+  childrenOf: (id: string) => childrenOf.get(id) ?? [],
+  ancestorsOf,
+  descendantsOf,
+  focusSet,
+  // Metadata accessors so the page doesn't need to duplicate plist parsing.
+  meta: (id: string) => {
+    const s = snapshotsById.get(id);
+    if (!s) return { mood: "", lineage: "", ticks: 0, depth: 0, isRoot: false };
+    return {
+      mood: metaStr(s, "mood"),
+      lineage: metaStr(s, "lineage"),
+      ticks: metaNum(s, "ticks"),
+      depth: metaNum(s, "depth"),
+      isRoot: metaBool(s, "root"),
+    };
+  },
   /** Forces a fixture-only load — used by the dev page for offline work. */
   loadFixture: () => {
     buildGraph(placeholder as unknown as Snapshot[]);

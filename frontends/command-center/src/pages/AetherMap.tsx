@@ -11,7 +11,7 @@
  *   - pan/zoom math:        DAGCanvas.tsx:235-620
  *   - force sim + colors:   stores/aether.ts
  */
-import { type Component, onMount, onCleanup, createSignal } from "solid-js";
+import { type Component, onMount, onCleanup, createSignal, Show, For } from "solid-js";
 import { aetherStore } from "../stores/aether";
 
 // ── Palette (matches design-system.ts) ───────────────────────────────
@@ -20,6 +20,11 @@ const C = {
   deep: "#080c18",
   edge: "#1e2d4a",
 };
+
+// Hit-test radius multiplier — slightly bigger than visual to be forgiving.
+const HIT_RADIUS_MULT = 1.6;
+// Pixel drift on mousedown→mouseup below which we treat as a click, not drag.
+const CLICK_DRIFT_PX = 4;
 
 // ── Starfield (copied directly from ConstellationView.tsx:19-95) ──────
 
@@ -56,6 +61,10 @@ const AetherMap: Component = () => {
   const [viewScale, setViewScale] = createSignal(1);
   const [isDragging, setIsDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({ x: 0, y: 0 });
+  // Cursor screen-pixel position, used to anchor the hover HUD.
+  const [mousePos, setMousePos] = createSignal({ x: 0, y: 0 });
+  // Where the press started — used to distinguish click from drag on mouseup.
+  let mouseDownAt: { x: number; y: number } | null = null;
 
   // Force simulation cadence — separate from rAF so we can decouple
   // physics from rendering rate without ever animating the nodes.
@@ -67,21 +76,72 @@ const AetherMap: Component = () => {
   const PHYSICS_WARMUP_TICKS = 240;
 
   // ── Pan/zoom (adapted from DAGCanvas.tsx:519-620) ──────────────────
+  // mousedown→mousemove with drift ≥ CLICK_DRIFT_PX = drag
+  // mousedown→mouseup with drift < CLICK_DRIFT_PX  = click (hit-test → select)
+  // mousemove without buttons = hover (hit-test → set hover id)
+
+  function hitTest(clientX: number, clientY: number): string | null {
+    const r = canvasRef.getBoundingClientRect();
+    const wx = (clientX - r.left - viewX()) / viewScale();
+    const wy = (clientY - r.top - viewY()) / viewScale();
+    let best: { id: string; d: number } | null = null;
+    for (const n of aetherStore.nodes()) {
+      const dx = n.x - wx;
+      const dy = n.y - wy;
+      const d = Math.hypot(dx, dy);
+      const r2 = n.radius * HIT_RADIUS_MULT;
+      if (d <= r2 && (!best || d < best.d)) best = { id: n.id, d };
+    }
+    return best?.id ?? null;
+  }
 
   function onMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     setIsDragging(true);
     setDragStart({ x: e.clientX - viewX(), y: e.clientY - viewY() });
+    mouseDownAt = { x: e.clientX, y: e.clientY };
   }
 
   function onMouseMove(e: MouseEvent) {
-    if (!isDragging()) return;
-    setViewX(e.clientX - dragStart().x);
-    setViewY(e.clientY - dragStart().y);
+    setMousePos({ x: e.clientX, y: e.clientY });
+    if (isDragging()) {
+      setViewX(e.clientX - dragStart().x);
+      setViewY(e.clientY - dragStart().y);
+      return;
+    }
+    // Hover hit-test only when not dragging.
+    aetherStore.hover(hitTest(e.clientX, e.clientY));
   }
 
-  function onMouseUp() {
+  function onMouseUp(e?: MouseEvent) {
     setIsDragging(false);
+    if (e && mouseDownAt) {
+      const drift = Math.hypot(e.clientX - mouseDownAt.x, e.clientY - mouseDownAt.y);
+      if (drift < CLICK_DRIFT_PX) {
+        const hit = hitTest(e.clientX, e.clientY);
+        aetherStore.select(hit); // null = deselect when clicking empty space
+      }
+    }
+    mouseDownAt = null;
+  }
+
+  function onMouseLeave() {
+    setIsDragging(false);
+    aetherStore.hover(null);
+    mouseDownAt = null;
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape") aetherStore.select(null);
+  }
+
+  /** Pan + zoom the camera so the given node is centered. */
+  function focusOnNode(id: string) {
+    const n = aetherStore.nodes().find((x) => x.id === id);
+    if (!n) return;
+    const r = canvasRef.getBoundingClientRect();
+    setViewX(r.width / 2 - n.x * viewScale());
+    setViewY(r.height / 2 - n.y * viewScale());
   }
 
   function onWheel(e: WheelEvent) {
@@ -183,6 +243,14 @@ const AetherMap: Component = () => {
     const edges = aetherStore.edges();
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
+    // Focus mode: when a star is selected, fade everything outside the
+    // {selected ∪ ancestors ∪ descendants} set. This is the "transform"
+    // gesture — clicking a star turns the picture into a lineage story.
+    const sel = aetherStore.selectedId();
+    const hov = aetherStore.hoveredId();
+    const focus = sel ? aetherStore.focusSet() : null;
+    const dim = (id: string) => (focus && !focus.has(id) ? 0.18 : 1);
+
     // Edges first, so nodes draw over.
     ctx.lineWidth = 0.6 / viewScale();
     for (const e of edges) {
@@ -192,24 +260,29 @@ const AetherMap: Component = () => {
       // Stroke alpha decays with diff magnitude — high divergence edges
       // are dimmer (they're more "proper motion vector" than tight
       // structural ligament).
-      const alpha = Math.max(0.08, 0.35 - e.diffMagnitude * 0.04);
+      const baseAlpha = Math.max(0.08, 0.35 - e.diffMagnitude * 0.04);
+      const inFocus = focus ? focus.has(e.source) && focus.has(e.target) : true;
+      const alpha = baseAlpha * (inFocus ? 1 : 0.2);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = `rgba(80, 110, 160, ${alpha.toFixed(3)})`;
+      // Lineage path through the selection gets a slight color shift.
+      ctx.strokeStyle = inFocus && focus
+        ? `rgba(160, 200, 255, ${alpha.toFixed(3)})`
+        : `rgba(80, 110, 160, ${alpha.toFixed(3)})`;
       ctx.stroke();
     }
 
     // Nodes — halo first, core on top.
     for (const n of nodes) {
-      // Halo (no blur — additive alpha disk).
+      ctx.globalAlpha = dim(n.id);
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.radius * 2.4, 0, Math.PI * 2);
       ctx.fillStyle = n.haloColor;
       ctx.fill();
     }
     for (const n of nodes) {
-      // Core.
+      ctx.globalAlpha = dim(n.id);
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
       ctx.fillStyle = n.color;
@@ -218,6 +291,36 @@ const AetherMap: Component = () => {
       ctx.strokeStyle = "rgba(255,255,255,0.15)";
       ctx.lineWidth = 0.4 / viewScale();
       ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Hover ring — thin, just visible enough to confirm a hit.
+    if (hov && hov !== sel) {
+      const h = nodeMap.get(hov);
+      if (h) {
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, h.radius * 1.9, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(220, 235, 255, 0.55)";
+        ctx.lineWidth = 1.4 / viewScale();
+        ctx.stroke();
+      }
+    }
+
+    // Selection ring — brighter, double stroke for a "telescope lock" feel.
+    if (sel) {
+      const s = nodeMap.get(sel);
+      if (s) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius * 2.2, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.4 / viewScale();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius * 3.4, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(180, 210, 255, 0.35)";
+        ctx.lineWidth = 0.9 / viewScale();
+        ctx.stroke();
+      }
     }
 
     ctx.restore();
@@ -233,29 +336,184 @@ const AetherMap: Component = () => {
     };
     animFrame = requestAnimationFrame(loop);
     canvasRef.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKeyDown);
   });
 
   onCleanup(() => {
     cancelAnimationFrame(animFrame);
     canvasRef?.removeEventListener("wheel", onWheel);
+    window.removeEventListener("keydown", onKeyDown);
   });
 
+  // ── Overlay renderers ───────────────────────────────────────────────
+
+  function shortId(id: string): string {
+    return id.length > 8 ? id.slice(0, 8) : id;
+  }
+  function shortHash(h: string | undefined): string {
+    if (!h) return "—";
+    return h.length > 10 ? h.slice(0, 10) + "…" : h;
+  }
+  function tsLocal(ts: number | undefined): string {
+    if (!ts) return "—";
+    const d = new Date(ts * 1000);
+    return d.toISOString().replace("T", " ").replace(/\.\d+Z$/, "Z");
+  }
+
+  function hudFor(id: string) {
+    const m = aetherStore.meta(id);
+    const snap = aetherStore.getSnapshot(id);
+    return (
+      <div class="aether-hud-card">
+        <div class="aether-hud-id">{shortId(id)}</div>
+        <div class="aether-hud-row">
+          <span class="k">lineage</span>
+          <span class="v">{m.lineage || "—"}</span>
+        </div>
+        <div class="aether-hud-row">
+          <span class="k">mood</span>
+          <span class={`v mood-${m.mood || "none"}`}>{m.mood || "—"}</span>
+        </div>
+        <div class="aether-hud-row">
+          <span class="k">ticks</span>
+          <span class="v">{m.ticks}</span>
+        </div>
+        <div class="aether-hud-row">
+          <span class="k">depth</span>
+          <span class="v">{m.depth}{m.isRoot ? " (root)" : ""}</span>
+        </div>
+        <div class="aether-hud-row">
+          <span class="k">parent</span>
+          <span class="v">{snap?.parent ? shortId(snap.parent) : "—"}</span>
+        </div>
+      </div>
+    );
+  }
+
+  function detailPanelFor(id: string) {
+    const snap = aetherStore.getSnapshot(id);
+    const m = aetherStore.meta(id);
+    const kids = aetherStore.childrenOf(id);
+    const ancestorCount = aetherStore.ancestorsOf(id).size;
+    const descendantCount = aetherStore.descendantsOf(id).size;
+    return (
+      <div class="aether-panel">
+        <div class="aether-panel-head">
+          <div class="aether-panel-title">SNAPSHOT</div>
+          <button
+            class="aether-panel-close"
+            onClick={() => aetherStore.select(null)}
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="aether-panel-id" title={id}>{id}</div>
+
+        <div class="aether-section">
+          <div class="aether-section-title">classification</div>
+          <div class="aether-row"><span class="k">lineage</span><span class={`v lin-${m.lineage}`}>{m.lineage || "—"}</span></div>
+          <div class="aether-row"><span class="k">mood</span><span class={`v mood-${m.mood || "none"}`}>{m.mood || "—"}</span></div>
+          <div class="aether-row"><span class="k">ticks</span><span class="v">{m.ticks}</span></div>
+          <div class="aether-row"><span class="k">depth</span><span class="v">{m.depth}{m.isRoot ? " (root)" : ""}</span></div>
+        </div>
+
+        <div class="aether-section">
+          <div class="aether-section-title">topology</div>
+          <div class="aether-row">
+            <span class="k">parent</span>
+            <span class="v">
+              {snap?.parent ? (
+                <a
+                  class="aether-link"
+                  onClick={() => { aetherStore.select(snap.parent!); focusOnNode(snap.parent!); }}
+                  title={snap.parent}
+                >
+                  {shortId(snap.parent)}
+                </a>
+              ) : "— (root)"}
+            </span>
+          </div>
+          <div class="aether-row"><span class="k">ancestors</span><span class="v">{ancestorCount}</span></div>
+          <div class="aether-row"><span class="k">descendants</span><span class="v">{descendantCount}</span></div>
+          <Show when={kids.length > 0}>
+            <div class="aether-children-label">children ({kids.length})</div>
+            <div class="aether-children">
+              <For each={kids}>{(cid) => (
+                <a
+                  class="aether-link aether-child"
+                  onClick={() => { aetherStore.select(cid); focusOnNode(cid); }}
+                  title={cid}
+                >
+                  {shortId(cid)}
+                </a>
+              )}</For>
+            </div>
+          </Show>
+        </div>
+
+        <div class="aether-section">
+          <div class="aether-section-title">provenance</div>
+          <div class="aether-row"><span class="k">timestamp</span><span class="v mono-small">{tsLocal(snap?.timestamp)}</span></div>
+          <div class="aether-row"><span class="k">hash</span><span class="v mono-small" title={snap?.hash}>{shortHash(snap?.hash)}</span></div>
+        </div>
+
+        <div class="aether-panel-foot">
+          <kbd>Esc</kbd> to close · click another star to switch
+        </div>
+      </div>
+    );
+  }
+
+  function statusBar() {
+    const total = aetherStore.nodes().length;
+    const sel = aetherStore.selectedId();
+    return (
+      <div class="aether-status">
+        <span class="dim">aether</span>
+        <span class="sep">·</span>
+        <span>{total} stars</span>
+        <Show when={sel}>
+          <span class="sep">·</span>
+          <span>focus {shortId(sel!)}</span>
+          <span class="sep">·</span>
+          <span class="dim">{aetherStore.focusSet().size} in lineage</span>
+        </Show>
+        <Show when={aetherStore.usingFixture()}>
+          <span class="sep">·</span>
+          <span class="warn">fixture mode</span>
+        </Show>
+      </div>
+    );
+  }
+
   return (
-    <canvas
-      ref={canvasRef!}
-      style={{
-        width: "100vw",
-        height: "100vh",
-        display: "block",
-        cursor: isDragging() ? "grabbing" : "grab",
-        "touch-action": "none",
-        background: C.void,
-      }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
-    />
+    <div class="aether-root">
+      <canvas
+        ref={canvasRef!}
+        class="aether-canvas"
+        style={{ cursor: isDragging() ? "grabbing" : aetherStore.hoveredId() ? "pointer" : "grab" }}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseLeave}
+      />
+      <Show when={aetherStore.hoveredId() && aetherStore.hoveredId() !== aetherStore.selectedId()}>
+        <div
+          class="aether-hud"
+          style={{
+            left: `${Math.min(mousePos().x + 16, window.innerWidth - 220)}px`,
+            top: `${Math.min(mousePos().y + 16, window.innerHeight - 160)}px`,
+          }}
+        >
+          {hudFor(aetherStore.hoveredId()!)}
+        </div>
+      </Show>
+      <Show when={aetherStore.selectedId()}>
+        {detailPanelFor(aetherStore.selectedId()!)}
+      </Show>
+      {statusBar()}
+    </div>
   );
 };
 

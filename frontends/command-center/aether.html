@@ -7,7 +7,138 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body, #aether-root { width: 100%; height: 100%; overflow: hidden; }
-      body { background: #04060e; color: #d0daf0; font-family: 'JetBrains Mono', monospace; }
+      body {
+        background: #04060e;
+        color: #d0daf0;
+        font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+        font-size: 12px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .aether-root { position: relative; width: 100%; height: 100%; }
+      .aether-canvas {
+        width: 100vw; height: 100vh; display: block; touch-action: none;
+        background: #04060e;
+      }
+
+      /* ── hover HUD (small floating card near cursor) ───────────────── */
+      .aether-hud {
+        position: fixed;
+        z-index: 10;
+        pointer-events: none;
+        background: rgba(8, 12, 24, 0.85);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        padding: 8px 10px;
+        min-width: 180px;
+        max-width: 220px;
+        color: #c0cce5;
+        line-height: 1.35;
+        letter-spacing: 0.02em;
+      }
+      .aether-hud-card { display: flex; flex-direction: column; gap: 2px; }
+      .aether-hud-id {
+        font-size: 10px;
+        color: #7d8aa8;
+        margin-bottom: 4px;
+        letter-spacing: 0.1em;
+      }
+      .aether-hud-row { display: flex; justify-content: space-between; font-size: 11px; }
+      .aether-hud-row .k { color: #65728e; }
+      .aether-hud-row .v { color: #d8e3f6; }
+
+      /* ── pinned detail panel (right side) ─────────────────────────── */
+      .aether-panel {
+        position: fixed;
+        top: 32px;
+        right: 32px;
+        width: 320px;
+        max-height: calc(100vh - 64px);
+        overflow-y: auto;
+        z-index: 20;
+        background: rgba(6, 10, 22, 0.78);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        padding: 14px 16px;
+        color: #c8d4ec;
+        line-height: 1.5;
+        letter-spacing: 0.02em;
+      }
+      .aether-panel-head {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 4px;
+      }
+      .aether-panel-title {
+        font-size: 10px; letter-spacing: 0.22em; color: #65728e;
+      }
+      .aether-panel-close {
+        background: transparent; border: none; color: #65728e;
+        cursor: pointer; font-size: 14px; padding: 0 4px;
+      }
+      .aether-panel-close:hover { color: #d8e3f6; }
+      .aether-panel-id {
+        font-size: 11px; color: #d8e3f6; word-break: break-all;
+        margin-bottom: 14px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+      .aether-section { margin-bottom: 14px; }
+      .aether-section:last-child { margin-bottom: 0; }
+      .aether-section-title {
+        font-size: 10px; letter-spacing: 0.2em; color: #4f5b75;
+        text-transform: lowercase; margin-bottom: 6px;
+      }
+      .aether-row {
+        display: flex; justify-content: space-between; align-items: baseline;
+        font-size: 11px; padding: 2px 0;
+      }
+      .aether-row .k { color: #65728e; }
+      .aether-row .v { color: #d8e3f6; text-align: right; }
+      .aether-row .v.mono-small { font-size: 10px; }
+      .aether-children-label {
+        font-size: 10px; color: #4f5b75; margin: 6px 0 4px;
+        letter-spacing: 0.1em;
+      }
+      .aether-children {
+        display: flex; flex-wrap: wrap; gap: 4px 6px;
+      }
+      .aether-child {
+        font-size: 10px; padding: 1px 4px;
+        background: rgba(255,255,255,0.04);
+      }
+      .aether-link {
+        color: #9ab5e0; cursor: pointer; text-decoration: none;
+        border-bottom: 1px dotted rgba(154, 181, 224, 0.3);
+      }
+      .aether-link:hover { color: #d8e3f6; border-bottom-color: #d8e3f6; }
+      .aether-panel-foot {
+        margin-top: 12px;
+        font-size: 10px; color: #4f5b75;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.06);
+      }
+      .aether-panel-foot kbd {
+        font-family: inherit;
+        background: rgba(255,255,255,0.07);
+        padding: 0 4px;
+      }
+
+      /* ── status bar (bottom-left, persistent) ─────────────────────── */
+      .aether-status {
+        position: fixed; left: 24px; bottom: 18px; z-index: 5;
+        font-size: 10px; letter-spacing: 0.18em;
+        color: #5b6884; pointer-events: none;
+        display: flex; gap: 8px; align-items: baseline;
+        text-transform: lowercase;
+      }
+      .aether-status .sep { color: #2e374a; }
+      .aether-status .dim { color: #3d4863; }
+      .aether-status .warn { color: #c98c5c; }
+
+      /* ── mood color accents (consistent with spectralClass hues) ──── */
+      .mood-linear   { color: #e6d28a; }   /* yellow-white */
+      .mood-explorer { color: #9bc3f5; }   /* blue-white   */
+      .mood-reflector{ color: #e08c7a; }   /* warm red     */
     </style>
   </head>
   <body>
