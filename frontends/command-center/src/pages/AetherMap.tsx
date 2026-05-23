@@ -11,7 +11,7 @@
  *   - pan/zoom math:        DAGCanvas.tsx:235-620
  *   - force sim + colors:   stores/aether.ts
  */
-import { type Component, onMount, onCleanup, createSignal, Show, For } from "solid-js";
+import { type Component, onMount, onCleanup, createSignal, createEffect, Show, For } from "solid-js";
 import { aetherStore } from "../stores/aether";
 
 // ── Palette (matches design-system.ts) ───────────────────────────────
@@ -74,6 +74,16 @@ const AetherMap: Component = () => {
   // "no animations" constraint while letting the layout solve.
   let physicsTicks = 0;
   const PHYSICS_WARMUP_TICKS = 240;
+  /** Re-armed each time a live snapshot arrives — gives the layout
+      a fresh burst of multi-step physics to ease the new star in. */
+  const REBIRTH_BOOST_TICKS = 120;
+
+  // Prompt-bar state.
+  const [prompt, setPrompt] = createSignal("");
+  const [promptBusy, setPromptBusy] = createSignal(false);
+  const [promptError, setPromptError] = createSignal<string | null>(null);
+  const [promptOpen, setPromptOpen] = createSignal(false);
+  let promptInputRef!: HTMLInputElement;
 
   // ── Pan/zoom (adapted from DAGCanvas.tsx:519-620) ──────────────────
   // mousedown→mousemove with drift ≥ CLICK_DRIFT_PX = drag
@@ -132,7 +142,39 @@ const AetherMap: Component = () => {
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") aetherStore.select(null);
+    // "/" focuses the prompt bar; Esc closes it OR clears selection.
+    if (e.key === "/" && !promptOpen() && document.activeElement?.tagName !== "INPUT") {
+      e.preventDefault();
+      setPromptOpen(true);
+      queueMicrotask(() => promptInputRef?.focus());
+      return;
+    }
+    if (e.key === "Escape") {
+      if (promptOpen()) {
+        setPromptOpen(false);
+        setPrompt("");
+        setPromptError(null);
+        return;
+      }
+      aetherStore.select(null);
+    }
+  }
+
+  async function submitPrompt() {
+    const text = prompt().trim();
+    if (!text || promptBusy()) return;
+    setPromptBusy(true);
+    setPromptError(null);
+    try {
+      const parent = aetherStore.selectedId();
+      await aetherStore.spawn({ prompt: text, parent: parent ?? null });
+      setPrompt("");
+      setPromptOpen(false);
+    } catch (err) {
+      setPromptError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPromptBusy(false);
+    }
   }
 
   /** Pan + zoom the camera so the given node is centered. */
@@ -273,9 +315,41 @@ const AetherMap: Component = () => {
       ctx.stroke();
     }
 
+    // Birth animation: any node within BIRTH_MS of its bornAt gets an
+    // additional bright halo + plasma line back to its parent that
+    // both fade as the star "settles". Pure render layer — no extra
+    // physics, no extra data on the node.
+    const BIRTH_MS = 2500;
+    const now = Date.now();
+
+    // Plasma bridges from parent → newborn (drawn behind nodes).
+    for (const n of nodes) {
+      const age = now - n.bornAt;
+      if (age >= BIRTH_MS || !n.parent) continue;
+      const parent = nodeMap.get(n.parent);
+      if (!parent) continue;
+      const t = 1 - age / BIRTH_MS; // 1 -> 0 over BIRTH_MS
+      const alpha = 0.55 * t;
+      ctx.beginPath();
+      ctx.moveTo(parent.x, parent.y);
+      ctx.lineTo(n.x, n.y);
+      ctx.strokeStyle = `rgba(180, 230, 255, ${alpha.toFixed(3)})`;
+      ctx.lineWidth = (1.4 + 2 * t) / viewScale();
+      ctx.stroke();
+    }
+
     // Nodes — halo first, core on top.
     for (const n of nodes) {
       ctx.globalAlpha = dim(n.id);
+      const age = now - n.bornAt;
+      const birthGlow = age < BIRTH_MS ? 1 - age / BIRTH_MS : 0;
+      // Extra outer halo while being born.
+      if (birthGlow > 0) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.radius * (3.2 + 2 * birthGlow), 0, Math.PI * 2);
+        ctx.fillStyle = n.haloColor.replace(/[\d.]+\)$/, `${(0.35 * birthGlow).toFixed(3)})`);
+        ctx.fill();
+      }
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.radius * 2.4, 0, Math.PI * 2);
       ctx.fillStyle = n.haloColor;
@@ -283,8 +357,10 @@ const AetherMap: Component = () => {
     }
     for (const n of nodes) {
       ctx.globalAlpha = dim(n.id);
+      const age = now - n.bornAt;
+      const birthBoost = age < BIRTH_MS ? 1 + 0.6 * (1 - age / BIRTH_MS) : 1;
       ctx.beginPath();
-      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+      ctx.arc(n.x, n.y, n.radius * birthBoost, 0, Math.PI * 2);
       ctx.fillStyle = n.color;
       ctx.fill();
       // Subtle outline so brighter stars don't blow out.
@@ -337,6 +413,16 @@ const AetherMap: Component = () => {
     animFrame = requestAnimationFrame(loop);
     canvasRef.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("keydown", onKeyDown);
+
+    // Re-arm a burst of multi-step physics each time a new star arrives
+    // via WS, so it settles into its place over ~2s of warmup rather than
+    // sitting frozen on top of its parent.
+    createEffect(() => {
+      const ts = aetherStore.lastBirthAt();
+      if (ts > 0) {
+        physicsTicks = Math.min(physicsTicks, PHYSICS_WARMUP_TICKS - REBIRTH_BOOST_TICKS);
+      }
+    });
   });
 
   onCleanup(() => {
@@ -483,6 +569,62 @@ const AetherMap: Component = () => {
           <span class="sep">·</span>
           <span class="warn">fixture mode</span>
         </Show>
+        <Show when={!aetherStore.usingFixture()}>
+          <span class="sep">·</span>
+          <span class={aetherStore.liveConnected() ? "live-on" : "live-off"}>
+            {aetherStore.liveConnected() ? "● live" : "○ offline"}
+          </span>
+        </Show>
+        <span class="sep">·</span>
+        <span class="dim">press / to prompt</span>
+      </div>
+    );
+  }
+
+  function promptBar() {
+    const parent = aetherStore.selectedId();
+    return (
+      <div class={`aether-prompt ${promptOpen() ? "open" : ""}`}>
+        <Show when={promptOpen()}>
+          <div class="aether-prompt-head">
+            <span class="aether-prompt-label">
+              {parent ? `fork from ${shortId(parent)}` : "spawn new agent"}
+            </span>
+            <button
+              class="aether-prompt-close"
+              onClick={() => { setPromptOpen(false); setPrompt(""); setPromptError(null); }}
+              title="Close (Esc)"
+            >
+              ✕
+            </button>
+          </div>
+          <input
+            ref={promptInputRef!}
+            class="aether-prompt-input"
+            value={prompt()}
+            placeholder="what should the agent do?"
+            disabled={promptBusy()}
+            onInput={(e) => setPrompt(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); submitPrompt(); }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setPromptOpen(false);
+                setPrompt("");
+                setPromptError(null);
+              }
+            }}
+          />
+          <div class="aether-prompt-foot">
+            <Show when={promptError()} fallback={
+              <span class="aether-prompt-hint">
+                {promptBusy() ? "spawning…" : "Enter to send · Esc to cancel · model: claude-haiku"}
+              </span>
+            }>
+              <span class="aether-prompt-err">{promptError()}</span>
+            </Show>
+          </div>
+        </Show>
       </div>
     );
   }
@@ -512,6 +654,7 @@ const AetherMap: Component = () => {
       <Show when={aetherStore.selectedId()}>
         {detailPanelFor(aetherStore.selectedId()!)}
       </Show>
+      {promptBar()}
       {statusBar()}
     </div>
   );

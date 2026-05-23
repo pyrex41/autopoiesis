@@ -33,6 +33,8 @@ export interface AetherNode {
   haloColor: string;
   /** Cached opaque magnitude — bigger = "more cognitively active" */
   magnitude: number;
+  /** ms timestamp the node was added; used by the renderer's birth animation. */
+  bornAt: number;
 }
 
 export interface AetherEdge {
@@ -309,6 +311,11 @@ const [usingFixture, setUsingFixture] = createSignal(false);
 const [selectedId, setSelectedId] = createSignal<string | null>(null);
 const [hoveredId, setHoveredId] = createSignal<string | null>(null);
 
+// Last-birth epoch — page reads this to re-arm physics warmup whenever a
+// new live snapshot arrives, so the new star eases into place rather than
+// sitting frozen on top of its parent.
+const [lastBirthAt, setLastBirthAt] = createSignal(0);
+
 // Retained raw snapshots (for panel display fields not on AetherNode).
 let snapshotsById = new Map<string, Snapshot>();
 // Adjacency: parent -> children ids
@@ -392,6 +399,7 @@ function buildGraph(snapshots: Snapshot[]) {
   // Initial positions: seeded scatter using id hash, NOT a circle.
   // Circle initial conditions are the #1 way to end up with a force
   // layout that looks like... a circle.
+  const initialBornAt = Date.now() - 10000; // pre-existing nodes are "born long ago"
   const builtNodes: AetherNode[] = snapshots.map((s) => {
     const h1 = hash01(s.id + "::x");
     const h2 = hash01(s.id + "::y");
@@ -408,6 +416,7 @@ function buildGraph(snapshots: Snapshot[]) {
       color: spec.color,
       haloColor: spec.haloColor,
       magnitude: spec.magnitude,
+      bornAt: initialBornAt,
     };
   });
 
@@ -477,6 +486,152 @@ function tick() {
   });
 }
 
+// ── Live append (new snapshot arriving via WS) ───────────────────────
+//
+// When the backend pushes an aether_snapshot frame we want the new star
+// to appear on the map immediately — not on a polling boundary, not after
+// a full re-layout. liveAppend mutates the existing graph in place: adds
+// the snapshot to byId, adds an edge to its parent if known, builds an
+// AetherNode positioned just next to the parent (so the force sim eases
+// it into place from a natural starting point), and stamps `bornAt` so
+// the renderer can draw the birth animation.
+
+function liveAppend(snap: Snapshot) {
+  // Idempotent: ignore duplicates (server may resend on reconnect).
+  if (snapshotsById.has(snap.id)) return;
+  snapshotsById.set(snap.id, snap);
+
+  // Update edges + adjacency.
+  const newEdges = edges().slice();
+  if (snap.parent) {
+    const parentSnap = snapshotsById.get(snap.parent);
+    if (parentSnap) {
+      const mag = diffMagnitude(parentSnap, snap);
+      newEdges.push({
+        source: snap.parent,
+        target: snap.id,
+        diffMagnitude: mag,
+        restLength: restLengthFor(mag),
+      });
+      const arr = childrenOf.get(snap.parent) ?? [];
+      arr.push(snap.id);
+      childrenOf.set(snap.parent, arr);
+    }
+  }
+  setEdges(newEdges);
+
+  // Build the new node. Position: snap to parent's coords + small jitter,
+  // so it visually "births from" the parent rather than teleporting in
+  // from a random point and being yanked by the spring.
+  const incoming = newEdges
+    .filter((e) => e.target === snap.id)
+    .reduce((acc, e) => acc + e.diffMagnitude, 0);
+  const spec = spectralClass(snap, incoming);
+  const parentNode = snap.parent
+    ? nodes().find((n) => n.id === snap.parent)
+    : null;
+  const jitter = 35;
+  const baseX = parentNode ? parentNode.x : (hash01(snap.id + "::x") - 0.5) * 700;
+  const baseY = parentNode ? parentNode.y : (hash01(snap.id + "::y") - 0.5) * 700;
+  const node: AetherNode = {
+    id: snap.id,
+    parent: snap.parent ?? null,
+    x: baseX + (hash01(snap.id + "::jx") - 0.5) * jitter,
+    y: baseY + (hash01(snap.id + "::jy") - 0.5) * jitter,
+    vx: 0,
+    vy: 0,
+    radius: spec.radius,
+    color: spec.color,
+    haloColor: spec.haloColor,
+    magnitude: spec.magnitude,
+    bornAt: Date.now(),
+  };
+  setNodes([...nodes(), node]);
+  setLastBirthAt(Date.now());
+}
+
+// ── WebSocket subscription for live snapshots ────────────────────────
+
+let liveWs: WebSocket | null = null;
+let liveReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const [liveConnected, setLiveConnected] = createSignal(false);
+
+function aetherWsUrl(): string {
+  // Vite dev: page on :3000, /ws proxied to ws://localhost:${AP_WS_PORT}
+  // Production: assume same-origin /ws upgrade.
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}/ws`;
+}
+
+function connectLiveWs() {
+  if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  try {
+    liveWs = new WebSocket(aetherWsUrl());
+  } catch {
+    scheduleLiveReconnect();
+    return;
+  }
+  liveWs.onopen = () => {
+    setLiveConnected(true);
+    liveWs?.send(JSON.stringify({ type: "set_stream_format", format: "json" }));
+    liveWs?.send(JSON.stringify({ type: "subscribe", channel: "aether:snapshots" }));
+  };
+  liveWs.onmessage = (ev) => {
+    if (typeof ev.data !== "string") return;
+    try {
+      const m = JSON.parse(ev.data);
+      if (m.type === "aether_snapshot" && m.snapshot) {
+        liveAppend(m.snapshot as Snapshot);
+      }
+    } catch {
+      // ignore malformed
+    }
+  };
+  liveWs.onclose = () => {
+    setLiveConnected(false);
+    liveWs = null;
+    scheduleLiveReconnect();
+  };
+  liveWs.onerror = () => {
+    // close handler will run too
+  };
+}
+
+function scheduleLiveReconnect() {
+  if (liveReconnectTimer) return;
+  liveReconnectTimer = setTimeout(() => {
+    liveReconnectTimer = null;
+    connectLiveWs();
+  }, 2000);
+}
+
+// ── Spawn (POST to /api/aether/spawn) ────────────────────────────────
+
+export interface SpawnResult {
+  session_id: string;
+  initial_snapshot_id: string;
+  lineage: string;
+  model: string;
+}
+
+async function spawnAgent(opts: { prompt: string; parent?: string | null; model?: string }): Promise<SpawnResult> {
+  const body: Record<string, unknown> = { prompt: opts.prompt };
+  if (opts.parent) body.parent = opts.parent;
+  if (opts.model) body.model = opts.model;
+  const res = await fetch("/api/aether/spawn", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`spawn failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as SpawnResult;
+}
+
 // ── Loading ──────────────────────────────────────────────────────────
 
 async function loadFromApiOrFixture() {
@@ -486,6 +641,8 @@ async function loadFromApiOrFixture() {
       buildGraph(snaps);
       setUsingFixture(false);
       setLoaded(true);
+      // Live WS only useful against the real API (not the offline fixture).
+      connectLiveWs();
       return;
     }
     // Empty store → fall through to fixture so the page is still useful.
@@ -505,8 +662,11 @@ export const aetherStore = {
   edges,
   loaded,
   usingFixture,
+  liveConnected,
+  lastBirthAt,
   load: loadFromApiOrFixture,
   tick,
+  spawn: spawnAgent,
   // Selection / hover / focus layer.
   selectedId,
   hoveredId,

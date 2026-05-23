@@ -139,6 +139,68 @@
       .mood-linear   { color: #e6d28a; }   /* yellow-white */
       .mood-explorer { color: #9bc3f5; }   /* blue-white   */
       .mood-reflector{ color: #e08c7a; }   /* warm red     */
+
+      /* ── prompt bar (top-center; only visible when toggled with /) ── */
+      .aether-prompt {
+        position: fixed;
+        top: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 30;
+        width: min(540px, calc(100vw - 64px));
+        pointer-events: none;
+      }
+      .aether-prompt.open {
+        pointer-events: auto;
+      }
+      .aether-prompt-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 14px;
+        background: rgba(8, 12, 24, 0.85);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: #65728e;
+        text-transform: lowercase;
+      }
+      .aether-prompt-label { color: #9bc3f5; }
+      .aether-prompt-close {
+        background: transparent; border: none; color: #65728e;
+        cursor: pointer; font-size: 14px; padding: 0 4px;
+      }
+      .aether-prompt-close:hover { color: #d8e3f6; }
+      .aether-prompt-input {
+        width: 100%;
+        padding: 14px 16px;
+        font-family: inherit;
+        font-size: 14px;
+        color: #d8e3f6;
+        background: rgba(6, 10, 22, 0.92);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: none;
+        outline: none;
+        letter-spacing: 0.01em;
+      }
+      .aether-prompt-input::placeholder { color: #4f5b75; }
+      .aether-prompt-input:disabled { opacity: 0.55; }
+      .aether-prompt-foot {
+        padding: 6px 14px 9px;
+        background: rgba(6, 10, 22, 0.92);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+      }
+      .aether-prompt-hint { color: #4f5b75; }
+      .aether-prompt-err { color: #c98c5c; }
+
+      /* ── live-connection accents on the status bar ─────────────────── */
+      .aether-status .live-on  { color: #6fc78f; }
+      .aether-status .live-off { color: #c98c5c; }
     </style>
   </head>
   <body>

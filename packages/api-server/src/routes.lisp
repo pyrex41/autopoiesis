@@ -1728,6 +1728,11 @@
                (and (> (length uri) 10)
                     (string= "/api/eval/" (subseq uri 0 10))))
            (rest-handle-eval request))
+          ;; /api/aether/spawn etc. — live agent driver (rho subprocess)
+          ((or (string= uri "/api/aether")
+               (and (> (length uri) 12)
+                    (string= "/api/aether/" (subseq uri 0 12))))
+           (rest-handle-aether request))
           ;; Unknown API route
           (t
            (json-not-found "API route" uri)))
