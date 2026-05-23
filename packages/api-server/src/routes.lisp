@@ -341,6 +341,15 @@
       ((and (eq method :get) snapshot-id)
        (let ((sub-path (path-after-segment request "/api/snapshots/" snapshot-id)))
          (cond
+           ;; GET /api/snapshots/:id/diff-magnitude/:other-id
+           ;; Returns a precomputed scalar so the frontend doesn't have
+           ;; to parse the `prin1`'d SEXPR-EDIT struct list. Added for
+           ;; the AETHER experiment (Week 1) — single sanctioned
+           ;; backend addition per the handoff doc.
+           ((and sub-path (>= (length sub-path) 16)
+                 (string= "/diff-magnitude/" (subseq sub-path 0 16)))
+            (let ((other-id (subseq sub-path 16)))
+              (rest-snapshot-diff-magnitude snapshot-id other-id)))
            ;; GET /api/snapshots/:id/diff/:other-id
            ((and sub-path (>= (length sub-path) 6)
                  (string= "/diff/" (subseq sub-path 0 6)))
@@ -439,6 +448,39 @@
     (json-ok (loop for id in children-ids
                    for snap = (autopoiesis.snapshot:load-snapshot id)
                    when snap collect (snapshot-summary-alist snap)))))
+
+(defun rest-snapshot-diff-magnitude (id-a id-b)
+  "GET /api/snapshots/:id/diff-magnitude/:other-id
+
+   Returns a JSON scalar summary of the structural distance between two
+   snapshots, so that a frontend force-directed layout can weight edges
+   without needing to parse the (prin1)'d SEXPR-EDIT list returned by
+   the existing /diff endpoint.
+
+   Response shape:
+     {\"from\": <id>, \"to\": <id>,
+      \"edit_count\":  <int>,    ; total sexpr-diff edits
+      \"path_sum\":    <int>,    ; sum of path-lengths across edits
+      \"magnitude\":   <float>}  ; edit_count + log(1 + path_sum)
+
+   Added for AETHER Week-1 experiment per handoff doc."
+  (require-permission :read)
+  (let ((snap-a (autopoiesis.snapshot:load-snapshot id-a))
+        (snap-b (autopoiesis.snapshot:load-snapshot id-b)))
+    (unless snap-a
+      (return-from rest-snapshot-diff-magnitude (json-not-found "Snapshot" id-a)))
+    (unless snap-b
+      (return-from rest-snapshot-diff-magnitude (json-not-found "Snapshot" id-b)))
+    (let* ((edits (autopoiesis.snapshot:snapshot-diff snap-a snap-b))
+           (edit-count (length edits))
+           (path-sum (loop for e in edits
+                           sum (length (autopoiesis.core:sexpr-edit-path e))))
+           (magnitude (+ edit-count (log (1+ path-sum)))))
+      (json-ok `((:from . ,id-a)
+                 (:to . ,id-b)
+                 (:edit--count . ,edit-count)
+                 (:path--sum . ,path-sum)
+                 (:magnitude . ,magnitude))))))
 
 ;;; ===================================================================
 ;;; Branch Endpoints

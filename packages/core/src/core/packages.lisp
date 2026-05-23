@@ -19,6 +19,10 @@
    #:sexpr-diff
    #:sexpr-patch
    #:sexpr-edit
+   #:sexpr-edit-type
+   #:sexpr-edit-path
+   #:sexpr-edit-old
+   #:sexpr-edit-new
    #:make-edit
 
    ;; Cognitive primitives
