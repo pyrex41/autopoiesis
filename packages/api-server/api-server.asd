@@ -32,7 +32,15 @@
       (:file "activity-tracker")
       (:file "holodeck-bridge")
       (:file "web-console")
-      (:file "server"))))
+      (:file "server")
+      ;; REST control API (Hunchentoot, separate port from WebSocket)
+      (:file "auth")
+      (:file "sse")
+      (:file "serialization")
+      (:file "mcp-server")
+      (:file "routes")
+      (:file "sandbox-routes")
+      (:file "rest-server"))))
   :in-order-to ((test-op (test-op #:autopoiesis/api-test))))
 
 ;;; API test system
