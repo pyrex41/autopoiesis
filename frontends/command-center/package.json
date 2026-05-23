@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:holodeck": "vite build --config vite.holodeck.config.ts",
+    "build:aether": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
