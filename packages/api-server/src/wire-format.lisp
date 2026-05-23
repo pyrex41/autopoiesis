@@ -171,7 +171,7 @@ Bypasses Woo's event loop — safe to call from any thread."
                            ;; Transient - brief sleep then retry (max ~2s total)
                            (incf retry-count)
                            (when (> retry-count 200)
-                             (error "WebSocket write timed out after ~2s of EWOULDBLOCK"))
+                             (error "WebSocket write timed out after ~~2s of EWOULDBLOCK"))
                            (sleep 0.01))
                           (t
                            (error "WebSocket write failed (errno ~D)" errno)))))
