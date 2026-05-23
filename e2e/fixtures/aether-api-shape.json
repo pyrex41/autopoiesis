@@ -1,0 +1,109 @@
+{
+  "_metadata": {
+    "captured_against": "autopoiesis REST server :8081",
+    "seed_command": "(aether-seed:populate :path #P\"/tmp/aether-seed/\" :n 60 :seed 42)",
+    "total_snapshots_in_store": 43,
+    "first_id": "4BF2F32B-30FD-4462-9194-3148C82B32BB",
+    "second_id": "CD0F4B4D-792C-4AF5-A041-62973E7FD864",
+    "notes": [
+      "`agent_state` (singular GET) is a prin1'd Lisp string \u2014 NOT JSON.",
+      "`diff` is a prin1'd #S(AUTOPOIESIS.CORE:SEXPR-EDIT ...) struct list \u2014 NOT JSON.",
+      "Frontend should consume `/diff-magnitude/` (added for AETHER) instead of `/diff/`.",
+      "`metadata` is a JSON array encoding a Lisp plist: [k1, v1, k2, v2, ...].",
+      "`metadata[1]` is the lineage name; `metadata[3]` is the mood keyword (e.g. \"linear\").",
+      "`parent` is null on root snapshots, otherwise a snapshot UUID string."
+    ]
+  },
+  "GET /api/snapshots": {
+    "_sample_first_3": [
+      {
+        "id": "4BF2F32B-30FD-4462-9194-3148C82B32BB",
+        "timestamp": 1779508191.203217,
+        "parent": null,
+        "hash": "401a22b46d0bf3511b75a8528cab8f8ac843c552d023f22ff36156aa3a1985a7",
+        "metadata": [
+          "lineage",
+          "nimbus-0",
+          "mood",
+          "linear",
+          "depth",
+          0,
+          "root",
+          true
+        ]
+      },
+      {
+        "id": "CD0F4B4D-792C-4AF5-A041-62973E7FD864",
+        "timestamp": 1779508191.204003,
+        "parent": "4BF2F32B-30FD-4462-9194-3148C82B32BB",
+        "hash": "2f443c8de7de17daecfdcf45c5d139f7abee6411aefcb709918671de01064141",
+        "metadata": [
+          "lineage",
+          "nimbus-0",
+          "mood",
+          "linear",
+          "ticks",
+          5
+        ]
+      },
+      {
+        "id": "3CBE9DC1-D0CE-4DE9-8F69-F8789B1E1C75",
+        "timestamp": 1779508191.204474,
+        "parent": "CD0F4B4D-792C-4AF5-A041-62973E7FD864",
+        "hash": "b6c83649b43e65ac1279c9f86d29c1384653ba4f1c6fb781d8b21da3b1ca2b89",
+        "metadata": [
+          "lineage",
+          "nimbus-0",
+          "mood",
+          "linear",
+          "ticks",
+          6
+        ]
+      }
+    ],
+    "_total": 43
+  },
+  "GET /api/snapshots/{id}": {
+    "id": "CD0F4B4D-792C-4AF5-A041-62973E7FD864",
+    "timestamp": 1779508191.204003,
+    "parent": "4BF2F32B-30FD-4462-9194-3148C82B32BB",
+    "hash": "2f443c8de7de17daecfdcf45c5d139f7abee6411aefcb709918671de01064141",
+    "metadata": [
+      "lineage",
+      "nimbus-0",
+      "mood",
+      "linear",
+      "ticks",
+      5
+    ],
+    "agent_state": "(:PERSISTENT-AGENT-SNAPSHOT :SEXPR\n (:PERSISTENT-AGENT :ID \"82030024-2FA0-4CE2-8A91-093F2E7B9117\" :NAME\n  \"nimbus-0/fork\" :VERSION 5 :TIMESTAMP 1.779508191203957d9 :MEMBRANE\n  ((:MOOD . :LINEAR) (:ORIGIN . \"nimbus-0\")) :GENOME NIL :THOUGHTS\n  ((:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"stellar nursery\" :WEIGHT 0.5173891 :TICK 266))\n   (:TYPE :OBSERVATION :CONTENT (:TOPIC \"novelty\" :WEIGHT 0.8149041 :TICK 865))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"lineage\" :WEIGHT 0.21086368 :TICK 219))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"light cone\" :WEIGHT 0.28528902 :TICK 758))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"cognition\" :WEIGHT 0.50962526 :TICK 520))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"alignment\" :WEIGHT 0.904013 :TICK 447))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"compression\" :WEIGHT 0.58003986 :TICK 210))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"observation\" :WEIGHT 0.32441756 :TICK 140))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"branching factor\" :WEIGHT 0.34668335 :TICK 459))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"spectral class\" :WEIGHT 0.39422053 :TICK 22))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"self model\" :WEIGHT 0.3526269 :TICK 800))\n   (:TYPE :OBSERVATION :CONTENT (:TOPIC \"lineage\" :WEIGHT 1.0081975 :TICK 703))\n   (:TYPE :OBSERVATION :CONTENT\n    (:TOPIC \"objective\" :WEIGHT 0.6434982 :TICK 746)))\n  :CAPABILITIES (:DECIDE :REASON :PERCEIVE) :HEURISTICS\n  ((:RULE \"prefer high-confidence decisions\" :CONFIDENCE 0.6638731)) :CHILDREN\n  NIL :PARENT-ROOT \"B6123CC0-EFAD-44C2-B5A4-15595330CF6E\" :METADATA NIL))"
+  },
+  "GET /api/snapshots/{id}/children": [
+    {
+      "id": "CD0F4B4D-792C-4AF5-A041-62973E7FD864",
+      "timestamp": 1779508191.204003,
+      "parent": "4BF2F32B-30FD-4462-9194-3148C82B32BB",
+      "hash": "2f443c8de7de17daecfdcf45c5d139f7abee6411aefcb709918671de01064141",
+      "metadata": [
+        "lineage",
+        "nimbus-0",
+        "mood",
+        "linear",
+        "ticks",
+        5
+      ]
+    }
+  ],
+  "GET /api/snapshots/{id}/diff/{other}": {
+    "from": "4BF2F32B-30FD-4462-9194-3148C82B32BB",
+    "to": "CD0F4B4D-792C-4AF5-A041-62973E7FD864",
+    "diff": "(#S(AUTOPOIESIS.CORE:SEXPR-EDIT\n    :TYPE :REPLACE\n    :PATH (:CDR :CDR :CAR :CDR :CDR :CAR)\n    :OLD \"B6123CC0-EFAD-44C2-B5A4-15595330CF6E\"\n    :NEW \"82030024-2FA0-4CE2-8A91-093F2E7B9117\")\n #S(AUTOPOIESIS.CORE:SEXPR-EDIT\n    :TYPE :REPLACE\n    :PATH (:CDR :CDR :CAR :CDR :CDR :CDR :CDR :CAR)\n    :OLD \"nimbus-0\"\n    :NEW \"nimbus-0/fork\")\n #S(AUTOPOIESIS.CORE:SEXPR-EDIT\n    :TYPE :REPLACE\n    :PATH (:CDR :CDR :CAR :CDR :CDR :CDR :CDR :CDR :CDR :CAR)\n    :OLD 0\n    :NEW 5)\n #S(AUTOPOIESIS.CORE:SEXPR-EDIT\n    :TYPE :REPLACE\n    :PATH (:CDR :CDR :CAR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CAR)\n    :OLD 1.779508191177995d9\n    :NEW 1.779508191203957d9)\n #S(AUTOPOIESIS.CORE:SEXPR-EDIT\n    :TYPE :REPLACE\n    :PATH (:CDR :CDR :CAR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR\n           :CDR :CDR :CDR :CDR :CAR)\n    :OLD NIL\n    :NEW ((:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"stellar nursery\" :WEIGHT 0.5173891 :TICK 266))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"novelty\" :WEIGHT 0.8149041 :TICK 865))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"lineage\" :WEIGHT 0.21086368 :TICK 219))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"light cone\" :WEIGHT 0.28528902 :TICK 758))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"cognition\" :WEIGHT 0.50962526 :TICK 520))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"alignment\" :WEIGHT 0.904013 :TICK 447))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"compression\" :WEIGHT 0.58003986 :TICK 210))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"observation\" :WEIGHT 0.32441756 :TICK 140))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"branching factor\" :WEIGHT 0.34668335 :TICK 459))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"spectral class\" :WEIGHT 0.39422053 :TICK 22))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"self model\" :WEIGHT 0.3526269 :TICK 800))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"lineage\" :WEIGHT 1.0081975 :TICK 703))\n          (:TYPE :OBSERVATION :CONTENT\n           (:TOPIC \"objective\" :WEIGHT 0.6434982 :TICK 746))))\n #S(AUTOPOIESIS.CORE:SEXPR-EDIT\n    :TYPE :REPLACE\n    :PATH (:CDR :CDR :CAR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR\n           :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CDR :CAR)\n    :OLD NIL\n    :NEW \"B6123CC0-EFAD-44C2-B5A4-15595330CF6E\"))"
+  },
+  "GET /api/snapshots/{id}/diff-magnitude/{other}": {
+    "from": "4BF2F32B-30FD-4462-9194-3148C82B32BB",
+    "to": "CD0F4B4D-792C-4AF5-A041-62973E7FD864",
+    "edit_count": 6,
+    "path_sum": 80,
+    "magnitude": 10.394449
+  }
+}
