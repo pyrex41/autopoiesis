@@ -28,6 +28,7 @@
   id                          ; "ses-XXXXXXXX"
   prompt
   model
+  cwd                         ; working directory for rho (-C); nil = inherit
   lineage-name                ; consistent across all snapshots of this session
   parent-snapshot-id          ; nil for fresh sessions, set for forks
   current-snapshot-id         ; latest snapshot in this session (next parent)
@@ -69,11 +70,12 @@
       (or text "")))
 
 (defun event-mood (event-type has-text-p)
-  "Map a rho event-type to a spectral mood."
+  "Map a rho event-type to a spectral mood.
+   rho emits: session / text_delta / tool_start / tool_result / complete / error."
   (cond
     ((string= event-type "session")     "explorer")  ; birth event
     ((string= event-type "text_delta")  "linear")    ; ongoing thought
-    ((string= event-type "tool_use")    "explorer")  ; reaching out
+    ((string= event-type "tool_start")  "explorer")  ; reaching out
     ((string= event-type "tool_result") "reflector") ; what came back
     ((string= event-type "complete")    "reflector") ; settled
     ((string= event-type "error")       "reflector")
@@ -171,24 +173,41 @@
       ;; All other events flush any buffered text first, then snapshot.
       (t
        (flush-delta-buffer session :force t)
-       (let ((payload (cond
-                        (text text)
-                        ((string= event-type "tool_use")
-                         (format nil "tool: ~A" (gethash "name" event)))
-                        ((string= event-type "tool_result")
-                         (truncate-text (princ-to-string (gethash "result" event)) 200))
-                        ((string= event-type "complete")
-                         (if (gethash "success" event) "completed" "failed"))
-                        (t (princ-to-string event)))))
+       (let ((payload
+               (cond
+                 (text text)
+                 ;; rho session start: {session_id, type}
+                 ((string= event-type "session")
+                  (format nil "rho session ~A"
+                          (or (gethash "session_id" event) "?")))
+                 ;; rho tool invocation: {tool_name, input_summary, tool_id, type}
+                 ((string= event-type "tool_start")
+                  (format nil "~A(~A)"
+                          (or (gethash "tool_name" event) "tool")
+                          (truncate-text (or (gethash "input_summary" event) "") 120)))
+                 ;; rho tool return: {tool_name, success, tool_id, type}
+                 ((string= event-type "tool_result")
+                  (format nil "~A → ~A"
+                          (or (gethash "tool_name" event) "tool")
+                          (if (gethash "success" event) "ok" "failed")))
+                 ;; rho completion: {session_id, success, type}
+                 ((string= event-type "complete")
+                  (if (gethash "success" event) "completed" "failed"))
+                 ;; Unknown event type — show the type at least.
+                 (t (format nil "[~A]" event-type)))))
          (aether-snapshot session event-type payload))))))
 
 (defun run-rho-thread (session)
   "Body of the subprocess thread. Reads stream-json line by line."
   (let* ((exe (find-rho-executable))
          ;; rho-cli uses positional or -p; positional is safer with embedded args
-         (args (list "-p" (aether-session-prompt session)
-                     "--output-format" "stream-json"
-                     "--model" (aether-session-model session)))
+         (base-args (list "-p" (aether-session-prompt session)
+                          "--output-format" "stream-json"
+                          "--model" (aether-session-model session)))
+         (args (let ((cwd (aether-session-cwd session)))
+                 (if (and cwd (> (length cwd) 0))
+                     (append (list "-C" cwd) base-args)
+                     base-args)))
          (cmd (format nil "~A ~{~A~^ ~}"
                       exe
                       (mapcar (lambda (s) (format nil "'~A'"
@@ -231,10 +250,12 @@
 ;;; Public entry — spawn
 ;;; ===================================================================
 
-(defun spawn-aether-session (&key prompt parent model)
+(defun spawn-aether-session (&key prompt parent model cwd)
   "Spawn a new live agent session. Returns (values session initial-snapshot).
    PROMPT is required. PARENT is an optional parent snapshot id. MODEL
-   defaults to claude-haiku."
+   defaults to claude-haiku. CWD, when given, is passed to rho as -C
+   (the agent's working directory) — important when running tasks that
+   touch the filesystem so they don't write into the caller's tree."
   (unless (and prompt (> (length prompt) 0))
     (error "spawn-aether-session: prompt is required"))
   (let* ((session-id (new-aether-session-id))
@@ -243,6 +264,7 @@
                    :id session-id
                    :prompt prompt
                    :model (or model "claude-haiku")
+                   :cwd cwd
                    :lineage-name lineage
                    :parent-snapshot-id parent
                    :current-snapshot-id parent
@@ -294,7 +316,8 @@
        (let* ((body (parse-json-body))
               (prompt (cdr (assoc :prompt body)))
               (parent (cdr (assoc :parent body)))
-              (model (cdr (assoc :model body))))
+              (model (cdr (assoc :model body)))
+              (cwd (cdr (assoc :cwd body))))
          (cond
            ((or (null prompt) (string= prompt ""))
             (json-error "prompt is required" :status 400 :error-type "Bad Request"))
@@ -303,7 +326,8 @@
                 (multiple-value-bind (session initial)
                     (spawn-aether-session :prompt prompt
                                           :parent parent
-                                          :model model)
+                                          :model model
+                                          :cwd cwd)
                   (json-ok
                    (list (cons :session_id (aether-session-id session))
                          (cons :initial_snapshot_id
