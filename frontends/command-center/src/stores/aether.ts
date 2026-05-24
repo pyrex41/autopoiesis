@@ -616,10 +616,11 @@ export interface SpawnResult {
   model: string;
 }
 
-async function spawnAgent(opts: { prompt: string; parent?: string | null; model?: string }): Promise<SpawnResult> {
+async function spawnAgent(opts: { prompt: string; parent?: string | null; model?: string; cwd?: string }): Promise<SpawnResult> {
   const body: Record<string, unknown> = { prompt: opts.prompt };
   if (opts.parent) body.parent = opts.parent;
   if (opts.model) body.model = opts.model;
+  if (opts.cwd) body.cwd = opts.cwd;
   const res = await fetch("/api/aether/spawn", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -630,6 +631,43 @@ async function spawnAgent(opts: { prompt: string; parent?: string | null; model?
     throw new Error(`spawn failed: ${res.status} ${text}`);
   }
   return (await res.json()) as SpawnResult;
+}
+
+// ── Filesystem capture: files-at-snapshot + checkout ─────────────────
+
+export interface FilesAtSnapshot {
+  snapshot_id: string;
+  tree_root: string;
+  cwd: string;
+  count: number;
+  files: Array<{ path: string; size: number; hash: string }>;
+}
+
+export interface CheckoutResult {
+  snapshot_id: string;
+  target: string;
+  entries_written: number;
+}
+
+async function fetchFilesAt(snapshotId: string): Promise<FilesAtSnapshot> {
+  const res = await fetch(`/api/aether/snapshots/${snapshotId}/files`);
+  if (!res.ok) throw new Error(`files fetch failed: ${res.status}`);
+  return (await res.json()) as FilesAtSnapshot;
+}
+
+async function checkoutSnapshot(snapshotId: string, target?: string): Promise<CheckoutResult> {
+  const body: Record<string, unknown> = {};
+  if (target) body.target = target;
+  const res = await fetch(`/api/aether/snapshots/${snapshotId}/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`checkout failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as CheckoutResult;
 }
 
 // ── Loading ──────────────────────────────────────────────────────────
@@ -657,6 +695,16 @@ async function loadFromApiOrFixture() {
 
 // ── Public store ─────────────────────────────────────────────────────
 
+// Tiny debug hook so tests / rodney can drive selection without
+// hunting for star positions on the canvas. Harmless in prod.
+if (typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__aether = {
+    select: (id: string | null) => setSelectedId(id),
+    selected: () => selectedId(),
+    nodeIds: () => nodes().map((n) => n.id),
+  };
+}
+
 export const aetherStore = {
   nodes,
   edges,
@@ -667,6 +715,8 @@ export const aetherStore = {
   load: loadFromApiOrFixture,
   tick,
   spawn: spawnAgent,
+  fetchFilesAt,
+  checkout: checkoutSnapshot,
   // Selection / hover / focus layer.
   selectedId,
   hoveredId,

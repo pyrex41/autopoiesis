@@ -85,6 +85,17 @@ const AetherMap: Component = () => {
   const [promptOpen, setPromptOpen] = createSignal(false);
   let promptInputRef!: HTMLInputElement;
 
+  // Files-at-snapshot fetched on selection (cached by id).
+  const [filesAtSelected, setFilesAtSelected] = createSignal<import("../stores/aether").FilesAtSnapshot | null>(null);
+  const [filesLoading, setFilesLoading] = createSignal(false);
+
+  // Checkout toast (auto-dismisses).
+  const [toast, setToast] = createSignal<{ kind: "ok" | "err"; text: string } | null>(null);
+  function flashToast(kind: "ok" | "err", text: string) {
+    setToast({ kind, text });
+    setTimeout(() => setToast(null), 3500);
+  }
+
   // ── Pan/zoom (adapted from DAGCanvas.tsx:519-620) ──────────────────
   // mousedown→mousemove with drift ≥ CLICK_DRIFT_PX = drag
   // mousedown→mouseup with drift < CLICK_DRIFT_PX  = click (hit-test → select)
@@ -142,8 +153,11 @@ const AetherMap: Component = () => {
   }
 
   function onKeyDown(e: KeyboardEvent) {
+    // Ignore key shortcuts when the user is typing into the prompt input.
+    const activeIsInput = document.activeElement?.tagName === "INPUT";
+
     // "/" focuses the prompt bar; Esc closes it OR clears selection.
-    if (e.key === "/" && !promptOpen() && document.activeElement?.tagName !== "INPUT") {
+    if (e.key === "/" && !promptOpen() && !activeIsInput) {
       e.preventDefault();
       setPromptOpen(true);
       queueMicrotask(() => promptInputRef?.focus());
@@ -157,6 +171,24 @@ const AetherMap: Component = () => {
         return;
       }
       aetherStore.select(null);
+    }
+    // "c" — checkout the selected star's FS state to its captured cwd.
+    if ((e.key === "c" || e.key === "C") && !activeIsInput) {
+      const id = aetherStore.selectedId();
+      if (!id) return;
+      e.preventDefault();
+      checkoutSelected();
+    }
+  }
+
+  async function checkoutSelected() {
+    const id = aetherStore.selectedId();
+    if (!id) return;
+    try {
+      const res = await aetherStore.checkout(id);
+      flashToast("ok", `checked out ${res.entries_written} file${res.entries_written === 1 ? "" : "s"} → ${res.target}`);
+    } catch (err) {
+      flashToast("err", err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -423,6 +455,26 @@ const AetherMap: Component = () => {
         physicsTicks = Math.min(physicsTicks, PHYSICS_WARMUP_TICKS - REBIRTH_BOOST_TICKS);
       }
     });
+
+    // When a star is selected, fetch its files listing (so the panel can
+    // show "what existed at this point in time"). Cleared on deselect.
+    // Clear the cached data BEFORE fetching so a quick re-select doesn't
+    // leak the prior star's files into the new star's panel.
+    createEffect(() => {
+      const id = aetherStore.selectedId();
+      setFilesAtSelected(null);
+      if (!id) return;
+      setFilesLoading(true);
+      aetherStore.fetchFilesAt(id)
+        .then((data) => {
+          // Make sure the user hasn't re-selected before this resolved.
+          if (aetherStore.selectedId() === id) setFilesAtSelected(data);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (aetherStore.selectedId() === id) setFilesLoading(false);
+        });
+    });
   });
 
   onCleanup(() => {
@@ -544,11 +596,68 @@ const AetherMap: Component = () => {
           <div class="aether-row"><span class="k">hash</span><span class="v mono-small" title={snap?.hash}>{shortHash(snap?.hash)}</span></div>
         </div>
 
+        <div class="aether-section">
+          <div class="aether-section-title">filesystem</div>
+          <Show
+            when={filesAtSelected()}
+            fallback={
+              <div class="aether-files-empty">
+                {filesLoading() ? "loading…" : "no FS capture"}
+              </div>
+            }
+          >
+            {(data) => (
+              <>
+                <div class="aether-row">
+                  <span class="k">cwd</span>
+                  <span class="v mono-small" title={data().cwd}>
+                    {data().cwd || "—"}
+                  </span>
+                </div>
+                <div class="aether-row">
+                  <span class="k">files</span>
+                  <span class="v">{data().count}</span>
+                </div>
+                <Show when={(data().files ?? []).length > 0}>
+                  <div class="aether-files-list">
+                    <For each={(data().files ?? []).slice(0, 12)}>
+                      {(f) => (
+                        <div class="aether-file-row" title={`${f.path} (${f.size}B)`}>
+                          <span class="aether-file-path">{f.path}</span>
+                          <span class="aether-file-size">{formatBytes(f.size)}</span>
+                        </div>
+                      )}
+                    </For>
+                    <Show when={(data().files ?? []).length > 12}>
+                      <div class="aether-files-more">+{(data().files ?? []).length - 12} more</div>
+                    </Show>
+                  </div>
+                </Show>
+                <Show when={data().count > 0 || data().cwd}>
+                  <button
+                    class="aether-checkout-btn"
+                    onClick={checkoutSelected}
+                    title="Restore this filesystem state to the captured cwd (key: c)"
+                  >
+                    checkout to {data().cwd || "captured cwd"}
+                  </button>
+                </Show>
+              </>
+            )}
+          </Show>
+        </div>
+
         <div class="aether-panel-foot">
-          <kbd>Esc</kbd> to close · click another star to switch
+          <kbd>Esc</kbd> close · <kbd>c</kbd> checkout · click another star to switch
         </div>
       </div>
     );
+  }
+
+  function formatBytes(n: number): string {
+    if (n < 1024) return `${n}B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}K`;
+    return `${(n / 1024 / 1024).toFixed(1)}M`;
   }
 
   function statusBar() {
@@ -656,6 +765,11 @@ const AetherMap: Component = () => {
       </Show>
       {promptBar()}
       {statusBar()}
+      <Show when={toast()}>
+        <div class={`aether-toast aether-toast-${toast()!.kind}`}>
+          {toast()!.text}
+        </div>
+      </Show>
     </div>
   );
 };

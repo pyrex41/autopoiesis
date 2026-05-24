@@ -24,6 +24,57 @@
 
 (defvar *aether-sessions-lock* (bordeaux-threads:make-lock "aether-sessions"))
 
+;;; ===================================================================
+;;; Filesystem capture
+;;; ===================================================================
+
+(defvar *aether-content-store* nil
+  "Single shared content-store for AETHER snapshot filesystem blobs.
+   Currently in-process only — blobs do NOT survive SBCL restart.
+   On-disk persistence (LMDB) is a follow-up.")
+
+(defun ensure-aether-content-store ()
+  (or *aether-content-store*
+      (setf *aether-content-store*
+            (autopoiesis.snapshot:make-content-store))))
+
+(defparameter *fs-scan-exclude*
+  '(".git" "node_modules" "__pycache__" ".venv" "venv" "dist" "build"
+    "target" ".next" ".cache" ".DS_Store")
+  "Directory prefixes excluded from working-dir scans. Skip the things
+   nobody actually wants to checkpoint.")
+
+(defun should-capture-fs-p (event-type)
+  "Re-scan only on events that could plausibly have changed disk state.
+   Everything else inherits the previous scan's entries on this session
+   — same Merkle root, blob-store unchanged."
+  (or (string= event-type "prompt")
+      (string= event-type "tool_result")
+      (string= event-type "complete")
+      (string= event-type "error")))
+
+(defun capture-tree-entries (session event-type)
+  "Either re-scan the session's cwd (returning fresh entries) or hand back
+   the entries from the previous capture. nil if no cwd is configured."
+  (let ((cwd (aether-session-cwd session)))
+    (cond
+      ((or (null cwd) (zerop (length cwd))) nil)
+      ((not (should-capture-fs-p event-type))
+       (aether-session-last-tree-entries session))
+      ((not (probe-file (uiop:ensure-directory-pathname cwd)))
+       (aether-session-last-tree-entries session))
+      (t
+       (handler-case
+           (let ((entries (autopoiesis.snapshot:scan-directory-flat
+                           (uiop:ensure-directory-pathname cwd)
+                           (ensure-aether-content-store)
+                           :exclude *fs-scan-exclude*)))
+             (setf (aether-session-last-tree-entries session) entries)
+             entries)
+         (error (e)
+           (log:warn "aether: FS scan failed for ~A: ~A" cwd e)
+           (aether-session-last-tree-entries session)))))))
+
 (defstruct aether-session
   id                          ; "ses-XXXXXXXX"
   prompt
@@ -39,7 +90,10 @@
   error-message               ; populated when status = :error
   ;; Text-delta buffer
   delta-buffer                ; string accumulator
-  delta-last-flush)           ; internal-real-time of last flush
+  delta-last-flush            ; internal-real-time of last flush
+  ;; Filesystem capture — sticky across events; only re-scanned when an
+  ;; event could have changed disk state (prompt, tool_result, complete).
+  last-tree-entries)          ; sorted list of tree entries from last scan
 
 ;;; ===================================================================
 ;;; Utilities
@@ -90,22 +144,28 @@
   "Create + save + broadcast one snapshot for SESSION. Returns the snapshot."
   (let* ((depth (aether-session-event-count session))
          (lineage (aether-session-lineage-name session))
+         (tree-entries (capture-tree-entries session event-type))
+         (file-count (length (or tree-entries '())))
          (metadata (list :lineage lineage
                          :mood (event-mood event-type (and text (> (length text) 0)))
                          :event-type event-type
                          :session (aether-session-id session)
                          :ticks depth
                          :depth depth
-                         :text (truncate-text text 240)))
+                         :text (truncate-text text 240)
+                         :cwd (or (aether-session-cwd session) "")
+                         :files file-count))
          (state (list :aether-event
                       :event-type event-type
                       :text text
                       :session (aether-session-id session)
                       :tick depth))
          (parent (aether-session-current-snapshot-id session))
-         (snap (autopoiesis.snapshot:make-snapshot state
-                                                    :parent parent
-                                                    :metadata metadata)))
+         (snap (autopoiesis.snapshot:make-snapshot
+                state
+                :parent parent
+                :metadata metadata
+                :tree-entries tree-entries)))
     (autopoiesis.snapshot:save-snapshot snap)
     (setf (aether-session-current-snapshot-id session)
           (autopoiesis.snapshot:snapshot-id snap))
@@ -302,6 +362,46 @@
 ;;; REST route handler
 ;;; ===================================================================
 
+(defun snapshot-cwd (snap)
+  "Read the captured cwd from a snapshot's metadata, or nil."
+  (let* ((md (autopoiesis.snapshot:snapshot-metadata snap))
+         (cwd (getf md :cwd)))
+    (when (and cwd (> (length cwd) 0)) cwd)))
+
+(defun files-listing-for (snap)
+  "Build a JSON-friendly summary of the FS tree captured at SNAP."
+  (let ((entries (autopoiesis.snapshot:snapshot-tree-entries snap)))
+    `((:snapshot_id . ,(autopoiesis.snapshot:snapshot-id snap))
+      (:tree_root . ,(or (autopoiesis.snapshot:snapshot-tree-root snap) ""))
+      (:cwd . ,(or (snapshot-cwd snap) ""))
+      (:count . ,(length (or entries '())))
+      (:files . ,(loop for e in (or entries '())
+                       when (eq (autopoiesis.snapshot:entry-type e) :file)
+                       collect `((:path . ,(autopoiesis.snapshot:entry-path e))
+                                 (:size . ,(or (autopoiesis.snapshot:entry-size e) 0))
+                                 (:hash . ,(or (autopoiesis.snapshot:entry-hash e) ""))))))))
+
+(defun checkout-snapshot-to (snap target-dir)
+  "Materialize SNAP's tree-entries into TARGET-DIR. Returns the count of
+   entries written. Destructive — clears TARGET-DIR contents first (but
+   does NOT delete the directory itself; .git etc. are left alone).
+   nil tree-entries is valid and means 'clear the directory'."
+  (let ((entries (autopoiesis.snapshot:snapshot-tree-entries snap))
+        (target (uiop:ensure-directory-pathname target-dir))
+        (store (ensure-aether-content-store)))
+    (ensure-directories-exist target)
+    ;; Clear existing files/dirs in target (mirrors local-backend approach).
+    (dolist (f (uiop:directory-files target))
+      (ignore-errors (delete-file f)))
+    (dolist (d (uiop:subdirectories target))
+      (let ((name (car (last (pathname-directory d)))))
+        ;; Don't recurse into excluded dirs — leave .git etc. alone.
+        (unless (member name *fs-scan-exclude* :test #'string=)
+          (ignore-errors (uiop:delete-directory-tree d :validate t)))))
+    (if entries
+        (autopoiesis.snapshot:materialize-tree entries target store)
+        0)))
+
 (defun rest-handle-aether (request)
   "Dispatch /api/aether/* requests."
   (let ((method (hunchentoot:request-method request))
@@ -341,6 +441,47 @@
       ((and (eq method :get) (string= uri "/api/aether/sessions"))
        (require-permission :read)
        (json-ok (list-aether-sessions)))
+      ;; GET /api/aether/snapshots/:id/files
+      ((and (eq method :get)
+            (cl-ppcre:scan "^/api/aether/snapshots/[^/]+/files$" uri))
+       (require-permission :read)
+       (let* ((id (cl-ppcre:register-groups-bind (sid)
+                      ("^/api/aether/snapshots/([^/]+)/files$" uri)
+                    sid))
+              (snap (autopoiesis.snapshot:load-snapshot id)))
+         (cond ((null snap) (json-not-found "Snapshot" id))
+               (t (json-ok (files-listing-for snap))))))
+      ;; POST /api/aether/snapshots/:id/checkout
+      ;; Body (optional): {"target": "/abs/path"} — falls back to the cwd
+      ;; the snapshot was captured at.
+      ((and (eq method :post)
+            (cl-ppcre:scan "^/api/aether/snapshots/[^/]+/checkout$" uri))
+       (require-permission :write)
+       (let* ((id (cl-ppcre:register-groups-bind (sid)
+                      ("^/api/aether/snapshots/([^/]+)/checkout$" uri)
+                    sid))
+              (snap (autopoiesis.snapshot:load-snapshot id)))
+         (cond
+           ((null snap) (json-not-found "Snapshot" id))
+           (t
+            (let* ((body (parse-json-body))
+                   (req-target (cdr (assoc :target body)))
+                   (target (or req-target (snapshot-cwd snap))))
+              (cond
+                ((or (null target) (zerop (length target)))
+                 (json-error
+                  "Snapshot has no captured cwd; specify target in body."
+                  :status 400 :error-type "Bad Request"))
+                (t
+                 (handler-case
+                     (let ((count (checkout-snapshot-to snap target)))
+                       (json-ok
+                        (list (cons :snapshot_id id)
+                              (cons :target target)
+                              (cons :entries_written count))))
+                   (error (e)
+                     (json-error (format nil "checkout failed: ~A" e)
+                                 :status 500 :error-type "Internal Error"))))))))))
       ;; Unknown
       (t
        (json-not-found "AETHER route" uri)))))
