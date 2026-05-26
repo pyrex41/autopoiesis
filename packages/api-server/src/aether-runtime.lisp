@@ -402,6 +402,134 @@
         (autopoiesis.snapshot:materialize-tree entries target store)
         0)))
 
+;;; ===================================================================
+;;; Per-line file blame (aether-blame)
+;;; ===================================================================
+;;;
+;;; For any file at any snapshot, walk back through the same lineage and
+;;; attribute each line to the EARLIEST ancestor whose tree contained that
+;;; exact line. Think `git blame` over cognitive ancestry — clicking a
+;;; line tells you which agent reasoning event (= which star) introduced it.
+
+(defun blob-as-string (content-store hash)
+  "Fetch BLOB at HASH from CONTENT-STORE and decode as UTF-8.
+   Returns nil if the blob is missing. Returns the decoded string otherwise
+   (or, on a decode error, an empty string — we never crash blame on binary)."
+  (let ((bytes (autopoiesis.snapshot:store-get-blob content-store hash)))
+    (when bytes
+      (handler-case (babel:octets-to-string bytes :encoding :utf-8)
+        (error () "")))))
+
+(defun split-lines (text)
+  "Split TEXT on #\\Newline, preserving order. The last element is empty
+   when TEXT ends with a newline — that matches how we want to display
+   line counts (one entry per actual line in the file)."
+  (when text
+    (let ((lines '())
+          (start 0)
+          (len (length text)))
+      (loop for i from 0 below len
+            when (char= (char text i) #\Newline)
+              do (push (subseq text start i) lines)
+                 (setf start (1+ i)))
+      (push (subseq text start len) lines)
+      (nreverse lines))))
+
+(defun file-lines-from-snapshot (snap path)
+  "Return the list of UTF-8-decoded lines for PATH at SNAP, or nil if PATH
+   is not present in SNAP's tree (or SNAP has no tree-entries at all)."
+  (let ((entries (autopoiesis.snapshot:snapshot-tree-entries snap)))
+    (when entries
+      (let ((entry (find-if (lambda (e)
+                              (and (eq (autopoiesis.snapshot:entry-type e) :file)
+                                   (string= (autopoiesis.snapshot:entry-path e) path)))
+                            entries)))
+        (when entry
+          (let ((text (blob-as-string (ensure-aether-content-store)
+                                       (autopoiesis.snapshot:entry-hash entry))))
+            (and text (split-lines text))))))))
+
+(defun snapshot-lineage (snap)
+  "Return the :lineage metadata value (string) for SNAP, or nil."
+  (let ((md (autopoiesis.snapshot:snapshot-metadata snap)))
+    (and md (getf md :lineage))))
+
+(defun walk-lineage-ancestors (snap)
+  "Walk from SNAP back along parent pointers, collecting snapshots that
+   share SNAP's :lineage metadata. Returns the list ordered oldest → newest
+   (so [0] is the lineage root and [last] is SNAP itself). Snapshots from
+   other lineages are not included — blame stays meaningful by staying
+   inside one lineage chain."
+  (let ((target-lineage (snapshot-lineage snap))
+        (chain '())
+        (cur snap)
+        (max-walk 10000))
+    (loop for n from 0 below max-walk
+          while cur
+          do (let ((lin (snapshot-lineage cur)))
+               (if (or (null target-lineage)
+                       (and lin (string= lin target-lineage)))
+                   (push cur chain)
+                   ;; Different lineage — stop walking. The DAG can fork
+                   ;; into a new live-XXX session and that's a hard boundary
+                   ;; for attribution.
+                   (return)))
+             (let ((pid (autopoiesis.snapshot:snapshot-parent cur)))
+               (setf cur (and pid (autopoiesis.snapshot:load-snapshot pid)))))
+    chain))
+
+(defun compute-blame (snap path)
+  "For each line of PATH at SNAP, find the earliest ancestor whose copy of
+   PATH already contained that exact line. Returns a list of plists, one
+   per line, each with keys :line :text :origin-snapshot :origin-event-type
+   :origin-timestamp :origin-lineage. Returns nil if PATH is not in SNAP.
+
+   Algorithm: collect the lineage chain oldest→newest, hash each ancestor's
+   line set, then for each current line find the first ancestor that
+   already contained it. If no ancestor had it, the origin is SNAP itself."
+  (let ((current-lines (file-lines-from-snapshot snap path)))
+    (unless current-lines
+      (return-from compute-blame nil))
+    (let* ((chain (walk-lineage-ancestors snap))
+           ;; Precompute (ancestor . line-set) pairs, skipping ancestors
+           ;; that don't include PATH in their tree.
+           (ancestor-line-sets
+             (loop for a in chain
+                   for lines = (file-lines-from-snapshot a path)
+                   when lines
+                   collect (let ((set (make-hash-table :test 'equal)))
+                             (dolist (l lines) (setf (gethash l set) t))
+                             (cons a set)))))
+      (loop for line in current-lines
+            for idx from 1
+            for origin = (or (loop for (anc . line-set) in ancestor-line-sets
+                                   when (gethash line line-set)
+                                   return anc)
+                             ;; Fallback: SNAP itself is the origin.
+                             snap)
+            collect (let ((md (autopoiesis.snapshot:snapshot-metadata origin)))
+                      (list :line idx
+                            :text line
+                            :origin-snapshot (autopoiesis.snapshot:snapshot-id origin)
+                            :origin-event-type (or (getf md :event-type) "")
+                            :origin-timestamp (or (autopoiesis.snapshot:snapshot-timestamp origin) 0)
+                            :origin-lineage (or (getf md :lineage) "")))))))
+
+(defun blame-result-alist (snap path blames)
+  "Build the JSON response body for /blame."
+  `((:snapshot_id . ,(autopoiesis.snapshot:snapshot-id snap))
+    (:path . ,path)
+    (:line_count . ,(length blames))
+    (:blames . ,(coerce
+                 (loop for b in blames
+                       collect `((:line . ,(getf b :line))
+                                 (:text . ,(getf b :text))
+                                 (:origin_snapshot . ,(getf b :origin-snapshot))
+                                 (:origin_event_type . ,(getf b :origin-event-type))
+                                 (:origin_timestamp . ,(getf b :origin-timestamp))
+                                 (:origin_lineage . ,(getf b :origin-lineage))))
+                 'vector))))
+
 (defun rest-handle-aether (request)
   "Dispatch /api/aether/* requests."
   (let ((method (hunchentoot:request-method request))
@@ -482,6 +610,32 @@
                    (error (e)
                      (json-error (format nil "checkout failed: ~A" e)
                                  :status 500 :error-type "Internal Error"))))))))))
+      ;; GET /api/aether/blame/:snapshot-id/:url-encoded-path
+      ;; Per-line file ancestry. Walks the lineage chain from the snapshot
+      ;; backward, attributing each line of the file to the earliest
+      ;; ancestor whose tree already contained that exact line.
+      ((and (eq method :get)
+            (cl-ppcre:scan "^/api/aether/blame/[^/]+/.+$" uri))
+       (require-permission :read)
+       (cl-ppcre:register-groups-bind (sid encoded-path)
+           ("^/api/aether/blame/([^/]+)/(.+)$" uri)
+         (let* ((path (handler-case (hunchentoot:url-decode encoded-path)
+                        (error () encoded-path)))
+                (snap (autopoiesis.snapshot:load-snapshot sid)))
+           (cond
+             ((null snap) (json-not-found "Snapshot" sid))
+             ((null (autopoiesis.snapshot:snapshot-tree-entries snap))
+              (json-not-found "Snapshot has no tree" sid))
+             (t
+              (handler-case
+                  (let ((blames (compute-blame snap path)))
+                    (cond
+                      ((null blames)
+                       (json-not-found "File in snapshot" path))
+                      (t (json-ok (blame-result-alist snap path blames)))))
+                (error (e)
+                  (json-error (format nil "blame failed: ~A" e)
+                              :status 500 :error-type "Internal Error"))))))))
       ;; Unknown
       (t
        (json-not-found "AETHER route" uri)))))
