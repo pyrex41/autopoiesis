@@ -30,8 +30,9 @@
 
 (defvar *aether-content-store* nil
   "Single shared content-store for AETHER snapshot filesystem blobs.
-   Currently in-process only — blobs do NOT survive SBCL restart.
-   On-disk persistence (LMDB) is a follow-up.")
+   The in-memory hash-table is the fast path; aether-blob-store.lisp
+   mirrors every captured blob out to an LMDB env at
+   *aether-blob-store-path* so checkouts survive SBCL restart.")
 
 (defun ensure-aether-content-store ()
   (or *aether-content-store*
@@ -65,11 +66,16 @@
        (aether-session-last-tree-entries session))
       (t
        (handler-case
-           (let ((entries (autopoiesis.snapshot:scan-directory-flat
-                           (uiop:ensure-directory-pathname cwd)
-                           (ensure-aether-content-store)
-                           :exclude *fs-scan-exclude*)))
+           (let* ((store (ensure-aether-content-store))
+                  (entries (autopoiesis.snapshot:scan-directory-flat
+                            (uiop:ensure-directory-pathname cwd)
+                            store
+                            :exclude *fs-scan-exclude*)))
              (setf (aether-session-last-tree-entries session) entries)
+             ;; Mirror any newly-stored blobs out to LMDB so they survive
+             ;; SBCL restart. Cheap when nothing changed (already-persisted
+             ;; hashes are skipped by persist-content-store-blobs).
+             (ignore-errors (persist-content-store-blobs store))
              entries)
          (error (e)
            (log:warn "aether: FS scan failed for ~A: ~A" cwd e)
@@ -385,10 +391,16 @@
   "Materialize SNAP's tree-entries into TARGET-DIR. Returns the count of
    entries written. Destructive — clears TARGET-DIR contents first (but
    does NOT delete the directory itself; .git etc. are left alone).
-   nil tree-entries is valid and means 'clear the directory'."
+   nil tree-entries is valid and means 'clear the directory'.
+
+   Hydrates missing blobs from LMDB into the in-memory content-store first,
+   so checkouts of pre-restart snapshots still find their file contents."
   (let ((entries (autopoiesis.snapshot:snapshot-tree-entries snap))
         (target (uiop:ensure-directory-pathname target-dir))
         (store (ensure-aether-content-store)))
+    (when entries
+      (ignore-errors
+        (hydrate-content-store-blobs store (tree-entry-hashes entries))))
     (ensure-directories-exist target)
     ;; Clear existing files/dirs in target (mirrors local-backend approach).
     (dolist (f (uiop:directory-files target))
