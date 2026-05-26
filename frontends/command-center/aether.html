@@ -282,6 +282,99 @@
         from { opacity: 0; transform: translate(-50%, 8px); }
         to   { opacity: 1; transform: translate(-50%, 0); }
       }
+
+      /* ── per-line blame view (aether-blame) ───────────────────────── */
+      .aether-file-row {
+        cursor: pointer;
+        border-left: 2px solid transparent;
+        padding-left: 4px;
+        transition: background 0.1s, border-color 0.1s;
+      }
+      .aether-file-row:hover {
+        background: rgba(154, 195, 245, 0.06);
+        border-left-color: rgba(154, 195, 245, 0.35);
+      }
+      .aether-file-row.expanded {
+        background: rgba(154, 195, 245, 0.1);
+        border-left-color: #9bc3f5;
+      }
+      .aether-blame-view {
+        max-height: 360px;
+        overflow-y: auto;
+        margin: 4px 0 8px 0;
+        padding: 4px 0;
+        background: rgba(6, 10, 22, 0.55);
+        border-left: 1px solid rgba(154, 195, 245, 0.18);
+        font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
+        font-size: 10px;
+      }
+      .aether-blame-empty {
+        padding: 6px 8px;
+        color: #4f5b75;
+        font-style: italic;
+        font-size: 10px;
+      }
+      .aether-blame-line {
+        display: grid;
+        grid-template-columns: 28px 1fr 110px;
+        gap: 6px;
+        align-items: baseline;
+        padding: 0 6px;
+        line-height: 1.4;
+      }
+      .aether-blame-line.run-start {
+        margin-top: 1px;
+        padding-top: 1px;
+      }
+      .aether-blame-num {
+        color: #4f5b75;
+        text-align: right;
+        user-select: none;
+        font-size: 9px;
+      }
+      .aether-blame-text {
+        color: #b8c4dc;
+        white-space: pre;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .aether-blame-origin {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: #8a9cbf;
+        cursor: pointer;
+        font-size: 9px;
+        letter-spacing: 0.04em;
+        overflow: hidden;
+      }
+      .aether-blame-origin:hover {
+        color: #d8e3f6;
+      }
+      .aether-blame-origin-id {
+        font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
+        color: #9bc3f5;
+      }
+      .aether-blame-origin-type {
+        color: #4f5b75;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .aether-blame-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .aether-blame-origin-bar {
+        display: block;
+        width: 2px;
+        height: 12px;
+        margin-left: 2px;
+        background: rgba(154, 195, 245, 0.18);
+      }
     </style>
   </head>
   <body>

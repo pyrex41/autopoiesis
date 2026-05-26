@@ -670,6 +670,35 @@ async function checkoutSnapshot(snapshotId: string, target?: string): Promise<Ch
   return (await res.json()) as CheckoutResult;
 }
 
+// ── Per-line blame (aether-blame) ────────────────────────────────────
+
+export interface BlameLine {
+  line: number;
+  text: string;
+  origin_snapshot: string;
+  origin_event_type: string;
+  origin_timestamp: number;
+  origin_lineage: string;
+}
+
+export interface BlameResult {
+  snapshot_id: string;
+  path: string;
+  line_count: number;
+  blames: BlameLine[];
+}
+
+async function fetchBlame(snapshotId: string, path: string): Promise<BlameResult> {
+  const res = await fetch(
+    `/api/aether/blame/${snapshotId}/${encodeURIComponent(path)}`,
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`blame fetch failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as BlameResult;
+}
+
 // ── Loading ──────────────────────────────────────────────────────────
 
 async function loadFromApiOrFixture() {
@@ -717,6 +746,7 @@ export const aetherStore = {
   spawn: spawnAgent,
   fetchFilesAt,
   checkout: checkoutSnapshot,
+  fetchBlame,
   // Selection / hover / focus layer.
   selectedId,
   hoveredId,
