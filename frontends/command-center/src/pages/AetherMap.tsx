@@ -89,6 +89,45 @@ const AetherMap: Component = () => {
   const [filesAtSelected, setFilesAtSelected] = createSignal<import("../stores/aether").FilesAtSnapshot | null>(null);
   const [filesLoading, setFilesLoading] = createSignal(false);
 
+  // Per-line blame: which file is currently expanded, the blame result,
+  // and a loading flag. expandedBlamePath is the file row currently showing
+  // its blame view (null = none). A second click on the same row closes.
+  const [expandedBlamePath, setExpandedBlamePath] = createSignal<string | null>(null);
+  const [blameData, setBlameData] = createSignal<import("../stores/aether").BlameResult | null>(null);
+  const [blameLoading, setBlameLoading] = createSignal(false);
+
+  // Toggle a file row's blame view. A click on the same path closes;
+  // a click on a different path swaps to the new file's blame.
+  function toggleBlame(path: string) {
+    const snapId = aetherStore.selectedId();
+    if (!snapId) return;
+    if (expandedBlamePath() === path) {
+      setExpandedBlamePath(null);
+      setBlameData(null);
+      return;
+    }
+    setExpandedBlamePath(path);
+    setBlameData(null);
+    setBlameLoading(true);
+    aetherStore
+      .fetchBlame(snapId, path)
+      .then((data) => {
+        // Make sure the user hasn't navigated away while the fetch ran.
+        if (
+          aetherStore.selectedId() === snapId &&
+          expandedBlamePath() === path
+        ) {
+          setBlameData(data);
+        }
+      })
+      .catch(() => {
+        // Silent — keep the row expanded but show no data.
+      })
+      .finally(() => {
+        if (expandedBlamePath() === path) setBlameLoading(false);
+      });
+  }
+
   // Checkout toast (auto-dismisses).
   const [toast, setToast] = createSignal<{ kind: "ok" | "err"; text: string } | null>(null);
   function flashToast(kind: "ok" | "err", text: string) {
@@ -463,6 +502,11 @@ const AetherMap: Component = () => {
     createEffect(() => {
       const id = aetherStore.selectedId();
       setFilesAtSelected(null);
+      // Selection changed → blame view must close, otherwise the prior
+      // star's blame would render under the new star's file list.
+      setExpandedBlamePath(null);
+      setBlameData(null);
+      setBlameLoading(false);
       if (!id) return;
       setFilesLoading(true);
       aetherStore.fetchFilesAt(id)
@@ -622,10 +666,19 @@ const AetherMap: Component = () => {
                   <div class="aether-files-list">
                     <For each={(data().files ?? []).slice(0, 12)}>
                       {(f) => (
-                        <div class="aether-file-row" title={`${f.path} (${f.size}B)`}>
-                          <span class="aether-file-path">{f.path}</span>
-                          <span class="aether-file-size">{formatBytes(f.size)}</span>
-                        </div>
+                        <>
+                          <div
+                            class={`aether-file-row ${expandedBlamePath() === f.path ? "expanded" : ""}`}
+                            title={`${f.path} (${f.size}B) — click for blame`}
+                            onClick={() => toggleBlame(f.path)}
+                          >
+                            <span class="aether-file-path">{f.path}</span>
+                            <span class="aether-file-size">{formatBytes(f.size)}</span>
+                          </div>
+                          <Show when={expandedBlamePath() === f.path}>
+                            {blameViewFor(f.path)}
+                          </Show>
+                        </>
                       )}
                     </For>
                     <Show when={(data().files ?? []).length > 12}>
@@ -650,6 +703,90 @@ const AetherMap: Component = () => {
         <div class="aether-panel-foot">
           <kbd>Esc</kbd> close · <kbd>c</kbd> checkout · click another star to switch
         </div>
+      </div>
+    );
+  }
+
+  // Map an origin event_type to a mood color dot. Mirrors event-mood in
+  // aether-runtime.lisp: explorer=blue-white, reflector=cool-red,
+  // linear=warm-yellow. Defaults to a neutral gray.
+  function moodColorFor(eventType: string): string {
+    switch (eventType) {
+      case "session":
+      case "tool_start":
+      case "prompt":
+        return "hsl(210, 70%, 70%)"; // explorer
+      case "tool_result":
+      case "complete":
+      case "error":
+        return "hsl(15, 65%, 60%)"; // reflector
+      case "text_delta":
+        return "hsl(50, 65%, 65%)"; // linear
+      default:
+        return "#6b7793";
+    }
+  }
+
+  // Render the per-line blame view for one file. Groups consecutive lines
+  // from the same origin so the column doesn't repeat the same id over and
+  // over — only the first line in a run shows the origin label and dot;
+  // subsequent lines just continue the run visually.
+  function blameViewFor(path: string) {
+    return (
+      <div class="aether-blame-view">
+        <Show
+          when={blameData()}
+          fallback={
+            <div class="aether-blame-empty">
+              {blameLoading() ? "loading blame…" : "no blame data"}
+            </div>
+          }
+        >
+          {(data) => {
+            const lines = data().blames;
+            return (
+              <For each={lines}>
+                {(b, idx) => {
+                  // First line in a run = first line, or origin differs from previous.
+                  const isFirstInRun =
+                    idx() === 0 ||
+                    lines[idx() - 1]!.origin_snapshot !== b.origin_snapshot;
+                  return (
+                    <div class={`aether-blame-line ${isFirstInRun ? "run-start" : "run-cont"}`}>
+                      <span class="aether-blame-num">{b.line}</span>
+                      <span class="aether-blame-text">{b.text || " "}</span>
+                      <Show
+                        when={isFirstInRun}
+                        fallback={<span class="aether-blame-origin-bar" />}
+                      >
+                        <span
+                          class="aether-blame-origin"
+                          title={`origin: ${b.origin_snapshot} · ${b.origin_event_type}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            aetherStore.select(b.origin_snapshot);
+                            focusOnNode(b.origin_snapshot);
+                          }}
+                        >
+                          <span
+                            class="aether-blame-dot"
+                            style={{ background: moodColorFor(b.origin_event_type) }}
+                          />
+                          <span class="aether-blame-origin-id">
+                            {shortId(b.origin_snapshot)}
+                          </span>
+                          <span class="aether-blame-origin-type">
+                            {b.origin_event_type || "—"}
+                          </span>
+                        </span>
+                      </Show>
+                    </div>
+                  );
+                }}
+              </For>
+            );
+          }}
+        </Show>
       </div>
     );
   }
