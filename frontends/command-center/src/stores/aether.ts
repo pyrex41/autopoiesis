@@ -307,6 +307,12 @@ const [edges, setEdges] = createSignal<AetherEdge[]>([]);
 const [loaded, setLoaded] = createSignal(false);
 const [usingFixture, setUsingFixture] = createSignal(false);
 
+// Default view is now tracks (one lane per agent session, time L→R).
+// Galactic mode keeps the force-directed constellation alive for
+// whole-history navigation; toggle with `g`.
+export type ViewMode = "tracks" | "galactic";
+const [viewMode, setViewMode] = createSignal<ViewMode>("tracks");
+
 // Selection + hover for the HUD/panel/focus layer.
 const [selectedId, setSelectedId] = createSignal<string | null>(null);
 const [hoveredId, setHoveredId] = createSignal<string | null>(null);
@@ -796,6 +802,213 @@ async function compareSnapshots(a: string, b: string): Promise<CompareResult> {
   return (await res.json()) as CompareResult;
 }
 
+// ── Session timelines (the tracks view's data model) ─────────────────
+//
+// Tracks treat each agent run as a horizontal lane. Consecutive
+// `text_delta` events collapse into a single "thinking" bar — you don't
+// care about token boundaries, you care about the agent's *decisions*.
+// `tool_start` + immediately-following `tool_result` collapse into one
+// "tool" block carrying the tool name + ok/failed outcome. Everything
+// else (prompt, session, complete, error) is its own block.
+//
+// Only snapshots that carry a `:session` metadata field participate —
+// the seed/synthetic snapshots from `aether-seed` are intentionally
+// excluded from tracks view (they live in galactic mode).
+
+export type ChunkKind = "prompt" | "thinking" | "tool" | "complete" | "error" | "session";
+
+export interface TimelineEvent {
+  kind: ChunkKind;
+  snapshotIds: string[];     // 1 for most, N for collapsed thinking
+  primaryId: string;          // the snapshot this block represents on click
+  startTime: number;          // unix seconds (first snapshot)
+  endTime: number;            // unix seconds (last snapshot in chunk)
+  label: string;              // short text shown in/on the block
+  toolName?: string;          // e.g. "write", "bash", "read"
+  success?: boolean;          // for tool/complete/error
+  mood: string;               // "linear" | "explorer" | "reflector"
+}
+
+export interface SessionTimeline {
+  sessionId: string;
+  lineage: string;
+  startedAt: number;          // unix seconds (oldest event)
+  lastActivityAt: number;     // unix seconds (newest event)
+  status: "running" | "complete" | "error";
+  events: TimelineEvent[];
+  /** The parent snapshot (if forked from another session's star), used to
+      draw the fork connector in the track view. */
+  forkedFromId: string | null;
+}
+
+function eventMoodForKind(kind: ChunkKind): string {
+  switch (kind) {
+    case "prompt":   return "linear";
+    case "session":  return "explorer";
+    case "thinking": return "linear";
+    case "tool":     return "explorer";
+    case "complete": return "reflector";
+    case "error":    return "reflector";
+  }
+}
+
+function deriveSessionTimelines(allSnaps: Snapshot[]): SessionTimeline[] {
+  // 1. Bucket snapshots by :session metadata. Skip those without one.
+  const bySession = new Map<string, Snapshot[]>();
+  for (const s of allSnaps) {
+    const sid = metaStr(s, "session");
+    if (!sid) continue;
+    const arr = bySession.get(sid) ?? [];
+    arr.push(s);
+    bySession.set(sid, arr);
+  }
+
+  const out: SessionTimeline[] = [];
+  for (const [sid, snaps] of bySession) {
+    // 2. Sort by timestamp ascending.
+    snaps.sort((a, b) => a.timestamp - b.timestamp);
+
+    // 3. Identify the fork-origin: parent of the FIRST snapshot in the
+    //    session. If that parent's session differs, this is a fork.
+    const firstSnap = snaps[0]!;
+    let forkedFromId: string | null = null;
+    if (firstSnap.parent) {
+      const parentSnap = snapshotsById.get(firstSnap.parent);
+      if (parentSnap && metaStr(parentSnap, "session") !== sid) {
+        forkedFromId = firstSnap.parent;
+      }
+    }
+
+    // 4. Chunk events.
+    const events: TimelineEvent[] = [];
+    for (const s of snaps) {
+      // cl-json camelCases keyword keys ("event-type" → "eventType"); fall back
+      // through both for safety so this still works if the convention changes.
+      const evType = metaStr(s, "eventType") || metaStr(s, "event-type");
+      const text = metaStr(s, "text");
+
+      // text_delta → fold into the previous "thinking" chunk if any.
+      if (evType === "text_delta") {
+        const last = events[events.length - 1];
+        if (last && last.kind === "thinking") {
+          last.snapshotIds.push(s.id);
+          last.endTime = s.timestamp;
+          // Keep the first ~80 chars of accumulated text as label.
+          if (last.label.length < 80) {
+            last.label = (last.label + " " + text).slice(0, 80).trim();
+          }
+          continue;
+        }
+        events.push({
+          kind: "thinking",
+          snapshotIds: [s.id],
+          primaryId: s.id,
+          startTime: s.timestamp,
+          endTime: s.timestamp,
+          label: text.slice(0, 80),
+          mood: eventMoodForKind("thinking"),
+        });
+        continue;
+      }
+
+      // tool_start → start a pending "tool" chunk
+      if (evType === "tool_start") {
+        // Parse "name(summary)" out of the captured text.
+        const m = text.match(/^([\w_-]+)\((.*)\)$/s);
+        const toolName = m ? m[1]! : "tool";
+        const summary = m ? m[2]! : text;
+        events.push({
+          kind: "tool",
+          snapshotIds: [s.id],
+          primaryId: s.id,
+          startTime: s.timestamp,
+          endTime: s.timestamp,
+          label: toolName + "(" + (summary.length > 30 ? summary.slice(0, 30) + "…" : summary) + ")",
+          toolName,
+          mood: eventMoodForKind("tool"),
+        });
+        continue;
+      }
+
+      // tool_result → close the preceding pending tool chunk (or stand alone).
+      if (evType === "tool_result") {
+        const last = events[events.length - 1];
+        const m = text.match(/^([\w_-]+)\s*→\s*(ok|failed)$/);
+        const success = m ? m[2] === "ok" : true;
+        if (last && last.kind === "tool" && last.success === undefined) {
+          last.snapshotIds.push(s.id);
+          last.endTime = s.timestamp;
+          last.success = success;
+          // tool_result's primary snapshot is the result (where FS state is captured).
+          last.primaryId = s.id;
+          continue;
+        }
+        events.push({
+          kind: "tool",
+          snapshotIds: [s.id],
+          primaryId: s.id,
+          startTime: s.timestamp,
+          endTime: s.timestamp,
+          label: text,
+          toolName: m ? m[1] : "tool",
+          success,
+          mood: success ? eventMoodForKind("tool") : eventMoodForKind("error"),
+        });
+        continue;
+      }
+
+      // prompt / session / complete / error → standalone chunk.
+      const kind: ChunkKind =
+        evType === "prompt"   ? "prompt"   :
+        evType === "session"  ? "session"  :
+        evType === "complete" ? "complete" :
+        evType === "error"    ? "error"    :
+        "thinking";
+      events.push({
+        kind,
+        snapshotIds: [s.id],
+        primaryId: s.id,
+        startTime: s.timestamp,
+        endTime: s.timestamp,
+        label: kind === "prompt" ? text.slice(0, 80) :
+               kind === "complete" ? (text || "completed") :
+               kind === "error" ? (text || "error") :
+               text.slice(0, 30),
+        success: kind === "complete" ? true : kind === "error" ? false : undefined,
+        mood: eventMoodForKind(kind),
+      });
+    }
+
+    // 5. Status from terminal event.
+    let status: SessionTimeline["status"] = "running";
+    const terminal = events[events.length - 1];
+    if (terminal?.kind === "complete") status = "complete";
+    else if (terminal?.kind === "error") status = "error";
+
+    out.push({
+      sessionId: sid,
+      lineage: metaStr(firstSnap, "lineage"),
+      startedAt: snaps[0]!.timestamp,
+      lastActivityAt: snaps[snaps.length - 1]!.timestamp,
+      status,
+      events,
+      forkedFromId,
+    });
+  }
+
+  // 6. Newest started session first (top of screen = most-recent work).
+  out.sort((a, b) => b.startedAt - a.startedAt);
+  return out;
+}
+
+// Reactive timelines derived from nodes — solid will re-evaluate on every
+// node/edge change, which is what we want when live snapshots land.
+function sessionTimelines(): SessionTimeline[] {
+  // Use snapshotsById (the cache) directly — it's the source of truth
+  // for full snapshot metadata. nodes() only carries display state.
+  return deriveSessionTimelines(Array.from(snapshotsById.values()));
+}
+
 // ── Loading ──────────────────────────────────────────────────────────
 
 async function loadFromApiOrFixture() {
@@ -838,6 +1051,13 @@ export const aetherStore = {
   usingFixture,
   liveConnected,
   lastBirthAt,
+  // View mode
+  viewMode,
+  setViewMode,
+  toggleViewMode: () =>
+    setViewMode((m) => (m === "tracks" ? "galactic" : "tracks")),
+  // Tracks data
+  sessionTimelines,
   load: loadFromApiOrFixture,
   tick,
   spawn: spawnAgent,

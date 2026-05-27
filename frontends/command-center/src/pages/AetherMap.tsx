@@ -151,7 +151,8 @@ const AetherMap: Component = () => {
   // mousedown→mouseup with drift < CLICK_DRIFT_PX  = click (hit-test → select)
   // mousemove without buttons = hover (hit-test → set hover id)
 
-  function hitTest(clientX: number, clientY: number): string | null {
+  // Hit-test in galactic (constellation) mode — test against force-positioned nodes.
+  function hitTestGalactic(clientX: number, clientY: number): string | null {
     const r = canvasRef.getBoundingClientRect();
     const wx = (clientX - r.left - viewX()) / viewScale();
     const wy = (clientY - r.top - viewY()) / viewScale();
@@ -164,6 +165,33 @@ const AetherMap: Component = () => {
       if (d <= r2 && (!best || d < best.d)) best = { id: n.id, d };
     }
     return best?.id ?? null;
+  }
+
+  // Block rectangles drawn in tracks mode, recorded each frame for hit-testing.
+  // Cleared and repopulated by drawTracks(). The primaryId is the snapshot id
+  // associated with the block (or its last event for collapsed thinking).
+  type TrackRect = { x: number; y: number; w: number; h: number; primaryId: string };
+  let trackBlockRects: TrackRect[] = [];
+
+  function hitTestTracks(clientX: number, clientY: number): string | null {
+    const r = canvasRef.getBoundingClientRect();
+    const x = clientX - r.left;
+    const y = clientY - r.top;
+    // Walk in reverse so most-recently-drawn (top of stack) wins on overlap.
+    for (let i = trackBlockRects.length - 1; i >= 0; i--) {
+      const b = trackBlockRects[i]!;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        return b.primaryId;
+      }
+    }
+    return null;
+  }
+
+  function hitTest(clientX: number, clientY: number): string | null {
+    if (aetherStore.viewMode() === "tracks") {
+      return hitTestTracks(clientX, clientY);
+    }
+    return hitTestGalactic(clientX, clientY);
   }
 
   function onMouseDown(e: MouseEvent) {
@@ -239,6 +267,11 @@ const AetherMap: Component = () => {
       e.preventDefault();
       checkoutSelected();
     }
+    // "g" — toggle galactic (constellation) ↔ tracks view.
+    if ((e.key === "g" || e.key === "G") && !activeIsInput) {
+      e.preventDefault();
+      aetherStore.toggleViewMode();
+    }
   }
 
   async function checkoutSelected() {
@@ -289,8 +322,21 @@ const AetherMap: Component = () => {
     }
   }
 
-  /** Pan + zoom the camera so the given node is centered. */
+  /** Center the camera on a snapshot in whichever view is current. */
   function focusOnNode(id: string) {
+    if (aetherStore.viewMode() === "tracks") {
+      // Find which lane contains this snapshot and scroll to it.
+      const timelines = aetherStore.sessionTimelines();
+      const laneIdx = timelines.findIndex((tl) =>
+        tl.events.some((ev) => ev.snapshotIds.includes(id)),
+      );
+      if (laneIdx < 0) return;
+      const r = canvasRef.getBoundingClientRect();
+      const laneTop = TRACKS_HEADER_H + laneIdx * TRACKS_LANE_H;
+      const desiredScroll = -(laneTop - (r.height / 2) + TRACKS_LANE_H / 2);
+      setViewY(desiredScroll);
+      return;
+    }
     const n = aetherStore.nodes().find((x) => x.id === id);
     if (!n) return;
     const r = canvasRef.getBoundingClientRect();
@@ -300,6 +346,11 @@ const AetherMap: Component = () => {
 
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    // Tracks mode: wheel scrolls vertically through lanes; no zoom.
+    if (aetherStore.viewMode() === "tracks") {
+      setViewY((y) => y - e.deltaY);
+      return;
+    }
     const r = canvasRef.getBoundingClientRect();
     const mx = e.clientX - r.left;
     const my = e.clientY - r.top;
@@ -340,6 +391,25 @@ const AetherMap: Component = () => {
 
   // ── Draw ──────────────────────────────────────────────────────────
 
+  function drawBackground(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, dim: boolean) {
+    // Background — radial gradient, slightly deeper than ConstellationView.
+    const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.8);
+    bg.addColorStop(0, C.deep);
+    bg.addColorStop(0.6, C.void);
+    bg.addColorStop(1, "#020308");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Starfield — sparser/dimmer in tracks mode so the chrome reads.
+    const baseAlpha = dim ? 0.3 : 1;
+    for (const s of stars) {
+      const tw = 0.5 + 0.5 * Math.sin(t * s.twinkleRate + s.x * 100);
+      ctx.beginPath();
+      ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(180, 210, 255, ${(s.brightness * tw * baseAlpha).toFixed(3)})`;
+      ctx.fill();
+    }
+  }
+
   function draw() {
     frameCount++;
     const ctx = canvasRef.getContext("2d");
@@ -355,22 +425,19 @@ const AetherMap: Component = () => {
     const H = rect.height;
     const t = frameCount / 60;
 
-    // Background — radial gradient, slightly deeper than ConstellationView.
-    const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.8);
-    bg.addColorStop(0, C.deep);
-    bg.addColorStop(0.6, C.void);
-    bg.addColorStop(1, "#020308");
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Starfield — twinkle is the ONLY animation allowed in this page.
-    for (const s of stars) {
-      const tw = 0.5 + 0.5 * Math.sin(t * s.twinkleRate + s.x * 100);
-      ctx.beginPath();
-      ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(180, 210, 255, ${(s.brightness * tw).toFixed(3)})`;
-      ctx.fill();
+    if (aetherStore.viewMode() === "tracks") {
+      drawBackground(ctx, W, H, t, true);
+      drawTracks(ctx, W, H);
+    } else {
+      drawBackground(ctx, W, H, t, false);
+      drawGalactic(ctx, W, H);
     }
+  }
+
+  function drawGalactic(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    // Tracks mode owns its own hit rects; clear when in galactic so stale
+    // tracks rects can't accidentally match.
+    trackBlockRects = [];
 
     // Run physics inside the rAF until warmup ticks consumed. After that
     // the system has effectively settled — keep ticking (cheap; helps
@@ -514,6 +581,310 @@ const AetherMap: Component = () => {
     ctx.restore();
   }
 
+  // ── Tracks renderer ───────────────────────────────────────────────
+  // One horizontal lane per agent session. Time runs left to right.
+  // Events chunk: consecutive text_deltas collapse into a single thinking
+  // bar; tool_start + tool_result pair into one tool block.
+
+  // Layout knobs.
+  const TRACKS_HEADER_H = 56;
+  const TRACKS_LANE_H = 64;
+  const TRACKS_LABEL_W = 230;
+  const TRACKS_X_PAD = 16;
+  const TRACKS_BLOCK_H = 22;
+  const TRACKS_BLOCK_GAP = 6;
+  // Per-kind minimum block widths (px) and rendering hints.
+  const TRACKS_THINKING_MIN_W = 24;
+  const TRACKS_THINKING_PER_SNAP = 6;
+  const TRACKS_THINKING_MAX_W = 220;
+
+  function trackToolColor(toolName: string | undefined, success: boolean | undefined): { fill: string; stroke: string; text: string } {
+    if (success === false) return { fill: "#3a1a1a", stroke: "#e08c7a", text: "#f0b4a0" };
+    switch (toolName) {
+      case "write":       return { fill: "#1f3a2a", stroke: "#6fc78f", text: "#c5e8d0" };
+      case "edit":        return { fill: "#1f3a2a", stroke: "#6fc78f", text: "#c5e8d0" };
+      case "bash":        return { fill: "#3a2a14", stroke: "#e6a86a", text: "#f0d0a8" };
+      case "read":        return { fill: "#1a2a3f", stroke: "#9bc3f5", text: "#c8d8f0" };
+      case "grep":        return { fill: "#1a2a3f", stroke: "#9bc3f5", text: "#c8d8f0" };
+      case "list":        return { fill: "#1a2a3f", stroke: "#9bc3f5", text: "#c8d8f0" };
+      default:            return { fill: "#2a1f3a", stroke: "#b39bf0", text: "#dcd0f5" };
+    }
+  }
+
+  function drawTracks(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    trackBlockRects = [];
+    const timelines = aetherStore.sessionTimelines();
+    const sel = aetherStore.selectedId();
+    const hov = aetherStore.hoveredId();
+    const now = Date.now();
+
+    // Header — running/complete/error counts.
+    ctx.fillStyle = "#7d8aa8";
+    ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
+    ctx.textBaseline = "alphabetic";
+    const runningCount = timelines.filter((t) => t.status === "running").length;
+    const completeCount = timelines.filter((t) => t.status === "complete").length;
+    const errorCount = timelines.filter((t) => t.status === "error").length;
+    const headerText = timelines.length === 0
+      ? "no live agent sessions yet · press / to spawn"
+      : `${timelines.length} session${timelines.length === 1 ? "" : "s"}  ·  ${runningCount} live  ·  ${completeCount} done  ·  ${errorCount} failed  ·  press g for galactic`;
+    ctx.fillText(headerText, TRACKS_X_PAD, 22);
+
+    // Vertical scroll: store offset as viewY so wheel handler reuses it.
+    // Treat viewY as a (negative) scroll offset; clamp to [-(maxScroll), 0].
+    const contentH = timelines.length * TRACKS_LANE_H;
+    const viewportH = H - TRACKS_HEADER_H;
+    const maxScroll = Math.max(0, contentH - viewportH);
+    if (-viewY() > maxScroll) setViewY(-maxScroll);
+    if (viewY() > 0) setViewY(0);
+    const scrollY = viewY();
+
+    if (timelines.length === 0) {
+      // Helpful empty state below the header.
+      ctx.fillStyle = "#4f5b75";
+      ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
+      ctx.fillText("type a prompt with / to spawn an agent.", TRACKS_X_PAD, TRACKS_HEADER_H + 32);
+      ctx.fillStyle = "#3d4863";
+      ctx.font = "11px ui-monospace, 'JetBrains Mono', monospace";
+      ctx.fillText("use `foo | variantA | variantB` to spawn parallel forks.", TRACKS_X_PAD, TRACKS_HEADER_H + 54);
+      ctx.fillText("press g for the constellation view.", TRACKS_X_PAD, TRACKS_HEADER_H + 72);
+      return;
+    }
+
+    // Each lane.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, TRACKS_HEADER_H, W, viewportH);
+    ctx.clip();
+    ctx.translate(0, scrollY);
+
+    for (let i = 0; i < timelines.length; i++) {
+      const tl = timelines[i]!;
+      const laneTop = TRACKS_HEADER_H + i * TRACKS_LANE_H;
+      const laneMid = laneTop + TRACKS_LANE_H / 2;
+      const laneSelected = !!sel && tl.events.some((e) => e.snapshotIds.includes(sel));
+
+      // Lane background — subtle band so adjacent lanes are visually separable.
+      ctx.fillStyle = laneSelected ? "rgba(154, 195, 245, 0.06)" : "rgba(255, 255, 255, 0.015)";
+      ctx.fillRect(0, laneTop, W, TRACKS_LANE_H);
+      // Bottom divider.
+      ctx.strokeStyle = "rgba(154, 195, 245, 0.06)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, laneTop + TRACKS_LANE_H);
+      ctx.lineTo(W, laneTop + TRACKS_LANE_H);
+      ctx.stroke();
+
+      // Lane label (left column).
+      ctx.fillStyle = "#65728e";
+      ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
+      ctx.textBaseline = "middle";
+      ctx.fillText(tl.lineage || tl.sessionId, TRACKS_X_PAD, laneMid - 8);
+      // Status dot + duration.
+      const statusColor =
+        tl.status === "running"  ? "#6fc78f" :
+        tl.status === "complete" ? "#9bc3f5" :
+        /* error */                "#e08c7a";
+      ctx.fillStyle = statusColor;
+      ctx.beginPath();
+      ctx.arc(TRACKS_X_PAD + 4, laneMid + 8, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#4f5b75";
+      ctx.font = "9px ui-monospace, 'JetBrains Mono', monospace";
+      const durSec = Math.max(0, Math.round(tl.lastActivityAt - tl.startedAt));
+      ctx.fillText(
+        `${tl.status} · ${durSec}s · ${tl.events.length} events`,
+        TRACKS_X_PAD + 14,
+        laneMid + 8,
+      );
+
+      // Fork-from arrow if this lane is a fork.
+      if (tl.forkedFromId) {
+        ctx.strokeStyle = "rgba(154, 195, 245, 0.4)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(TRACKS_LABEL_W - 8, laneMid - TRACKS_LANE_H + 12);
+        ctx.lineTo(TRACKS_LABEL_W - 8, laneMid);
+        ctx.lineTo(TRACKS_LABEL_W - 2, laneMid);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(154, 195, 245, 0.55)";
+        ctx.font = "9px ui-monospace, 'JetBrains Mono', monospace";
+        ctx.fillText("↳ fork", TRACKS_LABEL_W - 56, laneMid - 6);
+      }
+
+      // Events — horizontal sequence.
+      let x = TRACKS_LABEL_W;
+      const blockTop = laneMid - TRACKS_BLOCK_H / 2;
+
+      for (let j = 0; j < tl.events.length; j++) {
+        const ev = tl.events[j]!;
+        const isSelected = sel === ev.primaryId || ev.snapshotIds.includes(sel ?? "");
+        const isHovered = hov === ev.primaryId || ev.snapshotIds.includes(hov ?? "");
+        const ageMs = Math.max(0, now - ev.endTime * 1000);
+        const isLive = tl.status === "running" && j === tl.events.length - 1;
+        const pulse = isLive ? 0.6 + 0.4 * Math.sin(now / 280) : 0;
+
+        // Compute width per kind.
+        let w = 0;
+        if (ev.kind === "prompt") w = 12;
+        else if (ev.kind === "session") w = 8;
+        else if (ev.kind === "complete" || ev.kind === "error") w = 14;
+        else if (ev.kind === "thinking") {
+          const n = ev.snapshotIds.length;
+          w = Math.min(TRACKS_THINKING_MAX_W,
+                       Math.max(TRACKS_THINKING_MIN_W, TRACKS_THINKING_PER_SNAP * n + 12));
+        } else if (ev.kind === "tool") {
+          ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
+          const lbl = ev.label || ev.toolName || "tool";
+          w = Math.min(220, Math.max(60, ctx.measureText(lbl).width + 18));
+        }
+
+        // Don't overflow the canvas — wrap to next sub-row inside the lane.
+        if (x + w > W - TRACKS_X_PAD) {
+          // For MVP, just clip; future: wrap.
+          break;
+        }
+
+        // Record hit rect (only if in viewport y-range).
+        const screenY = blockTop + scrollY;
+        if (screenY + TRACKS_BLOCK_H >= TRACKS_HEADER_H && screenY <= H) {
+          trackBlockRects.push({
+            x,
+            y: blockTop + scrollY,
+            w,
+            h: TRACKS_BLOCK_H,
+            primaryId: ev.primaryId,
+          });
+        }
+
+        // Render by kind.
+        const selRing = isSelected ? 1.0 : isHovered ? 0.55 : 0;
+
+        if (ev.kind === "thinking") {
+          // Thin bar.
+          const barH = 4;
+          ctx.fillStyle = "rgba(155, 195, 245, 0.45)";
+          ctx.fillRect(x, laneMid - barH / 2, w, barH);
+          // Tick marks at each snapshot start (very subtle).
+          if (ev.snapshotIds.length > 1) {
+            const tickEvery = Math.max(1, Math.ceil(ev.snapshotIds.length / 8));
+            for (let k = 0; k < ev.snapshotIds.length; k += tickEvery) {
+              const tx = x + (k / Math.max(1, ev.snapshotIds.length - 1)) * w;
+              ctx.fillStyle = "rgba(216, 227, 246, 0.6)";
+              ctx.fillRect(tx - 0.5, laneMid - barH / 2 - 1, 1, barH + 2);
+            }
+          }
+          if (selRing > 0) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(x - 1, laneMid - barH / 2 - 2, w + 2, barH + 4);
+          }
+        } else if (ev.kind === "tool") {
+          // Pill block with tool name.
+          const c = trackToolColor(ev.toolName, ev.success);
+          const radius = 4;
+          // Body
+          ctx.fillStyle = c.fill;
+          ctx.beginPath();
+          // Rounded rect manually (no ctx.roundRect on all browsers).
+          ctx.moveTo(x + radius, blockTop);
+          ctx.lineTo(x + w - radius, blockTop);
+          ctx.quadraticCurveTo(x + w, blockTop, x + w, blockTop + radius);
+          ctx.lineTo(x + w, blockTop + TRACKS_BLOCK_H - radius);
+          ctx.quadraticCurveTo(x + w, blockTop + TRACKS_BLOCK_H, x + w - radius, blockTop + TRACKS_BLOCK_H);
+          ctx.lineTo(x + radius, blockTop + TRACKS_BLOCK_H);
+          ctx.quadraticCurveTo(x, blockTop + TRACKS_BLOCK_H, x, blockTop + TRACKS_BLOCK_H - radius);
+          ctx.lineTo(x, blockTop + radius);
+          ctx.quadraticCurveTo(x, blockTop, x + radius, blockTop);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = c.stroke;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          // Label
+          ctx.fillStyle = c.text;
+          ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
+          ctx.textBaseline = "middle";
+          const label = ev.label || ev.toolName || "tool";
+          // Truncate with ellipsis if it overflows
+          const maxTextW = w - 12;
+          let display = label;
+          if (ctx.measureText(label).width > maxTextW) {
+            while (display.length > 2 && ctx.measureText(display + "…").width > maxTextW) {
+              display = display.slice(0, -1);
+            }
+            display += "…";
+          }
+          ctx.fillText(display, x + 6, laneMid);
+          // Failed indicator
+          if (ev.success === false) {
+            ctx.fillStyle = "#e08c7a";
+            ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
+            ctx.fillText("✕", x + w - 12, laneMid);
+          }
+          if (selRing > 0) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+            ctx.lineWidth = 1.4;
+            ctx.strokeRect(x - 2, blockTop - 2, w + 4, TRACKS_BLOCK_H + 4);
+          }
+        } else if (ev.kind === "prompt") {
+          // Filled blue circle — the entry point.
+          ctx.fillStyle = "#9bc3f5";
+          ctx.beginPath();
+          ctx.arc(x + 6, laneMid, 6, 0, Math.PI * 2);
+          ctx.fill();
+          if (selRing > 0) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.arc(x + 6, laneMid, 9, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else if (ev.kind === "session") {
+          // Small marker — barely visible, mostly to allow click-through.
+          ctx.fillStyle = "rgba(155, 195, 245, 0.4)";
+          ctx.beginPath();
+          ctx.arc(x + 4, laneMid, 3, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (ev.kind === "complete") {
+          ctx.fillStyle = "#6fc78f";
+          ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
+          ctx.textBaseline = "middle";
+          ctx.fillText("✓", x + 2, laneMid);
+          if (selRing > 0) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+            ctx.lineWidth = 1.4;
+            ctx.strokeRect(x - 2, blockTop, w + 4, TRACKS_BLOCK_H);
+          }
+        } else if (ev.kind === "error") {
+          ctx.fillStyle = "#e08c7a";
+          ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
+          ctx.textBaseline = "middle";
+          ctx.fillText("✕", x + 2, laneMid);
+          if (selRing > 0) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+            ctx.lineWidth = 1.4;
+            ctx.strokeRect(x - 2, blockTop, w + 4, TRACKS_BLOCK_H);
+          }
+        }
+
+        // Live frontier — pulse a ring on the last block of a running session.
+        if (isLive && pulse > 0) {
+          ctx.strokeStyle = `rgba(111, 199, 143, ${pulse})`;
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(x - 3, blockTop - 3, w + 6, TRACKS_BLOCK_H + 6);
+          // Pulsing right-edge cursor.
+          ctx.fillStyle = `rgba(111, 199, 143, ${pulse})`;
+          ctx.fillRect(x + w + 3, blockTop - 2, 2, TRACKS_BLOCK_H + 4);
+        }
+
+        x += w + TRACKS_BLOCK_GAP;
+      }
+    }
+
+    ctx.restore();
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────
 
   onMount(() => {
@@ -533,6 +904,24 @@ const AetherMap: Component = () => {
       const ts = aetherStore.lastBirthAt();
       if (ts > 0) {
         physicsTicks = Math.min(physicsTicks, PHYSICS_WARMUP_TICKS - REBIRTH_BOOST_TICKS);
+      }
+    });
+
+    // Reset camera state cleanly when the user toggles view mode so
+    // tracks doesn't inherit a galactic pan and vice versa.
+    let prevMode: import("../stores/aether").ViewMode | null = null;
+    createEffect(() => {
+      const m = aetherStore.viewMode();
+      if (prevMode === m) return;
+      prevMode = m;
+      if (m === "tracks") {
+        setViewX(0);
+        setViewY(0);
+        setViewScale(1);
+      } else {
+        // Re-fit galactic the next chance we get.
+        physicsTicks = Math.min(physicsTicks, PHYSICS_WARMUP_TICKS - REBIRTH_BOOST_TICKS);
+        didInitialFit = false;
       }
     });
 
@@ -1030,9 +1419,12 @@ const AetherMap: Component = () => {
   function statusBar() {
     const total = aetherStore.nodes().length;
     const sel = aetherStore.selectedId();
+    const mode = aetherStore.viewMode();
     return (
       <div class="aether-status">
         <span class="dim">aether</span>
+        <span class="sep">·</span>
+        <span class={mode === "tracks" ? "live-on" : "dim"}>{mode}</span>
         <span class="sep">·</span>
         <span>{total} stars</span>
         <Show when={sel}>
@@ -1052,7 +1444,7 @@ const AetherMap: Component = () => {
           </span>
         </Show>
         <span class="sep">·</span>
-        <span class="dim">press / to prompt</span>
+        <span class="dim">/ prompt · g toggle · c checkout</span>
       </div>
     );
   }
