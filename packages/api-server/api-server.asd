@@ -38,6 +38,7 @@
       (:file "sse")
       (:file "serialization")
       (:file "mcp-server")
+      (:file "aether-blob-store")
       (:file "aether-runtime")
       (:file "routes")
       (:file "sandbox-routes")
