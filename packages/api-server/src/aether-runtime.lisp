@@ -648,6 +648,213 @@
                 (error (e)
                   (json-error (format nil "blame failed: ~A" e)
                               :status 500 :error-type "Internal Error"))))))))
+      ;; POST /api/aether/spawn-batch
+      ;; Body: {prompt, variants: [str, str, ...], parent?, cwd_prefix?, model?}
+      ;; Fires one rho session per variant; each variant text is appended to
+      ;; the base prompt with " — " separator, each gets its own cwd under
+      ;; cwd_prefix (/v1/, /v2/, ...). Returns parallel arrays of ids/cwds.
+      ((and (eq method :post) (string= uri "/api/aether/spawn-batch"))
+       (require-permission :write)
+       (let* ((body (parse-json-body))
+              (prompt (cdr (assoc :prompt body)))
+              (variants (cdr (assoc :variants body)))
+              (parent (cdr (assoc :parent body)))
+              (cwd-prefix (cdr (assoc :cwd--prefix body)))
+              (model (cdr (assoc :model body))))
+         (cond
+           ((or (null prompt) (string= prompt ""))
+            (json-error "prompt is required" :status 400 :error-type "Bad Request"))
+           ((or (null variants) (not (listp variants)) (null (car variants)))
+            (json-error "variants must be a non-empty array of strings"
+                        :status 400 :error-type "Bad Request"))
+           (t
+            (handler-case
+                (let* ((session-ids '())
+                       (initial-ids '())
+                       (cwds '())
+                       (lineages '()))
+                  (loop for variant in variants
+                        for idx from 1
+                        for full-prompt = (if (and variant (> (length variant) 0))
+                                              (format nil "~A — ~A" prompt variant)
+                                              prompt)
+                        for child-cwd = (when (and cwd-prefix (> (length cwd-prefix) 0))
+                                          ;; Join with explicit slash + trailing slash;
+                                          ;; sidesteps *default-pathname-defaults* games.
+                                          (let* ((base (if (eql #\/ (char cwd-prefix
+                                                                         (1- (length cwd-prefix))))
+                                                           cwd-prefix
+                                                           (concatenate 'string cwd-prefix "/"))))
+                                            (format nil "~Av~A/" base idx)))
+                        do (when child-cwd
+                             (ensure-directories-exist
+                              (uiop:ensure-directory-pathname child-cwd)))
+                           (multiple-value-bind (session initial)
+                               (spawn-aether-session :prompt full-prompt
+                                                     :parent parent
+                                                     :model model
+                                                     :cwd child-cwd)
+                             (push (aether-session-id session) session-ids)
+                             (push (autopoiesis.snapshot:snapshot-id initial) initial-ids)
+                             (push (or child-cwd "") cwds)
+                             (push (aether-session-lineage-name session) lineages)))
+                  (json-ok
+                   (list (cons :session_ids (coerce (nreverse session-ids) 'vector))
+                         (cons :initial_snapshot_ids
+                               (coerce (nreverse initial-ids) 'vector))
+                         (cons :cwds (coerce (nreverse cwds) 'vector))
+                         (cons :lineages (coerce (nreverse lineages) 'vector))
+                         (cons :parent (or parent ""))
+                         (cons :count (length variants)))))
+              (error (e)
+                (json-error (format nil "spawn-batch failed: ~A" e)
+                            :status 500 :error-type "Internal Error")))))))
+      ;; GET /api/aether/snapshots/:a/compare/:b
+      ;; Returns side-by-side cognition + filesystem diff between two snapshots.
+      ((and (eq method :get)
+            (cl-ppcre:scan "^/api/aether/snapshots/[^/]+/compare/[^/]+$" uri))
+       (require-permission :read)
+       (cl-ppcre:register-groups-bind (a-id b-id)
+           ("^/api/aether/snapshots/([^/]+)/compare/([^/]+)$" uri)
+         (let ((a-snap (autopoiesis.snapshot:load-snapshot a-id))
+               (b-snap (autopoiesis.snapshot:load-snapshot b-id)))
+           (cond
+             ((null a-snap) (json-not-found "Snapshot" a-id))
+             ((null b-snap) (json-not-found "Snapshot" b-id))
+             (t
+              (handler-case
+                  (json-ok (aether-compare-alist a-snap b-snap))
+                (error (e)
+                  (json-error (format nil "compare failed: ~A" e)
+                              :status 500 :error-type "Internal Error"))))))))
       ;; Unknown
       (t
        (json-not-found "AETHER route" uri)))))
+
+;;; ===================================================================
+;;; Snapshot comparison (cognition + filesystem)
+;;; ===================================================================
+
+(defun snapshot-meta-summary (snap)
+  "Extract a JSON-friendly subset of a snapshot's metadata for compare output."
+  (let ((md (autopoiesis.snapshot:snapshot-metadata snap)))
+    `((:lineage . ,(or (getf md :lineage) ""))
+      (:mood . ,(or (getf md :mood) ""))
+      (:event_type . ,(or (getf md :event-type) ""))
+      (:session . ,(or (getf md :session) ""))
+      (:ticks . ,(or (getf md :ticks) 0))
+      (:depth . ,(or (getf md :depth) 0))
+      (:cwd . ,(or (getf md :cwd) ""))
+      (:files . ,(or (getf md :files) 0))
+      (:text . ,(or (getf md :text) "")))))
+
+(defun aether-common-ancestor (a-id b-id)
+  "Walk parent chains of A-ID and B-ID, return first shared snapshot id (or nil).
+   Bounded by a max-walk to avoid pathological cycles."
+  (let ((a-ancestors (make-hash-table :test 'equal))
+        (max-walk 10000))
+    ;; Collect A's ancestors (including itself).
+    (loop for cur = a-id then (let ((s (autopoiesis.snapshot:load-snapshot cur)))
+                                (and s (autopoiesis.snapshot:snapshot-parent s)))
+          for n from 0 below max-walk
+          while cur
+          do (setf (gethash cur a-ancestors) t))
+    ;; Walk B's chain, return first match.
+    (loop for cur = b-id then (let ((s (autopoiesis.snapshot:load-snapshot cur)))
+                                (and s (autopoiesis.snapshot:snapshot-parent s)))
+          for n from 0 below max-walk
+          while cur
+          when (gethash cur a-ancestors) return cur
+          finally (return nil))))
+
+(defun edit-path-to-string (path)
+  "Render a sexpr-diff path (list of :car/:cdr) as a compact dotted string."
+  (if (null path)
+      "/"
+      (with-output-to-string (s)
+        (dolist (step path)
+          (write-string (case step (:car ".a") (:cdr ".d") (t ".?")) s)))))
+
+(defun truncate-printable (obj max-len)
+  "prin1 OBJ and truncate to MAX-LEN chars for diff summaries."
+  (let ((rendered (handler-case (prin1-to-string obj)
+                    (error () "<unprintable>"))))
+    (if (> (length rendered) max-len)
+        (concatenate 'string (subseq rendered 0 max-len) "…")
+        rendered)))
+
+(defun edit-to-alist (edit)
+  "Convert one sexpr-edit struct to a JSON-friendly alist."
+  (let* ((type (autopoiesis.core:sexpr-edit-type edit))
+         (path (autopoiesis.core:sexpr-edit-path edit))
+         (old (autopoiesis.core:sexpr-edit-old edit))
+         (new (autopoiesis.core:sexpr-edit-new edit)))
+    `((:type . ,(string-downcase (symbol-name type)))
+      (:path . ,(edit-path-to-string path))
+      (:summary . ,(case type
+                     (:replace (format nil "~A → ~A"
+                                       (truncate-printable old 60)
+                                       (truncate-printable new 60)))
+                     (:insert (format nil "+ ~A" (truncate-printable new 80)))
+                     (:delete (format nil "- ~A" (truncate-printable old 80)))
+                     (t (format nil "~A" type)))))))
+
+(defun cognition-diff-alist (a-snap b-snap)
+  "Compute sexpr-diff between two snapshots' agent-state.
+   Returns alist with :edit_count and :edits (truncated to first 20)."
+  (let* ((edits (autopoiesis.core:sexpr-diff
+                 (autopoiesis.snapshot:snapshot-agent-state a-snap)
+                 (autopoiesis.snapshot:snapshot-agent-state b-snap)))
+         (count (length edits))
+         (head (if (> count 20) (subseq edits 0 20) edits)))
+    `((:edit_count . ,count)
+      (:truncated . ,(if (> count 20) t nil))
+      (:edits . ,(coerce (mapcar #'edit-to-alist head) 'vector)))))
+
+(defun fs-entry-to-alist (entry)
+  "JSON-friendly summary of a tree entry."
+  `((:path . ,(or (autopoiesis.snapshot:entry-path entry) ""))
+    (:type . ,(string-downcase
+               (symbol-name (or (autopoiesis.snapshot:entry-type entry) :file))))
+    (:size . ,(or (autopoiesis.snapshot:entry-size entry) 0))
+    (:hash . ,(or (autopoiesis.snapshot:entry-hash entry) ""))))
+
+(defun fs-changed-to-alist (old-entry new-entry)
+  "JSON-friendly summary of a modified file (paired old + new)."
+  `((:path . ,(or (autopoiesis.snapshot:entry-path new-entry) ""))
+    (:size_a . ,(or (autopoiesis.snapshot:entry-size old-entry) 0))
+    (:size_b . ,(or (autopoiesis.snapshot:entry-size new-entry) 0))
+    (:hash_a . ,(or (autopoiesis.snapshot:entry-hash old-entry) ""))
+    (:hash_b . ,(or (autopoiesis.snapshot:entry-hash new-entry) ""))))
+
+(defun filesystem-diff-alist (a-snap b-snap)
+  "Build a JSON-friendly added/removed/changed grouping from tree-diff."
+  (let* ((a-entries (autopoiesis.snapshot:snapshot-tree-entries a-snap))
+         (b-entries (autopoiesis.snapshot:snapshot-tree-entries b-snap))
+         (changes (autopoiesis.snapshot:tree-diff a-entries b-entries))
+         (added '())
+         (removed '())
+         (changed '()))
+    (dolist (c changes)
+      (case (first c)
+        (:added (push (fs-entry-to-alist (second c)) added))
+        (:removed (push (fs-entry-to-alist (second c)) removed))
+        (:modified (push (fs-changed-to-alist (second c) (third c)) changed))))
+    `((:added . ,(coerce (nreverse added) 'vector))
+      (:removed . ,(coerce (nreverse removed) 'vector))
+      (:changed . ,(coerce (nreverse changed) 'vector))
+      (:count_a . ,(length (or a-entries '())))
+      (:count_b . ,(length (or b-entries '()))))))
+
+(defun aether-compare-alist (a-snap b-snap)
+  "Top-level compare payload: both sides' metadata, common ancestor,
+   cognition diff, filesystem diff. Each section is shaped as a JSON object."
+  (let ((a-id (autopoiesis.snapshot:snapshot-id a-snap))
+        (b-id (autopoiesis.snapshot:snapshot-id b-snap)))
+    `((:a . ((:id . ,a-id)
+             (:metadata . ,(snapshot-meta-summary a-snap))))
+      (:b . ((:id . ,b-id)
+             (:metadata . ,(snapshot-meta-summary b-snap))))
+      (:common_ancestor . ,(or (aether-common-ancestor a-id b-id) ""))
+      (:cognition_diff . ,(cognition-diff-alist a-snap b-snap))
+      (:filesystem_diff . ,(filesystem-diff-alist a-snap b-snap)))))

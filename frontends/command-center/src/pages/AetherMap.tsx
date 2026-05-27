@@ -135,6 +135,17 @@ const AetherMap: Component = () => {
     setTimeout(() => setToast(null), 3500);
   }
 
+  // Sibling-fork comparison (shift-click a second star while one is selected).
+  const [compareWith, setCompareWith] = createSignal<string | null>(null);
+  const [compareData, setCompareData] = createSignal<import("../stores/aether").CompareResult | null>(null);
+  const [compareLoading, setCompareLoading] = createSignal(false);
+  const [compareError, setCompareError] = createSignal<string | null>(null);
+  function closeCompare() {
+    setCompareWith(null);
+    setCompareData(null);
+    setCompareError(null);
+  }
+
   // ── Pan/zoom (adapted from DAGCanvas.tsx:519-620) ──────────────────
   // mousedown→mousemove with drift ≥ CLICK_DRIFT_PX = drag
   // mousedown→mouseup with drift < CLICK_DRIFT_PX  = click (hit-test → select)
@@ -179,7 +190,13 @@ const AetherMap: Component = () => {
       const drift = Math.hypot(e.clientX - mouseDownAt.x, e.clientY - mouseDownAt.y);
       if (drift < CLICK_DRIFT_PX) {
         const hit = hitTest(e.clientX, e.clientY);
-        aetherStore.select(hit); // null = deselect when clicking empty space
+        // Shift-click: if a star is already selected and this is a different
+        // star, open the comparison modal instead of switching selection.
+        if (e.shiftKey && hit && aetherStore.selectedId() && hit !== aetherStore.selectedId()) {
+          setCompareWith(hit);
+        } else {
+          aetherStore.select(hit); // null = deselect when clicking empty space
+        }
       }
     }
     mouseDownAt = null;
@@ -203,6 +220,10 @@ const AetherMap: Component = () => {
       return;
     }
     if (e.key === "Escape") {
+      if (compareWith()) {
+        closeCompare();
+        return;
+      }
       if (promptOpen()) {
         setPromptOpen(false);
         setPrompt("");
@@ -238,7 +259,27 @@ const AetherMap: Component = () => {
     setPromptError(null);
     try {
       const parent = aetherStore.selectedId();
-      await aetherStore.spawn({ prompt: text, parent: parent ?? null });
+      // Pipe-separated input → batch spawn one variant per chunk after the first.
+      //   "build a parser | use regex | use a peg grammar | hand-rolled"
+      // becomes base="build a parser" + variants=["use regex","use a peg grammar","hand-rolled"]
+      const parts = text.split("|").map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 1) {
+        const base = parts[0]!;
+        const variants = parts.slice(1);
+        // Per-batch cwd prefix: stable enough for an interactive session,
+        // unique enough to keep parallel forks from stomping each other.
+        const ts = Date.now().toString(36);
+        const cwdPrefix = `/tmp/aether-batch-${ts}/`;
+        const res = await aetherStore.spawnBatch({
+          prompt: base,
+          variants,
+          parent: parent ?? null,
+          cwdPrefix,
+        });
+        flashToast("ok", `spawned ${res.count} variants → ${cwdPrefix}`);
+      } else {
+        await aetherStore.spawn({ prompt: text, parent: parent ?? null });
+      }
       setPrompt("");
       setPromptOpen(false);
     } catch (err) {
@@ -519,6 +560,31 @@ const AetherMap: Component = () => {
           if (aetherStore.selectedId() === id) setFilesLoading(false);
         });
     });
+
+    // Compare modal: when (selectedId, compareWith) both set, fetch the diff.
+    // Cleared on close. Re-fires if either id changes.
+    createEffect(() => {
+      const a = aetherStore.selectedId();
+      const b = compareWith();
+      setCompareData(null);
+      setCompareError(null);
+      if (!a || !b) return;
+      setCompareLoading(true);
+      aetherStore.compareSnapshots(a, b)
+        .then((data) => {
+          if (aetherStore.selectedId() === a && compareWith() === b) {
+            setCompareData(data);
+          }
+        })
+        .catch((err) => {
+          setCompareError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          if (aetherStore.selectedId() === a && compareWith() === b) {
+            setCompareLoading(false);
+          }
+        });
+    });
   });
 
   onCleanup(() => {
@@ -797,6 +863,170 @@ const AetherMap: Component = () => {
     return `${(n / 1024 / 1024).toFixed(1)}M`;
   }
 
+  function compareModal() {
+    const a = aetherStore.selectedId();
+    const b = compareWith();
+    if (!a || !b) return null;
+    const data = compareData();
+    return (
+      <div class="aether-compare-modal-backdrop" onClick={closeCompare}>
+        <div class="aether-compare-modal" onClick={(e) => e.stopPropagation()}>
+          <div class="aether-compare-head">
+            <div class="aether-compare-title">
+              <span class="aether-compare-id a-side">{shortId(a)}</span>
+              <span class="aether-compare-vs">vs</span>
+              <span class="aether-compare-id b-side">{shortId(b)}</span>
+            </div>
+            <button
+              class="aether-compare-close"
+              onClick={closeCompare}
+              title="Close (Esc)"
+            >
+              ✕
+            </button>
+          </div>
+          <Show when={compareLoading()}>
+            <div class="aether-compare-empty">loading diff…</div>
+          </Show>
+          <Show when={compareError()}>
+            <div class="aether-compare-err">{compareError()}</div>
+          </Show>
+          <Show when={data}>
+            {(d) => (
+              <>
+                <div class="aether-compare-section">
+                  <div class="aether-compare-section-title">classification</div>
+                  <div class="aether-compare-row">
+                    <span class="k">lineage</span>
+                    <span class="v a-side">{d().a.metadata.lineage || "—"}</span>
+                    <span class="v b-side">{d().b.metadata.lineage || "—"}</span>
+                  </div>
+                  <div class="aether-compare-row">
+                    <span class="k">mood</span>
+                    <span class={`v a-side mood-${d().a.metadata.mood || "none"}`}>{d().a.metadata.mood || "—"}</span>
+                    <span class={`v b-side mood-${d().b.metadata.mood || "none"}`}>{d().b.metadata.mood || "—"}</span>
+                  </div>
+                  <div class="aether-compare-row">
+                    <span class="k">ticks</span>
+                    <span class="v a-side">{d().a.metadata.ticks}</span>
+                    <span class="v b-side">{d().b.metadata.ticks}</span>
+                  </div>
+                  <div class="aether-compare-row">
+                    <span class="k">depth</span>
+                    <span class="v a-side">{d().a.metadata.depth}</span>
+                    <span class="v b-side">{d().b.metadata.depth}</span>
+                  </div>
+                  <div class="aether-compare-row">
+                    <span class="k">cwd</span>
+                    <span class="v a-side mono-small" title={d().a.metadata.cwd}>{d().a.metadata.cwd || "—"}</span>
+                    <span class="v b-side mono-small" title={d().b.metadata.cwd}>{d().b.metadata.cwd || "—"}</span>
+                  </div>
+                  <Show when={d().common_ancestor}>
+                    <div class="aether-compare-row">
+                      <span class="k">ancestor</span>
+                      <span class="v mono-small" title={d().common_ancestor}>
+                        {shortId(d().common_ancestor)}
+                      </span>
+                    </div>
+                  </Show>
+                </div>
+
+                <div class="aether-compare-section">
+                  <div class="aether-compare-section-title">
+                    cognition diff
+                    <span class="aether-compare-count">
+                      {d().cognition_diff.edit_count}
+                      {d().cognition_diff.truncated ? " (truncated)" : ""}
+                    </span>
+                  </div>
+                  <Show
+                    when={d().cognition_diff.edits.length > 0}
+                    fallback={<div class="aether-compare-empty">no cognitive divergence</div>}
+                  >
+                    <div class="aether-compare-edits">
+                      <For each={d().cognition_diff.edits}>
+                        {(ed) => (
+                          <div class={`aether-compare-edit edit-${ed.type}`}>
+                            <span class="aether-compare-edit-type">{ed.type}</span>
+                            <span class="aether-compare-edit-path">{ed.path}</span>
+                            <span class="aether-compare-edit-summary">{ed.summary}</span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+
+                <div class="aether-compare-section">
+                  <div class="aether-compare-section-title">
+                    filesystem diff
+                    <span class="aether-compare-count">
+                      +{d().filesystem_diff.added.length}
+                      {" "}/ −{d().filesystem_diff.removed.length}
+                      {" "}/ ~{d().filesystem_diff.changed.length}
+                    </span>
+                  </div>
+                  <Show when={d().filesystem_diff.added.length > 0}>
+                    <div class="aether-compare-fs-group added">
+                      <For each={d().filesystem_diff.added}>
+                        {(f) => (
+                          <div class="aether-compare-fs-row">
+                            <span class="op">+</span>
+                            <span class="path">{f.path}</span>
+                            <span class="size">{formatBytes(f.size)}</span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <Show when={d().filesystem_diff.removed.length > 0}>
+                    <div class="aether-compare-fs-group removed">
+                      <For each={d().filesystem_diff.removed}>
+                        {(f) => (
+                          <div class="aether-compare-fs-row">
+                            <span class="op">−</span>
+                            <span class="path">{f.path}</span>
+                            <span class="size">{formatBytes(f.size)}</span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <Show when={d().filesystem_diff.changed.length > 0}>
+                    <div class="aether-compare-fs-group changed">
+                      <For each={d().filesystem_diff.changed}>
+                        {(f) => (
+                          <div class="aether-compare-fs-row">
+                            <span class="op">~</span>
+                            <span class="path">{f.path}</span>
+                            <span class="size">
+                              {formatBytes(f.size_a)} → {formatBytes(f.size_b)}
+                            </span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <Show
+                    when={d().filesystem_diff.added.length === 0
+                      && d().filesystem_diff.removed.length === 0
+                      && d().filesystem_diff.changed.length === 0}
+                  >
+                    <div class="aether-compare-empty">no filesystem divergence</div>
+                  </Show>
+                </div>
+
+                <div class="aether-compare-foot">
+                  <kbd>Esc</kbd> close
+                </div>
+              </>
+            )}
+          </Show>
+        </div>
+      </div>
+    );
+  }
+
   function statusBar() {
     const total = aetherStore.nodes().length;
     const sel = aetherStore.selectedId();
@@ -864,7 +1094,9 @@ const AetherMap: Component = () => {
           <div class="aether-prompt-foot">
             <Show when={promptError()} fallback={
               <span class="aether-prompt-hint">
-                {promptBusy() ? "spawning…" : "Enter to send · Esc to cancel · model: claude-haiku"}
+                {promptBusy()
+                  ? "spawning…"
+                  : "Enter to send · Esc to cancel · use | for parallel variants"}
               </span>
             }>
               <span class="aether-prompt-err">{promptError()}</span>

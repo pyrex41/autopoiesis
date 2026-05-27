@@ -699,6 +699,103 @@ async function fetchBlame(snapshotId: string, path: string): Promise<BlameResult
   return (await res.json()) as BlameResult;
 }
 
+// ── Batch spawn + snapshot compare (sibling-fork comparison) ─────────
+
+/** Result of POST /api/aether/spawn-batch — parallel arrays across variants. */
+export interface BatchSpawnResult {
+  session_ids: string[];
+  initial_snapshot_ids: string[];
+  cwds: string[];
+  lineages: string[];
+  parent: string;
+  count: number;
+}
+
+async function spawnBatch(opts: {
+  prompt: string;
+  variants: string[];
+  parent?: string | null;
+  cwdPrefix?: string;
+  model?: string;
+}): Promise<BatchSpawnResult> {
+  const body: Record<string, unknown> = {
+    prompt: opts.prompt,
+    variants: opts.variants,
+  };
+  if (opts.parent) body.parent = opts.parent;
+  if (opts.cwdPrefix) body.cwd_prefix = opts.cwdPrefix;
+  if (opts.model) body.model = opts.model;
+  const res = await fetch("/api/aether/spawn-batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`spawn-batch failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as BatchSpawnResult;
+}
+
+/** Compare payload from GET /api/aether/snapshots/:a/compare/:b. */
+export interface CompareMetaSummary {
+  lineage: string;
+  mood: string;
+  event_type: string;
+  session: string;
+  ticks: number;
+  depth: number;
+  cwd: string;
+  files: number;
+  text: string;
+}
+export interface CognitionEditSummary {
+  type: "replace" | "insert" | "delete";
+  path: string;
+  summary: string;
+}
+export interface FsAdded {
+  path: string;
+  type: string;
+  size: number;
+  hash: string;
+}
+export interface FsChanged {
+  path: string;
+  size_a: number;
+  size_b: number;
+  hash_a: string;
+  hash_b: string;
+}
+export interface CompareResult {
+  a: { id: string; metadata: CompareMetaSummary };
+  b: { id: string; metadata: CompareMetaSummary };
+  common_ancestor: string;
+  cognition_diff: {
+    edit_count: number;
+    truncated: boolean | null;
+    edits: CognitionEditSummary[];
+  };
+  filesystem_diff: {
+    added: FsAdded[];
+    removed: FsAdded[];
+    changed: FsChanged[];
+    count_a: number;
+    count_b: number;
+  };
+}
+
+async function compareSnapshots(a: string, b: string): Promise<CompareResult> {
+  const res = await fetch(
+    `/api/aether/snapshots/${encodeURIComponent(a)}/compare/${encodeURIComponent(b)}`,
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`compare failed: ${res.status} ${text}`);
+  }
+  return (await res.json()) as CompareResult;
+}
+
 // ── Loading ──────────────────────────────────────────────────────────
 
 async function loadFromApiOrFixture() {
@@ -744,6 +841,8 @@ export const aetherStore = {
   load: loadFromApiOrFixture,
   tick,
   spawn: spawnAgent,
+  spawnBatch,
+  compareSnapshots,
   fetchFilesAt,
   checkout: checkoutSnapshot,
   fetchBlame,

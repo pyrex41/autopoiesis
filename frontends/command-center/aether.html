@@ -375,6 +375,201 @@
         margin-left: 2px;
         background: rgba(154, 195, 245, 0.18);
       }
+      /* ── sibling-fork comparison modal ─────────────────────────────── */
+      .aether-compare-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        background: rgba(4, 6, 14, 0.74);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+        animation: aetherCompareIn 0.16s ease-out;
+      }
+      .aether-compare-modal {
+        background: rgba(8, 12, 24, 0.94);
+        color: #d8e3f6;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 11px;
+        line-height: 1.5;
+        max-width: 920px;
+        width: 100%;
+        max-height: 88vh;
+        overflow-y: auto;
+        padding: 22px 26px 18px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+      }
+      @keyframes aetherCompareIn {
+        from { opacity: 0; transform: scale(0.985); }
+        to   { opacity: 1; transform: scale(1); }
+      }
+      .aether-compare-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 18px;
+      }
+      .aether-compare-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .aether-compare-id {
+        padding: 4px 9px;
+        background: rgba(154, 195, 245, 0.08);
+        color: #9bc3f5;
+      }
+      .aether-compare-id.a-side { color: #9bc3f5; }
+      .aether-compare-id.b-side { color: #e6c389; }
+      .aether-compare-vs {
+        color: rgba(216, 227, 246, 0.4);
+        letter-spacing: 0.2em;
+      }
+      .aether-compare-close {
+        background: none;
+        border: none;
+        color: rgba(216, 227, 246, 0.6);
+        font-size: 14px;
+        cursor: pointer;
+        padding: 4px 8px;
+      }
+      .aether-compare-close:hover { color: #d8e3f6; }
+      .aether-compare-section {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(154, 195, 245, 0.08);
+      }
+      .aether-compare-section:first-of-type {
+        border-top: none;
+        padding-top: 0;
+        margin-top: 0;
+      }
+      .aether-compare-section-title {
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(216, 227, 246, 0.5);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .aether-compare-count {
+        color: rgba(216, 227, 246, 0.4);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+      }
+      .aether-compare-row {
+        display: grid;
+        grid-template-columns: 110px 1fr 1fr;
+        gap: 14px;
+        padding: 3px 0;
+        align-items: baseline;
+      }
+      .aether-compare-row .k {
+        color: rgba(216, 227, 246, 0.45);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .aether-compare-row .v {
+        color: #d8e3f6;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .aether-compare-row .v.a-side { color: #9bc3f5; }
+      .aether-compare-row .v.b-side { color: #e6c389; }
+      .aether-compare-row .v.mono-small {
+        font-size: 10px;
+        color: rgba(216, 227, 246, 0.7);
+      }
+      .aether-compare-edits {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .aether-compare-edit {
+        display: grid;
+        grid-template-columns: 70px 110px 1fr;
+        gap: 10px;
+        padding: 3px 6px;
+        font-size: 10.5px;
+        background: rgba(154, 195, 245, 0.03);
+      }
+      .aether-compare-edit-type {
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-size: 10px;
+      }
+      .aether-compare-edit.edit-replace .aether-compare-edit-type { color: #e6c389; }
+      .aether-compare-edit.edit-insert  .aether-compare-edit-type { color: #6fc78f; }
+      .aether-compare-edit.edit-delete  .aether-compare-edit-type { color: #e08c7a; }
+      .aether-compare-edit-path {
+        color: rgba(216, 227, 246, 0.55);
+        font-size: 10px;
+      }
+      .aether-compare-edit-summary {
+        color: #d8e3f6;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .aether-compare-fs-group {
+        margin-bottom: 6px;
+      }
+      .aether-compare-fs-row {
+        display: grid;
+        grid-template-columns: 16px 1fr auto;
+        gap: 10px;
+        padding: 2px 6px;
+        font-size: 10.5px;
+      }
+      .aether-compare-fs-group.added   .op { color: #6fc78f; }
+      .aether-compare-fs-group.removed .op { color: #e08c7a; }
+      .aether-compare-fs-group.changed .op { color: #e6c389; }
+      .aether-compare-fs-row .path {
+        color: #d8e3f6;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .aether-compare-fs-row .size {
+        color: rgba(216, 227, 246, 0.45);
+        font-size: 10px;
+      }
+      .aether-compare-empty {
+        color: rgba(216, 227, 246, 0.45);
+        font-style: italic;
+        padding: 4px 6px;
+      }
+      .aether-compare-err {
+        color: #e08c7a;
+        padding: 8px 6px;
+        border-left: 2px solid #e08c7a;
+      }
+      .aether-compare-foot {
+        margin-top: 18px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(154, 195, 245, 0.08);
+        font-size: 10px;
+        color: rgba(216, 227, 246, 0.4);
+        letter-spacing: 0.08em;
+      }
+      .aether-compare-foot kbd {
+        background: rgba(154, 195, 245, 0.1);
+        padding: 1px 6px;
+        font-family: inherit;
+        font-size: 10px;
+        margin-right: 4px;
+      }
+
     </style>
   </head>
   <body>
