@@ -811,6 +811,32 @@
             (json-error "path is required" :status 400 :error-type "Bad Request"))
            (t (json-ok (list (cons :path path)
                              (cons :revealed (reveal-path path))))))))
+      ;; GET /api/aether/discharge?report=<abs-path-to-discharge_report.json>
+      ;; Reads a Shen-Backpressure discharge report from disk and returns it
+      ;; verbatim. The cockpit's substance layer — per-rule, per-premise
+      ;; verification evidence produced by `sb`.
+      ((and (eq method :get)
+            (let ((qpos (position #\? (hunchentoot:request-uri request))))
+              (and qpos (string= "/api/aether/discharge"
+                                 (subseq (hunchentoot:request-uri request) 0 qpos)))))
+       (require-permission :read)
+       (let ((report (hunchentoot:get-parameter "report" request)))
+         (cond
+           ((or (null report) (zerop (length report)))
+            (json-error "report path is required" :status 400 :error-type "Bad Request"))
+           ((not (and (> (length report) 5)
+                      (string= ".json" (subseq report (- (length report) 5)))))
+            (json-error "report must be a .json path" :status 400 :error-type "Bad Request"))
+           ((not (probe-file report))
+            (json-not-found "Discharge report" report))
+           (t
+            (handler-case
+                (progn
+                  (setf (hunchentoot:content-type*) "application/json")
+                  (uiop:read-file-string report))
+              (error (e)
+                (json-error (format nil "could not read report: ~A" e)
+                            :status 500 :error-type "Internal Error")))))))
       ;; Unknown
       (t
        (json-not-found "AETHER route" uri)))))
