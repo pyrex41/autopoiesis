@@ -260,6 +260,41 @@
       .aether-checkout-btn:active {
         background: rgba(154, 195, 245, 0.25);
       }
+      .aether-reveal-btn {
+        margin-top: 6px;
+        width: 100%;
+        padding: 6px 8px;
+        font-family: inherit;
+        font-size: 10px;
+        letter-spacing: 0.15em;
+        text-transform: lowercase;
+        background: rgba(111, 199, 143, 0.08);
+        color: #6fc78f;
+        border: 1px solid rgba(111, 199, 143, 0.25);
+        cursor: pointer;
+        text-align: left;
+      }
+      .aether-reveal-btn:hover {
+        background: rgba(111, 199, 143, 0.16);
+        color: #c5e8d0;
+        border-color: #6fc78f;
+      }
+
+      /* ── content view (full text of the selected step) ────────────── */
+      .aether-content-view {
+        margin: 4px 0 0;
+        max-height: 280px;
+        overflow: auto;
+        padding: 8px 10px;
+        background: rgba(6, 10, 22, 0.6);
+        border-left: 1px solid rgba(154, 195, 245, 0.18);
+        font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
+        font-size: 10px;
+        line-height: 1.5;
+        color: #c8d4ec;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
 
       /* ── transient toast (checkout confirmation, errors) ──────────── */
       .aether-toast {

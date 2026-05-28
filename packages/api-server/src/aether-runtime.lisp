@@ -316,21 +316,40 @@
 ;;; Public entry — spawn
 ;;; ===================================================================
 
+(defvar *aether-workspace-root*
+  (namestring (merge-pathnames "aether-workspace/" (user-homedir-pathname)))
+  "Base directory under which UI-spawned agents get a per-session working
+   directory. Each session writes to <root>/<lineage>/ so files are always
+   in a known, findable place — and so FS capture / checkout actually work.")
+
+(defun default-cwd-for-session (lineage)
+  "A known, findable per-session working dir under *aether-workspace-root*.
+   Created eagerly so rho has somewhere to write."
+  (let ((dir (namestring
+              (merge-pathnames (format nil "~A/" lineage)
+                               (uiop:ensure-directory-pathname *aether-workspace-root*)))))
+    (ensure-directories-exist (uiop:ensure-directory-pathname dir))
+    dir))
+
 (defun spawn-aether-session (&key prompt parent model cwd)
   "Spawn a new live agent session. Returns (values session initial-snapshot).
    PROMPT is required. PARENT is an optional parent snapshot id. MODEL
-   defaults to claude-haiku. CWD, when given, is passed to rho as -C
-   (the agent's working directory) — important when running tasks that
-   touch the filesystem so they don't write into the caller's tree."
+   defaults to claude-haiku. CWD is the agent's working directory (rho -C).
+   When omitted it defaults to ~/aether-workspace/<lineage>/ so files always
+   land somewhere known and FS capture / checkout work — never silently in
+   the caller's tree."
   (unless (and prompt (> (length prompt) 0))
     (error "spawn-aether-session: prompt is required"))
   (let* ((session-id (new-aether-session-id))
          (lineage (lineage-name-from-session session-id))
+         (effective-cwd (if (and cwd (> (length cwd) 0))
+                            cwd
+                            (default-cwd-for-session lineage)))
          (session (make-aether-session
                    :id session-id
                    :prompt prompt
                    :model (or model "claude-haiku")
-                   :cwd cwd
+                   :cwd effective-cwd
                    :lineage-name lineage
                    :parent-snapshot-id parent
                    :current-snapshot-id parent
@@ -373,6 +392,47 @@
   (let* ((md (autopoiesis.snapshot:snapshot-metadata snap))
          (cwd (getf md :cwd)))
     (when (and cwd (> (length cwd) 0)) cwd)))
+
+(defun snapshot-full-text (snap)
+  "The FULL (untruncated) event text from agent-state. Metadata's :text is
+   capped at 240 chars for display; this returns what the agent actually
+   produced — file content for a write, the command for a bash, the agent's
+   narration for thinking/complete."
+  (let ((state (autopoiesis.snapshot:snapshot-agent-state snap)))
+    (if (and (listp state) (eq (car state) :aether-event))
+        (or (getf (cdr state) :text) "")
+        "")))
+
+(defun content-alist-for (snap)
+  "Readable content payload for a snapshot: full text + event type + cwd.
+   For a tool_result the useful content is the tool's INPUT (the file
+   content for a write, the command for a bash) — that lives on the parent
+   tool_start snapshot — so we surface that instead of the bare 'name → ok'."
+  (let* ((md (autopoiesis.snapshot:snapshot-metadata snap))
+         (event-type (or (getf md :event-type) ""))
+         (display-text (snapshot-full-text snap)))
+    (when (string= event-type "tool_result")
+      (let* ((parent-id (autopoiesis.snapshot:snapshot-parent snap))
+             (parent (and parent-id (autopoiesis.snapshot:load-snapshot parent-id))))
+        (when parent
+          (let ((ptext (snapshot-full-text parent)))
+            (when (> (length ptext) 0) (setf display-text ptext))))))
+    `((:snapshot_id . ,(autopoiesis.snapshot:snapshot-id snap))
+      (:event_type . ,event-type)
+      (:cwd . ,(or (snapshot-cwd snap) ""))
+      (:text . ,display-text))))
+
+(defun reveal-path (path)
+  "Open PATH in the OS file browser (macOS `open`, Linux `xdg-open`).
+   Returns T on a clean spawn. Best-effort; errors are swallowed."
+  (let ((opener #+darwin "open" #-darwin "xdg-open"))
+    (handler-case
+        (progn
+          (uiop:launch-program (list opener path))
+          t)
+      (error (e)
+        (log:warn "aether: reveal failed for ~A: ~A" path e)
+        nil))))
 
 (defun files-listing-for (snap)
   "Build a JSON-friendly summary of the FS tree captured at SNAP."
@@ -727,6 +787,30 @@
                 (error (e)
                   (json-error (format nil "compare failed: ~A" e)
                               :status 500 :error-type "Internal Error"))))))))
+      ;; GET /api/aether/snapshots/:id/content
+      ;; The full, untruncated text for a snapshot — file content for a write,
+      ;; the command for a bash, the agent's narration for thinking/complete.
+      ((and (eq method :get)
+            (cl-ppcre:scan "^/api/aether/snapshots/[^/]+/content$" uri))
+       (require-permission :read)
+       (cl-ppcre:register-groups-bind (sid)
+           ("^/api/aether/snapshots/([^/]+)/content$" uri)
+         (let ((snap (autopoiesis.snapshot:load-snapshot sid)))
+           (if (null snap)
+               (json-not-found "Snapshot" sid)
+               (json-ok (content-alist-for snap))))))
+      ;; POST /api/aether/reveal  {"path": "/abs/dir"}
+      ;; Opens the path in the OS file browser (so the user can actually find
+      ;; the files an agent produced).
+      ((and (eq method :post) (string= uri "/api/aether/reveal"))
+       (require-permission :read)
+       (let* ((body (parse-json-body))
+              (path (cdr (assoc :path body))))
+         (cond
+           ((or (null path) (zerop (length path)))
+            (json-error "path is required" :status 400 :error-type "Bad Request"))
+           (t (json-ok (list (cons :path path)
+                             (cons :revealed (reveal-path path))))))))
       ;; Unknown
       (t
        (json-not-found "AETHER route" uri)))))

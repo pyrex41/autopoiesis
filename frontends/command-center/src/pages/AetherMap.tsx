@@ -89,6 +89,9 @@ const AetherMap: Component = () => {
   const [filesAtSelected, setFilesAtSelected] = createSignal<import("../stores/aether").FilesAtSnapshot | null>(null);
   const [filesLoading, setFilesLoading] = createSignal(false);
 
+  // Full content of the selected snapshot (file content / command / narration).
+  const [contentOfSelected, setContentOfSelected] = createSignal<import("../stores/aether").SnapshotContent | null>(null);
+
   // Per-line blame: which file is currently expanded, the blame result,
   // and a loading flag. expandedBlamePath is the file row currently showing
   // its blame view (null = none). A second click on the same row closes.
@@ -974,12 +977,19 @@ const AetherMap: Component = () => {
     createEffect(() => {
       const id = aetherStore.selectedId();
       setFilesAtSelected(null);
+      setContentOfSelected(null);
       // Selection changed → blame view must close, otherwise the prior
       // star's blame would render under the new star's file list.
       setExpandedBlamePath(null);
       setBlameData(null);
       setBlameLoading(false);
       if (!id) return;
+      // Full content (what the agent wrote / ran / said at this step).
+      aetherStore.fetchContent(id)
+        .then((data) => {
+          if (aetherStore.selectedId() === id) setContentOfSelected(data);
+        })
+        .catch(() => {});
       setFilesLoading(true);
       aetherStore.fetchFilesAt(id)
         .then((data) => {
@@ -1138,6 +1148,16 @@ const AetherMap: Component = () => {
         </div>
 
         <div class="aether-section">
+          <div class="aether-section-title">content</div>
+          <Show
+            when={contentOfSelected() && contentOfSelected()!.text}
+            fallback={<div class="aether-files-empty">no text for this step</div>}
+          >
+            <pre class="aether-content-view">{contentOfSelected()!.text}</pre>
+          </Show>
+        </div>
+
+        <div class="aether-section">
           <div class="aether-section-title">filesystem</div>
           <Show
             when={filesAtSelected()}
@@ -1191,6 +1211,18 @@ const AetherMap: Component = () => {
                   >
                     checkout to {data().cwd || "captured cwd"}
                   </button>
+                  <Show when={data().cwd}>
+                    <button
+                      class="aether-reveal-btn"
+                      onClick={async () => {
+                        const ok = await aetherStore.reveal(data().cwd);
+                        flashToast(ok ? "ok" : "err", ok ? `revealed ${data().cwd}` : "couldn't open folder");
+                      }}
+                      title="Open the agent's working directory in Finder"
+                    >
+                      reveal in finder
+                    </button>
+                  </Show>
                 </Show>
               </>
             )}

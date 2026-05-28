@@ -661,6 +661,33 @@ async function fetchFilesAt(snapshotId: string): Promise<FilesAtSnapshot> {
   return (await res.json()) as FilesAtSnapshot;
 }
 
+export interface SnapshotContent {
+  snapshot_id: string;
+  event_type: string;
+  cwd: string;
+  text: string;
+}
+
+/** Full, untruncated text for a snapshot — file content for a write, the
+    command for a bash, the agent's narration for thinking/complete. */
+async function fetchContent(snapshotId: string): Promise<SnapshotContent> {
+  const res = await fetch(`/api/aether/snapshots/${snapshotId}/content`);
+  if (!res.ok) throw new Error(`content fetch failed: ${res.status}`);
+  return (await res.json()) as SnapshotContent;
+}
+
+/** Open a path in the OS file browser (macOS Finder). */
+async function revealPath(path: string): Promise<boolean> {
+  const res = await fetch(`/api/aether/reveal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) return false;
+  const j = await res.json();
+  return !!j.revealed;
+}
+
 async function checkoutSnapshot(snapshotId: string, target?: string): Promise<CheckoutResult> {
   const body: Record<string, unknown> = {};
   if (target) body.target = target;
@@ -1064,6 +1091,8 @@ export const aetherStore = {
   spawnBatch,
   compareSnapshots,
   fetchFilesAt,
+  fetchContent,
+  reveal: revealPath,
   checkout: checkoutSnapshot,
   fetchBlame,
   // Selection / hover / focus layer.
