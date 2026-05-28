@@ -135,6 +135,10 @@ const AetherMap: Component = () => {
     setTimeout(() => setToast(null), 3500);
   }
 
+  // Tracks spacing: "sequence" (every block one step, wraps to sub-rows) or
+  // "time" (blocks positioned by real timestamp, single row per lane).
+  const [timelineMode, setTimelineMode] = createSignal<"sequence" | "time">("sequence");
+
   // Sibling-fork comparison (shift-click a second star while one is selected).
   const [compareWith, setCompareWith] = createSignal<string | null>(null);
   const [compareData, setCompareData] = createSignal<import("../stores/aether").CompareResult | null>(null);
@@ -271,6 +275,11 @@ const AetherMap: Component = () => {
     if ((e.key === "g" || e.key === "G") && !activeIsInput) {
       e.preventDefault();
       aetherStore.toggleViewMode();
+    }
+    // "t" — toggle tracks spacing between sequence and time-proportional.
+    if ((e.key === "t" || e.key === "T") && !activeIsInput && aetherStore.viewMode() === "tracks") {
+      e.preventDefault();
+      setTimelineMode((m) => (m === "sequence" ? "time" : "sequence"));
     }
   }
 
@@ -585,15 +594,22 @@ const AetherMap: Component = () => {
   // One horizontal lane per agent session. Time runs left to right.
   // Events chunk: consecutive text_deltas collapse into a single thinking
   // bar; tool_start + tool_result pair into one tool block.
+  //
+  // Two layout modes (toggle with `t`):
+  //   sequence — every block is one step; overflow wraps to a sub-row.
+  //              Lane height grows with row count (variable-density).
+  //   time     — blocks positioned by real timestamp on a single row,
+  //              normalized to the session's own [start, end] span.
 
   // Layout knobs.
   const TRACKS_HEADER_H = 56;
-  const TRACKS_LANE_H = 64;
   const TRACKS_LABEL_W = 230;
   const TRACKS_X_PAD = 16;
   const TRACKS_BLOCK_H = 22;
   const TRACKS_BLOCK_GAP = 6;
-  // Per-kind minimum block widths (px) and rendering hints.
+  const TRACKS_ROW_H = 30;          // height of one sub-row of blocks
+  const TRACKS_MIN_LANE_H = 54;     // floor so the 2-line label fits
+  const TRACKS_LANE_PAD_V = 14;     // vertical padding inside a lane
   const TRACKS_THINKING_MIN_W = 24;
   const TRACKS_THINKING_PER_SNAP = 6;
   const TRACKS_THINKING_MAX_W = 220;
@@ -611,14 +627,193 @@ const AetherMap: Component = () => {
     }
   }
 
+  function trackBlockWidth(ctx: CanvasRenderingContext2D, ev: import("../stores/aether").TimelineEvent): number {
+    if (ev.kind === "prompt") return 14;
+    if (ev.kind === "session") return 10;
+    if (ev.kind === "complete" || ev.kind === "error") return 16;
+    if (ev.kind === "thinking") {
+      const n = ev.snapshotIds.length;
+      return Math.min(TRACKS_THINKING_MAX_W,
+                      Math.max(TRACKS_THINKING_MIN_W, TRACKS_THINKING_PER_SNAP * n + 12));
+    }
+    // tool
+    ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
+    const lbl = ev.label || ev.toolName || "tool";
+    return Math.min(220, Math.max(60, ctx.measureText(lbl).width + 18));
+  }
+
+  type LaidBlock = { ev: import("../stores/aether").TimelineEvent; x: number; row: number; w: number };
+
+  // Lay out one lane's blocks. Returns blocks (x relative to content area)
+  // and the number of sub-rows the lane needs.
+  function layoutLane(
+    ctx: CanvasRenderingContext2D,
+    tl: import("../stores/aether").SessionTimeline,
+    contentW: number,
+    mode: "sequence" | "time",
+  ): { blocks: LaidBlock[]; rows: number } {
+    const blocks: LaidBlock[] = [];
+    if (mode === "time") {
+      const dur = Math.max(1e-6, tl.lastActivityAt - tl.startedAt);
+      let lastRight = 0;
+      for (const ev of tl.events) {
+        const w = trackBlockWidth(ctx, ev);
+        const frac = Math.max(0, Math.min(1, (ev.startTime - tl.startedAt) / dur));
+        let x = frac * Math.max(1, contentW - w);
+        // Keep time order, avoid full overlap, clamp to the right edge.
+        if (x < lastRight + 2) x = lastRight + 2;
+        if (x + w > contentW) x = Math.max(0, contentW - w);
+        blocks.push({ ev, x, row: 0, w });
+        lastRight = x + w;
+      }
+      return { blocks, rows: 1 };
+    }
+    // sequence
+    let x = 0;
+    let row = 0;
+    for (const ev of tl.events) {
+      const w = trackBlockWidth(ctx, ev);
+      if (x > 0 && x + w > contentW) { row++; x = 0; }
+      blocks.push({ ev, x, row, w });
+      x += w + TRACKS_BLOCK_GAP;
+    }
+    return { blocks, rows: row + 1 };
+  }
+
+  function drawTrackBlock(
+    ctx: CanvasRenderingContext2D,
+    ev: import("../stores/aether").TimelineEvent,
+    x: number,
+    blockTop: number,
+    w: number,
+    selRing: number,
+    isLive: boolean,
+    pulse: number,
+  ) {
+    const mid = blockTop + TRACKS_BLOCK_H / 2;
+    if (ev.kind === "thinking") {
+      const barH = 4;
+      ctx.fillStyle = "rgba(155, 195, 245, 0.45)";
+      ctx.fillRect(x, mid - barH / 2, w, barH);
+      if (ev.snapshotIds.length > 1) {
+        const tickEvery = Math.max(1, Math.ceil(ev.snapshotIds.length / 8));
+        for (let k = 0; k < ev.snapshotIds.length; k += tickEvery) {
+          const tx = x + (k / Math.max(1, ev.snapshotIds.length - 1)) * w;
+          ctx.fillStyle = "rgba(216, 227, 246, 0.6)";
+          ctx.fillRect(tx - 0.5, mid - barH / 2 - 1, 1, barH + 2);
+        }
+      }
+      if (selRing > 0) {
+        ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(x - 1, mid - barH / 2 - 2, w + 2, barH + 4);
+      }
+    } else if (ev.kind === "tool") {
+      const c = trackToolColor(ev.toolName, ev.success);
+      const radius = 4;
+      ctx.fillStyle = c.fill;
+      ctx.beginPath();
+      ctx.moveTo(x + radius, blockTop);
+      ctx.lineTo(x + w - radius, blockTop);
+      ctx.quadraticCurveTo(x + w, blockTop, x + w, blockTop + radius);
+      ctx.lineTo(x + w, blockTop + TRACKS_BLOCK_H - radius);
+      ctx.quadraticCurveTo(x + w, blockTop + TRACKS_BLOCK_H, x + w - radius, blockTop + TRACKS_BLOCK_H);
+      ctx.lineTo(x + radius, blockTop + TRACKS_BLOCK_H);
+      ctx.quadraticCurveTo(x, blockTop + TRACKS_BLOCK_H, x, blockTop + TRACKS_BLOCK_H - radius);
+      ctx.lineTo(x, blockTop + radius);
+      ctx.quadraticCurveTo(x, blockTop, x + radius, blockTop);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = c.text;
+      ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
+      ctx.textBaseline = "middle";
+      const label = ev.label || ev.toolName || "tool";
+      const maxTextW = w - 12;
+      let display = label;
+      if (ctx.measureText(label).width > maxTextW) {
+        while (display.length > 2 && ctx.measureText(display + "…").width > maxTextW) {
+          display = display.slice(0, -1);
+        }
+        display += "…";
+      }
+      ctx.fillText(display, x + 6, mid);
+      if (ev.success === false) {
+        ctx.fillStyle = "#e08c7a";
+        ctx.fillText("✕", x + w - 12, mid);
+      }
+      if (selRing > 0) {
+        ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(x - 2, blockTop - 2, w + 4, TRACKS_BLOCK_H + 4);
+      }
+    } else if (ev.kind === "prompt") {
+      ctx.fillStyle = "#9bc3f5";
+      ctx.beginPath();
+      ctx.arc(x + 6, mid, 6, 0, Math.PI * 2);
+      ctx.fill();
+      if (selRing > 0) {
+        ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(x + 6, mid, 9, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    } else if (ev.kind === "session") {
+      ctx.fillStyle = "rgba(155, 195, 245, 0.4)";
+      ctx.beginPath();
+      ctx.arc(x + 4, mid, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (ev.kind === "complete") {
+      ctx.fillStyle = "#6fc78f";
+      ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
+      ctx.textBaseline = "middle";
+      ctx.fillText("✓", x + 2, mid);
+      if (selRing > 0) {
+        ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(x - 2, blockTop, w + 4, TRACKS_BLOCK_H);
+      }
+    } else if (ev.kind === "error") {
+      ctx.fillStyle = "#e08c7a";
+      ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
+      ctx.textBaseline = "middle";
+      ctx.fillText("✕", x + 2, mid);
+      if (selRing > 0) {
+        ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(x - 2, blockTop, w + 4, TRACKS_BLOCK_H);
+      }
+    }
+
+    if (isLive && pulse > 0) {
+      ctx.strokeStyle = `rgba(111, 199, 143, ${pulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x - 3, blockTop - 3, w + 6, TRACKS_BLOCK_H + 6);
+      ctx.fillStyle = `rgba(111, 199, 143, ${pulse})`;
+      ctx.fillRect(x + w + 3, blockTop - 2, 2, TRACKS_BLOCK_H + 4);
+    }
+  }
+
   function drawTracks(ctx: CanvasRenderingContext2D, W: number, H: number) {
     trackBlockRects = [];
     const timelines = aetherStore.sessionTimelines();
     const sel = aetherStore.selectedId();
     const hov = aetherStore.hoveredId();
     const now = Date.now();
+    const mode = timelineMode();
+    const contentW = W - TRACKS_LABEL_W - TRACKS_X_PAD;
 
-    // Header — running/complete/error counts.
+    // Pass 1 — lay out every lane and accumulate heights.
+    const lanes = timelines.map((tl) => {
+      const { blocks, rows } = layoutLane(ctx, tl, contentW, mode);
+      const height = Math.max(TRACKS_MIN_LANE_H, rows * TRACKS_ROW_H + TRACKS_LANE_PAD_V);
+      return { tl, blocks, rows, height };
+    });
+
+    // Header.
     ctx.fillStyle = "#7d8aa8";
     ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
     ctx.textBaseline = "alphabetic";
@@ -627,12 +822,11 @@ const AetherMap: Component = () => {
     const errorCount = timelines.filter((t) => t.status === "error").length;
     const headerText = timelines.length === 0
       ? "no live agent sessions yet · press / to spawn"
-      : `${timelines.length} session${timelines.length === 1 ? "" : "s"}  ·  ${runningCount} live  ·  ${completeCount} done  ·  ${errorCount} failed  ·  press g for galactic`;
+      : `${timelines.length} session${timelines.length === 1 ? "" : "s"}  ·  ${runningCount} live  ·  ${completeCount} done  ·  ${errorCount} failed  ·  ${mode}  ·  g galactic · t time`;
     ctx.fillText(headerText, TRACKS_X_PAD, 22);
 
-    // Vertical scroll: store offset as viewY so wheel handler reuses it.
-    // Treat viewY as a (negative) scroll offset; clamp to [-(maxScroll), 0].
-    const contentH = timelines.length * TRACKS_LANE_H;
+    // Scroll clamp against total laid-out content height.
+    const contentH = lanes.reduce((s, l) => s + l.height, 0);
     const viewportH = H - TRACKS_HEADER_H;
     const maxScroll = Math.max(0, contentH - viewportH);
     if (-viewY() > maxScroll) setViewY(-maxScroll);
@@ -640,7 +834,6 @@ const AetherMap: Component = () => {
     const scrollY = viewY();
 
     if (timelines.length === 0) {
-      // Helpful empty state below the header.
       ctx.fillStyle = "#4f5b75";
       ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
       ctx.fillText("type a prompt with / to spawn an agent.", TRACKS_X_PAD, TRACKS_HEADER_H + 32);
@@ -651,235 +844,84 @@ const AetherMap: Component = () => {
       return;
     }
 
-    // Each lane.
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, TRACKS_HEADER_H, W, viewportH);
     ctx.clip();
     ctx.translate(0, scrollY);
 
-    for (let i = 0; i < timelines.length; i++) {
-      const tl = timelines[i]!;
-      const laneTop = TRACKS_HEADER_H + i * TRACKS_LANE_H;
-      const laneMid = laneTop + TRACKS_LANE_H / 2;
+    // Pass 2 — render each lane at its cumulative offset.
+    let laneTop = TRACKS_HEADER_H;
+    for (const lane of lanes) {
+      const { tl, blocks, height } = lane;
       const laneSelected = !!sel && tl.events.some((e) => e.snapshotIds.includes(sel));
 
-      // Lane background — subtle band so adjacent lanes are visually separable.
+      // Skip lanes fully outside the viewport (cheap virtualization).
+      const laneScreenTop = laneTop + scrollY;
+      if (laneScreenTop > H || laneScreenTop + height < TRACKS_HEADER_H) {
+        laneTop += height;
+        continue;
+      }
+
+      // Lane band + divider.
       ctx.fillStyle = laneSelected ? "rgba(154, 195, 245, 0.06)" : "rgba(255, 255, 255, 0.015)";
-      ctx.fillRect(0, laneTop, W, TRACKS_LANE_H);
-      // Bottom divider.
+      ctx.fillRect(0, laneTop, W, height);
       ctx.strokeStyle = "rgba(154, 195, 245, 0.06)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, laneTop + TRACKS_LANE_H);
-      ctx.lineTo(W, laneTop + TRACKS_LANE_H);
+      ctx.moveTo(0, laneTop + height);
+      ctx.lineTo(W, laneTop + height);
       ctx.stroke();
 
-      // Lane label (left column).
+      // Label column.
       ctx.fillStyle = "#65728e";
       ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
-      ctx.textBaseline = "middle";
-      ctx.fillText(tl.lineage || tl.sessionId, TRACKS_X_PAD, laneMid - 8);
-      // Status dot + duration.
+      ctx.textBaseline = "alphabetic";
+      ctx.fillText(tl.lineage || tl.sessionId, TRACKS_X_PAD, laneTop + 18);
       const statusColor =
         tl.status === "running"  ? "#6fc78f" :
         tl.status === "complete" ? "#9bc3f5" :
         /* error */                "#e08c7a";
       ctx.fillStyle = statusColor;
       ctx.beginPath();
-      ctx.arc(TRACKS_X_PAD + 4, laneMid + 8, 3, 0, Math.PI * 2);
+      ctx.arc(TRACKS_X_PAD + 4, laneTop + 32, 3, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#4f5b75";
       ctx.font = "9px ui-monospace, 'JetBrains Mono', monospace";
       const durSec = Math.max(0, Math.round(tl.lastActivityAt - tl.startedAt));
-      ctx.fillText(
-        `${tl.status} · ${durSec}s · ${tl.events.length} events`,
-        TRACKS_X_PAD + 14,
-        laneMid + 8,
-      );
+      ctx.fillText(`${tl.status} · ${durSec}s · ${tl.events.length} events`, TRACKS_X_PAD + 14, laneTop + 35);
 
-      // Fork-from arrow if this lane is a fork.
+      // Fork indicator.
       if (tl.forkedFromId) {
-        ctx.strokeStyle = "rgba(154, 195, 245, 0.4)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(TRACKS_LABEL_W - 8, laneMid - TRACKS_LANE_H + 12);
-        ctx.lineTo(TRACKS_LABEL_W - 8, laneMid);
-        ctx.lineTo(TRACKS_LABEL_W - 2, laneMid);
-        ctx.stroke();
         ctx.fillStyle = "rgba(154, 195, 245, 0.55)";
         ctx.font = "9px ui-monospace, 'JetBrains Mono', monospace";
-        ctx.fillText("↳ fork", TRACKS_LABEL_W - 56, laneMid - 6);
+        ctx.fillText("↳ fork", TRACKS_LABEL_W - 52, laneTop + 18);
       }
 
-      // Events — horizontal sequence.
-      let x = TRACKS_LABEL_W;
-      const blockTop = laneMid - TRACKS_BLOCK_H / 2;
-
-      for (let j = 0; j < tl.events.length; j++) {
-        const ev = tl.events[j]!;
+      // Blocks.
+      const rowsTop = laneTop + TRACKS_LANE_PAD_V / 2;
+      for (let j = 0; j < blocks.length; j++) {
+        const b = blocks[j]!;
+        const ev = b.ev;
+        const ax = TRACKS_LABEL_W + b.x;
+        const blockTop = rowsTop + b.row * TRACKS_ROW_H + (TRACKS_ROW_H - TRACKS_BLOCK_H) / 2;
         const isSelected = sel === ev.primaryId || ev.snapshotIds.includes(sel ?? "");
         const isHovered = hov === ev.primaryId || ev.snapshotIds.includes(hov ?? "");
-        const ageMs = Math.max(0, now - ev.endTime * 1000);
-        const isLive = tl.status === "running" && j === tl.events.length - 1;
+        const isLast = j === blocks.length - 1;
+        const isLive = tl.status === "running" && isLast;
         const pulse = isLive ? 0.6 + 0.4 * Math.sin(now / 280) : 0;
-
-        // Compute width per kind.
-        let w = 0;
-        if (ev.kind === "prompt") w = 12;
-        else if (ev.kind === "session") w = 8;
-        else if (ev.kind === "complete" || ev.kind === "error") w = 14;
-        else if (ev.kind === "thinking") {
-          const n = ev.snapshotIds.length;
-          w = Math.min(TRACKS_THINKING_MAX_W,
-                       Math.max(TRACKS_THINKING_MIN_W, TRACKS_THINKING_PER_SNAP * n + 12));
-        } else if (ev.kind === "tool") {
-          ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
-          const lbl = ev.label || ev.toolName || "tool";
-          w = Math.min(220, Math.max(60, ctx.measureText(lbl).width + 18));
-        }
-
-        // Don't overflow the canvas — wrap to next sub-row inside the lane.
-        if (x + w > W - TRACKS_X_PAD) {
-          // For MVP, just clip; future: wrap.
-          break;
-        }
-
-        // Record hit rect (only if in viewport y-range).
-        const screenY = blockTop + scrollY;
-        if (screenY + TRACKS_BLOCK_H >= TRACKS_HEADER_H && screenY <= H) {
-          trackBlockRects.push({
-            x,
-            y: blockTop + scrollY,
-            w,
-            h: TRACKS_BLOCK_H,
-            primaryId: ev.primaryId,
-          });
-        }
-
-        // Render by kind.
         const selRing = isSelected ? 1.0 : isHovered ? 0.55 : 0;
 
-        if (ev.kind === "thinking") {
-          // Thin bar.
-          const barH = 4;
-          ctx.fillStyle = "rgba(155, 195, 245, 0.45)";
-          ctx.fillRect(x, laneMid - barH / 2, w, barH);
-          // Tick marks at each snapshot start (very subtle).
-          if (ev.snapshotIds.length > 1) {
-            const tickEvery = Math.max(1, Math.ceil(ev.snapshotIds.length / 8));
-            for (let k = 0; k < ev.snapshotIds.length; k += tickEvery) {
-              const tx = x + (k / Math.max(1, ev.snapshotIds.length - 1)) * w;
-              ctx.fillStyle = "rgba(216, 227, 246, 0.6)";
-              ctx.fillRect(tx - 0.5, laneMid - barH / 2 - 1, 1, barH + 2);
-            }
-          }
-          if (selRing > 0) {
-            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
-            ctx.lineWidth = 1.2;
-            ctx.strokeRect(x - 1, laneMid - barH / 2 - 2, w + 2, barH + 4);
-          }
-        } else if (ev.kind === "tool") {
-          // Pill block with tool name.
-          const c = trackToolColor(ev.toolName, ev.success);
-          const radius = 4;
-          // Body
-          ctx.fillStyle = c.fill;
-          ctx.beginPath();
-          // Rounded rect manually (no ctx.roundRect on all browsers).
-          ctx.moveTo(x + radius, blockTop);
-          ctx.lineTo(x + w - radius, blockTop);
-          ctx.quadraticCurveTo(x + w, blockTop, x + w, blockTop + radius);
-          ctx.lineTo(x + w, blockTop + TRACKS_BLOCK_H - radius);
-          ctx.quadraticCurveTo(x + w, blockTop + TRACKS_BLOCK_H, x + w - radius, blockTop + TRACKS_BLOCK_H);
-          ctx.lineTo(x + radius, blockTop + TRACKS_BLOCK_H);
-          ctx.quadraticCurveTo(x, blockTop + TRACKS_BLOCK_H, x, blockTop + TRACKS_BLOCK_H - radius);
-          ctx.lineTo(x, blockTop + radius);
-          ctx.quadraticCurveTo(x, blockTop, x + radius, blockTop);
-          ctx.closePath();
-          ctx.fill();
-          ctx.strokeStyle = c.stroke;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          // Label
-          ctx.fillStyle = c.text;
-          ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
-          ctx.textBaseline = "middle";
-          const label = ev.label || ev.toolName || "tool";
-          // Truncate with ellipsis if it overflows
-          const maxTextW = w - 12;
-          let display = label;
-          if (ctx.measureText(label).width > maxTextW) {
-            while (display.length > 2 && ctx.measureText(display + "…").width > maxTextW) {
-              display = display.slice(0, -1);
-            }
-            display += "…";
-          }
-          ctx.fillText(display, x + 6, laneMid);
-          // Failed indicator
-          if (ev.success === false) {
-            ctx.fillStyle = "#e08c7a";
-            ctx.font = "10px ui-monospace, 'JetBrains Mono', monospace";
-            ctx.fillText("✕", x + w - 12, laneMid);
-          }
-          if (selRing > 0) {
-            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
-            ctx.lineWidth = 1.4;
-            ctx.strokeRect(x - 2, blockTop - 2, w + 4, TRACKS_BLOCK_H + 4);
-          }
-        } else if (ev.kind === "prompt") {
-          // Filled blue circle — the entry point.
-          ctx.fillStyle = "#9bc3f5";
-          ctx.beginPath();
-          ctx.arc(x + 6, laneMid, 6, 0, Math.PI * 2);
-          ctx.fill();
-          if (selRing > 0) {
-            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
-            ctx.lineWidth = 1.4;
-            ctx.beginPath();
-            ctx.arc(x + 6, laneMid, 9, 0, Math.PI * 2);
-            ctx.stroke();
-          }
-        } else if (ev.kind === "session") {
-          // Small marker — barely visible, mostly to allow click-through.
-          ctx.fillStyle = "rgba(155, 195, 245, 0.4)";
-          ctx.beginPath();
-          ctx.arc(x + 4, laneMid, 3, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (ev.kind === "complete") {
-          ctx.fillStyle = "#6fc78f";
-          ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
-          ctx.textBaseline = "middle";
-          ctx.fillText("✓", x + 2, laneMid);
-          if (selRing > 0) {
-            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
-            ctx.lineWidth = 1.4;
-            ctx.strokeRect(x - 2, blockTop, w + 4, TRACKS_BLOCK_H);
-          }
-        } else if (ev.kind === "error") {
-          ctx.fillStyle = "#e08c7a";
-          ctx.font = "13px ui-monospace, 'JetBrains Mono', monospace";
-          ctx.textBaseline = "middle";
-          ctx.fillText("✕", x + 2, laneMid);
-          if (selRing > 0) {
-            ctx.strokeStyle = `rgba(255, 255, 255, ${selRing})`;
-            ctx.lineWidth = 1.4;
-            ctx.strokeRect(x - 2, blockTop, w + 4, TRACKS_BLOCK_H);
-          }
+        // Hit rect (screen coords).
+        const screenY = blockTop + scrollY;
+        if (screenY + TRACKS_BLOCK_H >= TRACKS_HEADER_H && screenY <= H) {
+          trackBlockRects.push({ x: ax, y: screenY, w: b.w, h: TRACKS_BLOCK_H, primaryId: ev.primaryId });
         }
 
-        // Live frontier — pulse a ring on the last block of a running session.
-        if (isLive && pulse > 0) {
-          ctx.strokeStyle = `rgba(111, 199, 143, ${pulse})`;
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(x - 3, blockTop - 3, w + 6, TRACKS_BLOCK_H + 6);
-          // Pulsing right-edge cursor.
-          ctx.fillStyle = `rgba(111, 199, 143, ${pulse})`;
-          ctx.fillRect(x + w + 3, blockTop - 2, 2, TRACKS_BLOCK_H + 4);
-        }
-
-        x += w + TRACKS_BLOCK_GAP;
+        drawTrackBlock(ctx, ev, ax, blockTop, b.w, selRing, isLive, pulse);
       }
+
+      laneTop += height;
     }
 
     ctx.restore();
@@ -1425,6 +1467,10 @@ const AetherMap: Component = () => {
         <span class="dim">aether</span>
         <span class="sep">·</span>
         <span class={mode === "tracks" ? "live-on" : "dim"}>{mode}</span>
+        <Show when={mode === "tracks"}>
+          <span class="sep">·</span>
+          <span class="dim">{timelineMode()}</span>
+        </Show>
         <span class="sep">·</span>
         <span>{total} stars</span>
         <Show when={sel}>
@@ -1444,7 +1490,7 @@ const AetherMap: Component = () => {
           </span>
         </Show>
         <span class="sep">·</span>
-        <span class="dim">/ prompt · g toggle · c checkout</span>
+        <span class="dim">/ prompt · g toggle · t time · c checkout</span>
       </div>
     );
   }
