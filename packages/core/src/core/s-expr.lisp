@@ -11,14 +11,32 @@
 ;;; Utilities
 ;;; ═══════════════════════════════════════════════════════════════════
 
+(defvar *uuid-seeded* nil
+  "Whether *random-state* has been reseeded from OS entropy this image.
+   SBCL's default *random-state* is identical on every fresh process, so
+   without reseeding, make-uuid replays the same UUID sequence after every
+   restart — which collides session/snapshot ids across reboots.")
+
+(defvar *uuid-counter* 0
+  "Monotonic per-image counter mixed into UUIDs for extra uniqueness.")
+
 (defun make-uuid ()
-  "Generate a UUID v4 string."
-  (format nil "~8,'0x-~4,'0x-~4,'0x-~4,'0x-~12,'0x"
-          (random (expt 16 8))
-          (random (expt 16 4))
-          (logior #x4000 (random #x0fff))  ; Version 4
-          (logior #x8000 (random #x3fff))  ; Variant
-          (random (expt 16 12))))
+  "Generate a UUID v4 string. Reseeds *random-state* from OS entropy on
+   first use per image so values differ across process restarts. A per-image
+   counter + high-resolution time are mixed into the first field so ids stay
+   unique even under concurrency or if the entropy source is unavailable."
+  (unless *uuid-seeded*
+    (handler-case (setf *random-state* (make-random-state t))
+      (error () nil))
+    (setf *uuid-seeded* t))
+  (let ((mix (logand (logxor (incf *uuid-counter*) (get-internal-real-time))
+                     #xffffffff)))
+    (format nil "~8,'0x-~4,'0x-~4,'0x-~4,'0x-~12,'0x"
+            (logxor (random (expt 16 8)) mix)
+            (random (expt 16 4))
+            (logior #x4000 (random #x0fff))  ; Version 4
+            (logior #x8000 (random #x3fff))  ; Variant
+            (random (expt 16 12)))))
 
 (defun get-precise-time ()
   "Get current time with high precision as a universal time plus fraction."
