@@ -4,7 +4,9 @@
 
 set -euo pipefail
 
-FRONTEND_URL="${FRONTEND_URL:-http://localhost:14403}"
+# The 9-tab dashboard this suite asserts on now lives at /app.html — the
+# root (/) serves the Shen-Backpressure cockpit. Override FRONTEND_URL to retarget.
+FRONTEND_URL="${FRONTEND_URL:-http://localhost:14403/app.html}"
 BACKEND_HEALTH="${BACKEND_HEALTH:-http://localhost:14401/health}"
 TIMEOUT="${TIMEOUT:-30}"
 SCREENSHOT_DIR="${SCREENSHOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/screenshots}"

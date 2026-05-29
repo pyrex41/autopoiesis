@@ -602,6 +602,157 @@
                                  (:origin_lineage . ,(getf b :origin-lineage))))
                  'vector))))
 
+;;; ===================================================================
+;;; Discharge-report history (the iteration lineage)
+;;; ===================================================================
+;;;
+;;; `sb` accumulates one discharge_report.json per gate run in a
+;;; project's .sb/history/, named <ISO-timestamp>Z-<git-short-sha>.json.
+;;; The cadence is per-run, many-to-one against commits (a SHA can recur
+;;; across several runs), so lineage is ordered by the filename timestamp
+;;; with the SHA carried along as a secondary badge.
+
+(defparameter +sb-history-filename-re+
+  "^(\\d{4}-\\d{2}-\\d{2}T\\d{6}Z)-(.+)\\.json$"
+  "Shen-Backpressure history filename: <ISO-timestamp>Z-<git-short-sha>.json.")
+
+(defun sb-summary-status (summary)
+  "Derive a single status string from a decoded discharge SUMMARY alist:
+   \"violated\" if any rule is violated, else \"unproven\" if any is
+   unproven, else \"discharged\". Coloring comes from the report's own
+   summary — distinct from the (deferred) per-gate pass/fail."
+  (let ((violated (or (cdr (assoc :rules--violated summary)) 0))
+        (unproven (or (cdr (assoc :rules--unproven summary)) 0)))
+    (cond ((and (numberp violated) (> violated 0)) "violated")
+          ((and (numberp unproven) (> unproven 0)) "unproven")
+          (t "discharged"))))
+
+(defun discharge-history-entry (path)
+  "Build a lightweight lineage entry for one discharge report PATH.
+   Pulls only generated_at + the summary block (re-emitted verbatim so it
+   re-encodes to the same snake_case the frontend expects) and a derived
+   status. On read/parse failure, returns an entry with status
+   \"unreadable\" rather than signalling, so one bad file can't fail the
+   whole list."
+  (let ((fname (file-namestring path)))
+    (cl-ppcre:register-groups-bind (timestamp sha)
+        (+sb-history-filename-re+ fname)
+      (handler-case
+          (let* ((report (cl-json:decode-json-from-string
+                          (uiop:read-file-string path)))
+                 (summary (cdr (assoc :summary report))))
+            (list (cons :path (namestring path))
+                  (cons :timestamp timestamp)
+                  (cons :git--sha sha)
+                  (cons :generated--at (cdr (assoc :generated--at report)))
+                  (cons :status (sb-summary-status summary))
+                  (cons :summary summary)))
+        (error ()
+          (list (cons :path (namestring path))
+                (cons :timestamp timestamp)
+                (cons :git--sha sha)
+                (cons :status "unreadable")
+                (cons :summary nil)))))))
+
+(defun discharge-history-entries (dir)
+  "List discharge-report entries in DIR (a .sb/history directory), newest
+   first. Only files matching the SB history filename pattern are included
+   (filters stray files; the ISO prefix sorts lexically)."
+  (let* ((files (remove-if-not
+                 (lambda (f)
+                   (cl-ppcre:scan +sb-history-filename-re+ (file-namestring f)))
+                 (uiop:directory-files (uiop:ensure-directory-pathname dir))))
+         (sorted (sort (copy-list files) #'string> :key #'file-namestring)))
+    (mapcar #'discharge-history-entry sorted)))
+
+;;; ===================================================================
+;;; Project discovery (the cockpit home / project picker)
+;;; ===================================================================
+;;;
+;;; A "project" is any directory containing a .sb/history/ dir — i.e. a
+;;; repo `sb` has run against. The cockpit lists them so the user can pick
+;;; one and drop into its lineage. Pure filesystem, like the discharge
+;;; endpoints; no substrate context needed.
+
+(defvar *sb-projects-root*
+  (or (uiop:getenv "SB_PROJECTS_ROOT")
+      (namestring (merge-pathnames "projects/Shen-Backpressure/"
+                                   (user-homedir-pathname))))
+  "Default root scanned for Shen-Backpressure projects when the /projects
+   endpoint is called without a ?root= override. Set SB_PROJECTS_ROOT to
+   point elsewhere — this is deployment config, not a design choice.")
+
+(defparameter +sb-scan-prune-dirs+
+  '(".git" "node_modules" ".claude" "dist" "shenguard" ".sl" "vendor")
+  "Directory names never descended into during project discovery — heavy
+   trees and sources of duplicate .sb dirs (e.g. .claude/worktrees/).")
+
+(defun find-sb-history-dirs (root &key (max-depth 8))
+  "Recursively find every .sb/history directory under ROOT, bounded by
+   MAX-DEPTH and pruning +SB-SCAN-PRUNE-DIRS+. Returns absolute directory
+   namestrings. Uses uiop:collect-sub*directories (same util as
+   snapshot/filesystem-tree)."
+  (let* ((root-dir (uiop:ensure-directory-pathname root))
+         (root-str (namestring root-dir))
+         (found '()))
+    (when (probe-file root-dir)
+      (uiop:collect-sub*directories
+       root-dir
+       ;; collect-test: is this dir a .sb/history/ ?
+       (lambda (dir)
+         (let* ((parts (pathname-directory dir))
+                (leaf (car (last parts)))
+                (parent (car (last parts 2))))
+           (when (and (equal leaf "history") (equal parent ".sb"))
+             (push (namestring dir) found))
+           t))
+       ;; recurse-test: prune heavy/dup dirs and bound depth
+       (lambda (dir)
+         (let* ((leaf (car (last (pathname-directory dir))))
+                (rel (enough-namestring (namestring dir) root-str))
+                (depth (count #\/ rel)))
+           (and (not (member leaf +sb-scan-prune-dirs+ :test #'equal))
+                (< depth max-depth))))
+       ;; collector: unused (collection happens in collect-test)
+       (lambda (dir) (declare (ignore dir)) nil)))
+    (nreverse found)))
+
+(defun sb-project-name (history-dir)
+  "Project name = the directory two levels above .sb/history/
+   (…/payment/.sb/history/ -> \"payment\")."
+  (let ((parts (pathname-directory (uiop:ensure-directory-pathname history-dir))))
+    ;; parts tail: (… "payment" ".sb" "history")
+    (or (car (last parts 3)) "project")))
+
+(defun sb-project-entry (history-dir root)
+  "Summarize one project from its .sb/history/ dir: name, abs path, path
+   relative to ROOT, iteration count, and the newest report's status +
+   timestamp. Reuses discharge-history-entries."
+  (handler-case
+      (let* ((entries (discharge-history-entries history-dir))
+             (latest (first entries)))
+        (list (cons :name (sb-project-name history-dir))
+              (cons :path (namestring history-dir))
+              (cons :rel (enough-namestring
+                          (namestring history-dir)
+                          (namestring (uiop:ensure-directory-pathname root))))
+              (cons :iteration--count (length entries))
+              (cons :latest--status (and latest (cdr (assoc :status latest))))
+              (cons :latest--timestamp (and latest (cdr (assoc :timestamp latest))))))
+    (error ()
+      (list (cons :name (sb-project-name history-dir))
+            (cons :path (namestring history-dir))
+            (cons :iteration--count 0)
+            (cons :latest--status "unreadable")
+            (cons :latest--timestamp nil)))))
+
+(defun sb-projects (root)
+  "Discover and summarize all Shen-Backpressure projects under ROOT,
+   sorted by name."
+  (let ((entries (mapcar (lambda (d) (sb-project-entry d root))
+                         (find-sb-history-dirs root))))
+    (sort entries #'string< :key (lambda (e) (or (cdr (assoc :name e)) "")))))
+
 (defun rest-handle-aether (request)
   "Dispatch /api/aether/* requests."
   (let ((method (hunchentoot:request-method request))
@@ -836,6 +987,47 @@
                   (uiop:read-file-string report))
               (error (e)
                 (json-error (format nil "could not read report: ~A" e)
+                            :status 500 :error-type "Internal Error")))))))
+      ;; GET /api/aether/discharge-history?dir=<abs-path-to-.sb/history-dir>
+      ;; Lists the discharge reports in DIR newest-first, each with a
+      ;; lightweight summary + derived status. The lineage view's data
+      ;; source — drill-down hands a returned :path back to /discharge.
+      ((and (eq method :get) (string= uri "/api/aether/discharge-history"))
+       (require-permission :read)
+       (let ((dir (hunchentoot:get-parameter "dir" request)))
+         (cond
+           ((or (null dir) (zerop (length dir)))
+            (json-error "dir path is required" :status 400 :error-type "Bad Request"))
+           ((not (probe-file (uiop:ensure-directory-pathname dir)))
+            (json-not-found "Discharge history directory" dir))
+           (t
+            (handler-case
+                (let ((entries (discharge-history-entries dir)))
+                  (json-ok (list (cons :entries (coerce entries 'vector))
+                                 (cons :count (length entries)))))
+              (error (e)
+                (json-error (format nil "history list failed: ~A" e)
+                            :status 500 :error-type "Internal Error")))))))
+      ;; GET /api/aether/projects?root=<dir>
+      ;; The cockpit home: discover repos with a .sb/history/ dir under ROOT
+      ;; (default *sb-projects-root*), each with iteration count + latest
+      ;; status. Selecting one hands its :path to /discharge-history.
+      ((and (eq method :get) (string= uri "/api/aether/projects"))
+       (require-permission :read)
+       (let* ((param (hunchentoot:get-parameter "root" request))
+              (root (if (and param (> (length param) 0)) param *sb-projects-root*)))
+         (cond
+           ((not (probe-file (uiop:ensure-directory-pathname root)))
+            (json-not-found "Projects root" root))
+           (t
+            (handler-case
+                (let ((projects (sb-projects root)))
+                  (json-ok (list (cons :root (namestring
+                                              (uiop:ensure-directory-pathname root)))
+                                 (cons :projects (coerce projects 'vector))
+                                 (cons :count (length projects)))))
+              (error (e)
+                (json-error (format nil "project scan failed: ~A" e)
                             :status 500 :error-type "Internal Error")))))))
       ;; Unknown
       (t

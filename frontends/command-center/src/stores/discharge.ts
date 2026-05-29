@@ -93,13 +93,42 @@ export interface DischargeReport {
   rules: Rule[];
 }
 
+/**
+ * One iteration in the lineage: a discharge report in a `.sb/history/`
+ * directory. The backend (`/api/aether/discharge-history`) returns these
+ * newest-first with a lightweight summary, so the sidebar can render the
+ * lineage without fetching every full report.
+ */
+export type HistoryStatus =
+  | "discharged"
+  | "violated"
+  | "unproven"
+  | "unreadable"
+  | string;
+
+export interface HistoryEntry {
+  path: string; // absolute path, hand straight to load()
+  timestamp: string; // ISO prefix from filename, e.g. 2026-05-28T181632Z
+  git_sha: string; // git short SHA from filename
+  generated_at?: string;
+  status: HistoryStatus;
+  summary: DischargeSummary | null;
+}
+
 const [report, setReport] = createSignal<DischargeReport | null>(null);
 const [reportPath, setReportPath] = createSignal<string>("");
 const [loading, setLoading] = createSignal(false);
 const [error, setError] = createSignal<string | null>(null);
 
+const [history, setHistory] = createSignal<HistoryEntry[]>([]);
+const [historyLoading, setHistoryLoading] = createSignal(false);
+const [historyError, setHistoryError] = createSignal<string | null>(null);
+// The path of the report currently loaded — lets the sidebar highlight it.
+const [selectedPath, setSelectedPath] = createSignal<string>("");
+
 async function load(path: string): Promise<void> {
   setReportPath(path);
+  setSelectedPath(path);
   setLoading(true);
   setError(null);
   try {
@@ -115,6 +144,28 @@ async function load(path: string): Promise<void> {
     setReport(null);
   } finally {
     setLoading(false);
+  }
+}
+
+/** Load the lineage of discharge reports in a `.sb/history/` directory. */
+async function loadHistory(dir: string): Promise<void> {
+  setHistoryLoading(true);
+  setHistoryError(null);
+  try {
+    const res = await fetch(
+      `/api/aether/discharge-history?dir=${encodeURIComponent(dir)}`,
+    );
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`${res.status}: ${text.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as { entries: HistoryEntry[]; count: number };
+    setHistory(data.entries ?? []);
+  } catch (err) {
+    setHistoryError(err instanceof Error ? err.message : String(err));
+    setHistory([]);
+  } finally {
+    setHistoryLoading(false);
   }
 }
 
@@ -134,4 +185,9 @@ export const dischargeStore = {
   error,
   load,
   sortedRules,
+  history,
+  historyLoading,
+  historyError,
+  selectedPath,
+  loadHistory,
 };

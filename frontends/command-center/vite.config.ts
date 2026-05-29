@@ -24,7 +24,8 @@ export default defineConfig({
     target: "esnext",
     rollupOptions: {
       input: {
-        main: "index.html",
+        main: "index.html",      // the SB cockpit (src/index.tsx)
+        app: "app.html",         // legacy 9-tab dashboard (src/app-entry.tsx)
         detached: "detached.html",
         aether: "aether.html",
         discharge: "discharge.html",

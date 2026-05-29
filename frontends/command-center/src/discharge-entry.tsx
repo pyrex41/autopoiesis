@@ -4,6 +4,7 @@
  */
 import { render } from "solid-js/web";
 import DischargeView from "./pages/DischargeView";
+import "./styles/discharge.css";
 
 const root = document.getElementById("discharge-root");
 if (!root) throw new Error("Root element #discharge-root not found");

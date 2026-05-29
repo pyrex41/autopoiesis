@@ -7,7 +7,12 @@
  * `sb` output before wiring the live iteration loop.
  */
 import { type Component, onMount, createSignal, Show, For } from "solid-js";
-import { dischargeStore, type Rule, type Premise } from "../stores/discharge";
+import {
+  dischargeStore,
+  type Rule,
+  type Premise,
+  type HistoryEntry,
+} from "../stores/discharge";
 
 // A sensible default so the page shows real data on first load.
 const DEFAULT_REPORT =
@@ -16,6 +21,22 @@ const DEFAULT_REPORT =
 function shortHash(h: string | undefined, n = 10): string {
   if (!h) return "—";
   return h.length > n ? h.slice(0, n) + "…" : h;
+}
+
+// "2026-05-28T181632Z" -> "05-28 18:16". Falls back to the raw string.
+function fmtIterTime(ts: string): string {
+  const m = /(\d{4})-(\d{2})-(\d{2})T(\d{2})(\d{2})(\d{2})Z/.exec(ts);
+  return m ? `${m[2]}-${m[3]} ${m[4]}:${m[5]}` : ts;
+}
+
+function iterGlyph(status: string): string {
+  return status === "discharged"
+    ? "✓"
+    : status === "violated"
+      ? "✕"
+      : status === "unreadable"
+        ? "!"
+        : "?";
 }
 
 function statusGlyph(status: string): string {
@@ -28,16 +49,71 @@ function dischargeBadge(d: string): { label: string; cls: string } {
   return { label: d || "unproven", cls: "d-unproven" };
 }
 
-const DischargeView: Component = () => {
+/**
+ * `embedded`: rendered inside the cockpit (not the standalone page). When
+ * embedded, the cockpit drives the store, so DischargeView skips its own
+ * URL-param init and hides the manual path loadbar.
+ */
+const DischargeView: Component<{ embedded?: boolean }> = (props) => {
   const [pathInput, setPathInput] = createSignal(DEFAULT_REPORT);
 
   onMount(() => {
-    // Allow ?report=… in the URL to override the default.
+    // Embedded: the cockpit owns loading; do nothing here.
+    if (props.embedded) return;
+    // ?history=<dir> loads the iteration lineage into the sidebar;
+    // ?report=<path> opens a specific report. With history and no report,
+    // open the newest iteration. With neither, fall back to the default.
     const url = new URL(window.location.href);
-    const p = url.searchParams.get("report") || DEFAULT_REPORT;
-    setPathInput(p);
-    dischargeStore.load(p);
+    const hist = url.searchParams.get("history");
+    const p = url.searchParams.get("report");
+    if (hist) {
+      void dischargeStore.loadHistory(hist).then(() => {
+        if (!p) {
+          const first = dischargeStore.history()[0];
+          if (first) {
+            setPathInput(first.path);
+            dischargeStore.load(first.path);
+          }
+        }
+      });
+    }
+    if (p) {
+      setPathInput(p);
+      dischargeStore.load(p);
+    } else if (!hist) {
+      setPathInput(DEFAULT_REPORT);
+      dischargeStore.load(DEFAULT_REPORT);
+    }
   });
+
+  // One iteration in the sidebar. The SHA badge shows once per run of
+  // consecutive same-SHA reports (cadence is per gate-run, not per commit).
+  function historyItem(entry: HistoryEntry, idx: number) {
+    const hist = dischargeStore.history();
+    const prev = idx > 0 ? hist[idx - 1] : undefined;
+    const firstOfGroup = !prev || prev.git_sha !== entry.git_sha;
+    const active = () => entry.path === dischargeStore.selectedPath();
+    const v = entry.summary?.rules_violated ?? 0;
+    const u = entry.summary?.rules_unproven ?? 0;
+    return (
+      <button
+        class={`dl-entry iter-${entry.status}`}
+        classList={{ active: active() }}
+        onClick={() => { setPathInput(entry.path); dischargeStore.load(entry.path); }}
+        title={`${entry.timestamp} · ${entry.git_sha}\n${entry.path}`}
+      >
+        <span class="dl-glyph">{iterGlyph(entry.status)}</span>
+        <span class="dl-time">{fmtIterTime(entry.timestamp)}</span>
+        <span class={`dl-sha ${firstOfGroup ? "" : "dim"}`}>{entry.git_sha}</span>
+        <Show when={v > 0 || u > 0}>
+          <span class="dl-counts">
+            <Show when={v > 0}><span class="bad">{v}✕</span></Show>
+            <Show when={u > 0}><span class="warn">{u}?</span></Show>
+          </span>
+        </Show>
+      </button>
+    );
+  }
 
   function premiseRow(p: Premise) {
     const b = dischargeBadge(p.discharge);
@@ -115,19 +191,42 @@ const DischargeView: Component = () => {
   }
 
   return (
-    <div class="dr-root">
-      <div class="dr-loadbar">
-        <span class="dr-loadlabel">discharge report</span>
-        <input
-          class="dr-pathinput"
-          value={pathInput()}
-          onInput={(e) => setPathInput(e.currentTarget.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") dischargeStore.load(pathInput()); }}
-          spellcheck={false}
-        />
-        <button class="dr-loadbtn" onClick={() => dischargeStore.load(pathInput())}>load</button>
-      </div>
+    <div class="dr-root" classList={{ embedded: !!props.embedded }}>
+      <Show when={!props.embedded}>
+        <div class="dr-loadbar">
+          <span class="dr-loadlabel">discharge report</span>
+          <input
+            class="dr-pathinput"
+            value={pathInput()}
+            onInput={(e) => setPathInput(e.currentTarget.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") dischargeStore.load(pathInput()); }}
+            spellcheck={false}
+          />
+          <button class="dr-loadbtn" onClick={() => dischargeStore.load(pathInput())}>load</button>
+        </div>
+      </Show>
 
+      <div class="dr-body">
+        <Show when={dischargeStore.history().length > 0 || dischargeStore.historyLoading() || dischargeStore.historyError()}>
+          <aside class="dl-sidebar">
+            <div class="dl-side-head">
+              iterations <span class="dl-count">{dischargeStore.history().length}</span>
+            </div>
+            <Show when={dischargeStore.historyLoading()}>
+              <div class="dr-msg">loading lineage…</div>
+            </Show>
+            <Show when={dischargeStore.historyError()}>
+              <div class="dr-msg dr-err">{dischargeStore.historyError()}</div>
+            </Show>
+            <div class="dl-list">
+              <For each={dischargeStore.history()}>
+                {(entry, i) => historyItem(entry, i())}
+              </For>
+            </div>
+          </aside>
+        </Show>
+
+        <div class="dr-main">
       <Show when={dischargeStore.loading()}>
         <div class="dr-msg">loading…</div>
       </Show>
@@ -181,6 +280,8 @@ const DischargeView: Component = () => {
           </>
         )}
       </Show>
+        </div>
+      </div>
     </div>
   );
 };
