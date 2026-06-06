@@ -10,8 +10,10 @@
 import { type Component, onMount, createSignal, Show, For } from "solid-js";
 import { projectsStore, type ProjectEntry } from "../../stores/projects";
 import { dischargeStore } from "../../stores/discharge";
+import { runsStore } from "../../stores/runs";
 import DischargeView from "../../pages/DischargeView";
 import ProjectPicker from "./ProjectPicker";
+import RunPanel from "./RunPanel";
 
 const Cockpit: Component = () => {
   const [selected, setSelected] = createSignal<ProjectEntry | null>(null);
@@ -34,13 +36,34 @@ const Cockpit: Component = () => {
     window.history.replaceState(null, "", url.toString());
   }
 
+  // Reload the current project's lineage + newest report (used live while a
+  // run produces new discharge reports).
+  function refreshLineage() {
+    const p = selected();
+    if (!p) return;
+    void dischargeStore.loadHistory(p.path).then(() => {
+      const first = dischargeStore.history()[0];
+      if (first) dischargeStore.load(first.path);
+    });
+  }
+
+  // Drive `sb loop` in the selected project (in place — mutates the repo).
+  async function runSelected() {
+    const p = selected();
+    if (!p) return;
+    await runsStore.startRun(p.root, { onHistoryGrew: refreshLineage });
+  }
+
   onMount(async () => {
     await projectsStore.loadProjects();
     // Deep link: ?project=<abs .sb/history dir> opens straight into it.
     const wanted = new URL(window.location.href).searchParams.get("project");
     if (wanted) {
       const match = projectsStore.projects().find((p) => p.path === wanted);
-      void selectProject(match ?? { name: wanted, path: wanted, iteration_count: 0, latest_status: null, latest_timestamp: null });
+      const root = wanted.replace(/\.sb\/history\/?$/, "");
+      void selectProject(
+        match ?? { name: wanted, path: wanted, root, iteration_count: 0, latest_status: null, latest_timestamp: null },
+      );
     }
   });
 
@@ -100,13 +123,21 @@ const Cockpit: Component = () => {
         </Show>
 
         <div class="cp-topbar-right">
-          <button class="cp-run" disabled title="Live sb loop driving — coming in a later slice">▶ run</button>
+          <button
+            class="cp-run"
+            disabled={!selected() || runsStore.run()?.status === "running" || runsStore.starting()}
+            title="Drive `sb loop` in this project — mutates the repo and spends harness cost"
+            onClick={runSelected}
+          >
+            ▶ run
+          </button>
           <a class="cp-legacy" href="/app.html" title="The original 9-tab dashboard">legacy ↗</a>
         </div>
       </header>
 
       <div class="cp-body">
         <Show when={selected()} fallback={<ProjectPicker onSelect={selectProject} />}>
+          <RunPanel />
           <DischargeView embedded />
         </Show>
       </div>

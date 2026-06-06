@@ -16,6 +16,8 @@ export interface ProjectEntry {
   name: string;
   /** absolute path to the project's .sb/history/ dir — hand to loadHistory() */
   path: string;
+  /** absolute path to the project root (dir with sb.toml) — hand to startRun() */
+  root: string;
   /** path relative to the scanned root, for disambiguation */
   rel?: string;
   iteration_count: number;

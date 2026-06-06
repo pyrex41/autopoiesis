@@ -724,15 +724,23 @@
     ;; parts tail: (… "payment" ".sb" "history")
     (or (car (last parts 3)) "project")))
 
+(defun sb-project-root (history-dir)
+  "Project root = the dir two levels above .sb/history/ (the dir with sb.toml).
+   …/payment/.sb/history/ -> …/payment/"
+  (let* ((d (uiop:ensure-directory-pathname history-dir))
+         (parts (pathname-directory d)))
+    (namestring (make-pathname :directory (butlast parts 2) :defaults d))))
+
 (defun sb-project-entry (history-dir root)
-  "Summarize one project from its .sb/history/ dir: name, abs path, path
-   relative to ROOT, iteration count, and the newest report's status +
-   timestamp. Reuses discharge-history-entries."
+  "Summarize one project from its .sb/history/ dir: name, abs path, project
+   root, path relative to ROOT, iteration count, and the newest report's
+   status + timestamp. Reuses discharge-history-entries."
   (handler-case
       (let* ((entries (discharge-history-entries history-dir))
              (latest (first entries)))
         (list (cons :name (sb-project-name history-dir))
               (cons :path (namestring history-dir))
+              (cons :root (sb-project-root history-dir))
               (cons :rel (enough-namestring
                           (namestring history-dir)
                           (namestring (uiop:ensure-directory-pathname root))))
@@ -742,6 +750,7 @@
     (error ()
       (list (cons :name (sb-project-name history-dir))
             (cons :path (namestring history-dir))
+            (cons :root (sb-project-root history-dir))
             (cons :iteration--count 0)
             (cons :latest--status "unreadable")
             (cons :latest--timestamp nil)))))
@@ -752,6 +761,211 @@
   (let ((entries (mapcar (lambda (d) (sb-project-entry d root))
                          (find-sb-history-dirs root))))
     (sort entries #'string< :key (lambda (e) (or (cdr (assoc :name e)) "")))))
+
+;;; ===================================================================
+;;; Live runs — driving `sb loop` (slice 3)
+;;; ===================================================================
+;;;
+;;; `sb` has no streaming/daemon mode, so we drive `sb loop` as a tracked
+;;; subprocess and observe three things: its stderr (iteration/gate lines),
+;;; .sb/gates_last_run.json (per-gate pass/fail, every iteration), and the
+;;; .sb/history/ reports (the lineage). The cockpit polls GET .../sb-loop/:id.
+;;; Runs happen IN PLACE in the project dir — they mutate the repo and spend
+;;; harness cost.
+
+(defvar *sb-runs* (make-hash-table :test 'equal) "run-id -> sb-run struct.")
+(defvar *sb-runs-lock* (bordeaux-threads:make-lock "sb-runs"))
+
+(defstruct sb-run
+  id project cwd process thread
+  (status :running)            ; :running :converged :failed :stopped :error
+  (iteration 0) max-iter
+  (phase :gates)               ; :gates :harness
+  gates                        ; decoded gates_last_run.json :gates (list of alists)
+  (history-count 0)
+  (log nil)                    ; recent stderr lines, oldest first, bounded
+  started-at ended-at error-message)
+
+(defparameter +sb-run-log-max+ 80)
+
+(defun new-sb-run-id ()
+  (format nil "run-~(~A~)" (subseq (autopoiesis.core:make-uuid) 0 8)))
+
+(defun find-sb-executable ()
+  "Locate the `sb` binary; fall back to bare 'sb' (resolved via PATH)."
+  (or (handler-case
+          (let ((p (uiop:run-program "which sb"
+                                     :output '(:string :stripped t)
+                                     :ignore-error-status t)))
+            (when (and p (not (string= "" p))) p))
+        (error () nil))
+      "sb"))
+
+(defun sb-run-push-log (run line)
+  (let ((lines (append (sb-run-log run) (list line))))
+    (setf (sb-run-log run)
+          (if (> (length lines) +sb-run-log-max+)
+              (last lines +sb-run-log-max+)
+              lines))))
+
+(defparameter +ansi-escape-re+
+  (cl-ppcre:create-scanner (format nil "~C\\[[0-9;]*m" #\Escape))
+  "Matches an ANSI SGR colour escape, e.g. ESC[32m / ESC[0m.")
+
+(defun strip-ansi (s)
+  "Remove ANSI colour escapes — sb colours its PASS/FAIL lines."
+  (cl-ppcre:regex-replace-all +ansi-escape-re+ s ""))
+
+(defun sb-history-count (cwd)
+  "Count discharge reports in <cwd>/.sb/history/."
+  (let ((hist (merge-pathnames ".sb/history/"
+                               (uiop:ensure-directory-pathname cwd))))
+    (if (probe-file hist)
+        (length (discharge-history-entries (namestring hist)))
+        0)))
+
+(defun parse-sb-loop-line (run line)
+  "Update RUN from one (ANSI-stripped) stderr LINE. `sb loop` does not write
+   gates_last_run.json, so the gate strip is built from the PASS/FAIL lines:
+   each iteration boundary resets the strip, each gate line appends to it."
+  (cl-ppcre:register-groups-bind ((#'parse-integer n) (#'parse-integer m))
+      ("=== Iteration (\\d+)/(\\d+) ===" line)
+    (setf (sb-run-iteration run) n
+          (sb-run-max-iter run) m
+          (sb-run-phase run) :gates
+          (sb-run-gates run) nil))         ; new iteration's gate run
+  (cl-ppcre:register-groups-bind (status name dur)
+      ("^(PASS|FAIL) \\[([^\\]]+)\\] (.+)$" line)
+    (setf (sb-run-gates run)
+          (append (sb-run-gates run)
+                  (list (list (cons :name name)
+                              (cons :passed (string= status "PASS"))
+                              (cons :duration dur))))))
+  (when (cl-ppcre:scan "Calling harness" line)
+    (setf (sb-run-phase run) :harness))
+  (when (cl-ppcre:scan "All gates passed on iteration" line)
+    (setf (sb-run-status run) :converged))
+  (when (cl-ppcre:scan "max iterations \\(\\d+\\) reached" line)
+    (setf (sb-run-status run) :failed)))
+
+(defun run-sb-loop-thread (run)
+  "Reader thread: spawn `sb loop` in the project dir, stream its output into
+   RUN, refreshing gate + history state at each iteration boundary."
+  (let* ((cwd (sb-run-cwd run))
+         ;; `exec` replaces the shell so the process we hold IS `sb loop`
+         ;; (one fewer layer to chase when stopping).
+         (cmd (format nil "~@[RALPH_MAX_ITER=~A ~]exec ~A loop </dev/null"
+                      (sb-run-max-iter run) (find-sb-executable))))
+    (handler-case
+        (let ((process (sb-ext:run-program
+                        "/bin/sh" (list "-c" cmd)
+                        :directory (uiop:ensure-directory-pathname cwd)
+                        :output :stream :error :output :wait nil)))
+          (setf (sb-run-process run) process)
+          (unwind-protect
+              (let ((out (sb-ext:process-output process)))
+                (loop for raw = (read-line out nil :eof)
+                      until (eq raw :eof)
+                      for line = (strip-ansi raw)
+                      do (sb-run-push-log run line)
+                         (parse-sb-loop-line run line)
+                         (when (cl-ppcre:scan "=== Iteration" line)
+                           (setf (sb-run-history-count run) (sb-history-count cwd)))))
+            (when process
+              (sb-ext:process-wait process)
+              ;; Final refresh — pick up any new history report from this run.
+              (setf (sb-run-history-count run) (sb-history-count cwd))
+              (let ((code (sb-ext:process-exit-code process)))
+                (when (eq (sb-run-status run) :running)
+                  (setf (sb-run-status run)
+                        (if (and code (zerop code)) :converged :failed))))
+              (setf (sb-run-ended-at run) (get-universal-time))
+              (sb-ext:process-close process))))
+      (error (e)
+        (setf (sb-run-status run) :error
+              (sb-run-error-message run) (format nil "~A" e)
+              (sb-run-ended-at run) (or (sb-run-ended-at run) (get-universal-time)))
+        (log:warn "sb-loop run error: ~A" e)))))
+
+(defun active-run-for-cwd (cwd)
+  "The currently :running sb-run for CWD, or nil."
+  (bordeaux-threads:with-lock-held (*sb-runs-lock*)
+    (loop for r being the hash-values of *sb-runs*
+          when (and (eq (sb-run-status r) :running)
+                    (string= (sb-run-cwd r) cwd))
+            return r)))
+
+(defun start-sb-loop (project-root &key max-iter)
+  "Spawn `sb loop` in PROJECT-ROOT (the dir with sb.toml). Returns the run."
+  (let* ((cwd (namestring (uiop:ensure-directory-pathname project-root)))
+         (id (new-sb-run-id))
+         (run (make-sb-run :id id
+                           :project (or (car (last (pathname-directory
+                                                    (uiop:ensure-directory-pathname cwd))))
+                                        "project")
+                           :cwd cwd
+                           :max-iter max-iter
+                           :status :running
+                           :started-at (get-universal-time))))
+    (bordeaux-threads:with-lock-held (*sb-runs-lock*)
+      (setf (gethash id *sb-runs*) run))
+    (setf (sb-run-thread run)
+          (bordeaux-threads:make-thread
+           (lambda () (run-sb-loop-thread run))
+           :name (format nil "sb-loop-~A" id)))
+    run))
+
+(defun descendant-pids (pid)
+  "All descendant pids of PID (children, recursively) via `pgrep -P`. macOS
+   has no setsid, so on stop we kill the whole tree rather than a group."
+  (handler-case
+      (let* ((out (uiop:run-program (list "pgrep" "-P" (princ-to-string pid))
+                                    :output '(:string :stripped t)
+                                    :ignore-error-status t))
+             (kids (when (and out (> (length out) 0))
+                     (loop for s in (uiop:split-string out :separator '(#\Newline))
+                           for n = (ignore-errors (parse-integer s))
+                           when n collect n))))
+        (append kids (mapcan #'descendant-pids kids)))
+    (error () nil)))
+
+(defun kill-pids (pids signal-name)
+  (when pids
+    (ignore-errors
+      (uiop:run-program (list* "kill" (format nil "-~A" signal-name)
+                               (mapcar #'princ-to-string pids))
+                        :ignore-error-status t))))
+
+(defun stop-sb-loop (run)
+  "Terminate RUN's subprocess and its descendants (the harness child, etc.):
+   SIGTERM the whole tree, then SIGKILL survivors. Mark it stopped."
+  (let ((p (sb-run-process run)))
+    (when (and p (sb-ext:process-alive-p p))
+      (let ((tree (append (descendant-pids (sb-ext:process-pid p))
+                          (list (sb-ext:process-pid p)))))
+        (kill-pids tree "TERM")
+        (sleep 1)
+        (when (sb-ext:process-alive-p p)
+          (kill-pids tree "KILL")))))
+  (setf (sb-run-status run) :stopped
+        (sb-run-ended-at run) (or (sb-run-ended-at run) (get-universal-time)))
+  run)
+
+(defun sb-run-alist (run)
+  "JSON projection of a run for the status endpoint (snake_case keys)."
+  (list (cons :run--id (sb-run-id run))
+        (cons :project (sb-run-project run))
+        (cons :cwd (sb-run-cwd run))
+        (cons :status (string-downcase (symbol-name (sb-run-status run))))
+        (cons :iteration (sb-run-iteration run))
+        (cons :max--iter (sb-run-max-iter run))
+        (cons :phase (string-downcase (symbol-name (sb-run-phase run))))
+        (cons :gates (or (sb-run-gates run) #()))
+        (cons :history--count (sb-run-history-count run))
+        (cons :log (coerce (sb-run-log run) 'vector))
+        (cons :started--at (sb-run-started-at run))
+        (cons :ended--at (sb-run-ended-at run))
+        (cons :error (sb-run-error-message run))))
 
 (defun rest-handle-aether (request)
   "Dispatch /api/aether/* requests."
@@ -1029,6 +1243,54 @@
               (error (e)
                 (json-error (format nil "project scan failed: ~A" e)
                             :status 500 :error-type "Internal Error")))))))
+      ;; POST /api/aether/sb-loop/start  {dir, max_iter?}
+      ;; Drive `sb loop` in DIR (the project root, in place). Returns a run_id
+      ;; the cockpit polls. Mutates the repo + spends harness cost.
+      ((and (eq method :post) (string= uri "/api/aether/sb-loop/start"))
+       (require-permission :write)
+       (let* ((body (parse-json-body))
+              (dir (cdr (assoc :dir body)))
+              (max-iter (cdr (assoc :max--iter body))))
+         (cond
+           ((or (null dir) (zerop (length dir)))
+            (json-error "dir is required" :status 400 :error-type "Bad Request"))
+           ((not (probe-file (merge-pathnames "sb.toml"
+                                              (uiop:ensure-directory-pathname dir))))
+            (json-error (format nil "no sb.toml in ~A" dir)
+                        :status 400 :error-type "Bad Request"))
+           ((active-run-for-cwd (namestring (uiop:ensure-directory-pathname dir)))
+            (json-error "a run is already active for this project"
+                        :status 409 :error-type "Conflict"))
+           (t
+            (handler-case
+                (let ((run (start-sb-loop dir :max-iter (and (integerp max-iter) max-iter))))
+                  (json-ok (list (cons :run--id (sb-run-id run))
+                                 (cons :status "running"))))
+              (error (e)
+                (json-error (format nil "start failed: ~A" e)
+                            :status 500 :error-type "Internal Error")))))))
+      ;; POST /api/aether/sb-loop/:id/stop
+      ((and (eq method :post)
+            (cl-ppcre:scan "^/api/aether/sb-loop/[^/]+/stop$" uri))
+       (require-permission :write)
+       (let* ((id (cl-ppcre:register-groups-bind (rid)
+                      ("^/api/aether/sb-loop/([^/]+)/stop$" uri) rid))
+              (run (bordeaux-threads:with-lock-held (*sb-runs-lock*)
+                     (gethash id *sb-runs*))))
+         (if (null run)
+             (json-not-found "Run" id)
+             (json-ok (sb-run-alist (stop-sb-loop run))))))
+      ;; GET /api/aether/sb-loop/:id  — the poll target
+      ((and (eq method :get)
+            (cl-ppcre:scan "^/api/aether/sb-loop/[^/]+$" uri))
+       (require-permission :read)
+       (let* ((id (cl-ppcre:register-groups-bind (rid)
+                      ("^/api/aether/sb-loop/([^/]+)$" uri) rid))
+              (run (bordeaux-threads:with-lock-held (*sb-runs-lock*)
+                     (gethash id *sb-runs*))))
+         (if (null run)
+             (json-not-found "Run" id)
+             (json-ok (sb-run-alist run)))))
       ;; Unknown
       (t
        (json-not-found "AETHER route" uri)))))
