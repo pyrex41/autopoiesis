@@ -6,9 +6,11 @@
 ;;;; got captured to blobs+datoms, merged into base, and re-materializes
 ;;;; byte-exact), not specific content.
 ;;;;
-;;;; Agent selected by env SB_AGENT:
-;;;;   opencode-grok (default) -> opencode run --dir DIR -m xai/grok-4.3  (your grok account)
-;;;;   rho                     -> rho -C DIR -p PROMPT --output-format text (Anthropic)
+;;;; Agent selected by env SB_AGENT (all default to your grok account):
+;;;;   grok (default)  -> grok -p PROMPT --cwd DIR --always-approve         (grok.com)
+;;;;   rho-grok        -> rho --model grok-code-fast-1 -C DIR -p PROMPT ...  (grok via rho)
+;;;;   opencode-grok   -> opencode run --dir DIR -m xai/grok-4.3 PROMPT      (grok via opencode)
+;;;;   rho             -> rho -C DIR -p PROMPT --output-format text          (Anthropic; may 429)
 ;;;;
 ;;;; Note: agents are known to sometimes write outside the cwd. If nothing lands
 ;;;; in the projection, we report it honestly -- the substrate loop is still
@@ -33,8 +35,10 @@
 (in-package #:sb-agent-projection-demo)
 
 (defparameter *rho* "/Users/reuben/.local/bin/rho")
+(defparameter *grok* "/Users/reuben/.grok/bin/grok")
 (defparameter *opencode* "/Users/reuben/.bun/bin/opencode")
-(defparameter *agent* (or (uiop:getenv "SB_AGENT") "opencode-grok"))
+(defparameter *grok-model* "grok-code-fast-1") ; rho registry id for grok via rho
+(defparameter *agent* (or (uiop:getenv "SB_AGENT") "grok"))
 
 (defvar *fails* nil)
 (defun check (name ok &optional detail)
@@ -105,11 +109,16 @@
 (defun drive-agent (dir)
   "Run the selected agent in DIR. Returns the exit code (0 = clean)."
   (let ((argv (cond
+                ((string= *agent* "grok")
+                 (list *grok* "-p" *prompt* "--cwd" (namestring dir) "--always-approve"))
+                ((string= *agent* "rho-grok")
+                 (list *rho* "--model" *grok-model* "-C" (namestring dir)
+                       "-p" *prompt* "--output-format" "text"))
                 ((string= *agent* "rho")
                  (list *rho* "-C" (namestring dir) "-p" *prompt* "--output-format" "text"))
-                (t  ; opencode-grok
-                 (list *opencode* "run" "--dir" (namestring dir)
-                       "-m" "xai/grok-4.3" *prompt*)))))
+                ((string= *agent* "opencode-grok")
+                 (list *opencode* "run" "--dir" (namestring dir) "-m" "xai/grok-4.3" *prompt*))
+                (t (error "unknown SB_AGENT ~A" *agent*)))))
     (format t "~&== driving agent [~A] in ~A ==~%  ~{~A ~}~%" *agent* dir argv)
     (handler-case
         (multiple-value-bind (out err code)
