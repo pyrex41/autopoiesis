@@ -63,6 +63,30 @@
    #:define-index
    ;; Linda operations
    #:take!
+   ;; Speculative datom branches + cardinality-aware merge
+   #:declare-cardinality
+   #:attribute-cardinality
+   #:*attribute-cardinality*
+   #:datom-branch
+   #:make-datom-branch
+   #:datom-branch-name
+   #:datom-branch-fork-tx
+   #:datom-branch-writes
+   #:branch-fork
+   #:branch-stage
+   #:branch-read
+   #:branch-changeset
+   #:branch-merge
+   #:branch-write
+   #:branch-write-entity
+   #:branch-write-attribute
+   #:branch-write-value
+   #:merge-conflict
+   #:merge-conflict-entity
+   #:merge-conflict-attribute
+   #:merge-conflict-forked
+   #:merge-conflict-base-now
+   #:merge-conflict-wanted
    ;; Datalog queries
    #:query
    #:compile-query

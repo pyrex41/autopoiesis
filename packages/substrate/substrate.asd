@@ -33,6 +33,7 @@
      (:file "datalog")
      (:file "rules")
      (:file "entity-type")
+     (:file "speculative")
      (:file "system")
      (:file "lmdb-backend")
      (:file "blob")))))
