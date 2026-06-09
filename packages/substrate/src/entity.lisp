@@ -78,7 +78,7 @@
     (when eid
       (maphash (lambda (key value)
                  (when (= (car key) eid)
-                   (let ((attr-name (resolve-id (cdr key))))
+                   (let ((attr-name (resolve-id (cdr key) :attribute)))
                      (push value attrs)
                      (push attr-name attrs))))
                cache))
@@ -159,7 +159,7 @@
       ;; Convert to plist with resolved attribute names
       (let ((result nil))
         (maphash (lambda (aid val)
-                   (let ((attr-name (resolve-id aid)))
+                   (let ((attr-name (resolve-id aid :attribute)))
                      (push val result)
                      (push attr-name result)))
                  state)

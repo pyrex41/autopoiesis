@@ -125,6 +125,9 @@
       (when (and intern-db resolve-db meta-db)
         (lmdb:with-txn (:write t)
           (lmdb:put intern-db (prin1-to-string term) id)
+          ;; NOTE: currently dormant (no callers). If wired up, the resolve-db
+          ;; key MUST be width-tagged to match resolve-id's (width . id) key,
+          ;; else entity-id N and attribute-id N collide. See intern.lisp.
           (lmdb:put resolve-db id (prin1-to-string term))
           ;; Update counter from context
           (ecase width

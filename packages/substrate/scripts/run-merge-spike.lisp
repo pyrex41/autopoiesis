@@ -210,10 +210,10 @@
         ;; translation. (id->term/resolve-id is a separate concern -- see note below.)
         (check "entity id for \"doc\" is stable (idempotent interning)"
                (= doc-eid (s::intern-id "doc")))
-        (check "attribute ids reverse-resolve to correct names (production resolve-id path)"
-               (and (equal (s::resolve-id (s::intern-id "doc/title"  :width :attribute)) "doc/title")
-                    (equal (s::resolve-id (s::intern-id "doc/status" :width :attribute)) "doc/status")
-                    (equal (s::resolve-id (s::intern-id "doc/owner"  :width :attribute)) "doc/owner")))
+        (check "attribute ids reverse-resolve to correct names (width-aware resolve-id)"
+               (and (equal (s::resolve-id (s::intern-id "doc/title"  :width :attribute) :attribute) "doc/title")
+                    (equal (s::resolve-id (s::intern-id "doc/status" :width :attribute) :attribute) "doc/status")
+                    (equal (s::resolve-id (s::intern-id "doc/owner"  :width :attribute) :attribute) "doc/owner")))
         (check "distinct attributes get distinct attribute-ids"
                (/= (s::intern-id "doc/title"  :width :attribute)
                    (s::intern-id "doc/status" :width :attribute)))
@@ -223,15 +223,11 @@
         (check "distinct entities get distinct entity-ids"
                (/= (s::intern-id "doc") (s::intern-id "another-doc")))
 
-        ;; --- FINDING (non-blocking): resolve-table id-space overlap ---
-        ;; entity ids and attribute ids come from independent counters (both from 1)
-        ;; but share ONE resolve-table keyed by bare integer, so eid N and aid N
-        ;; clobber each other in id->term. intern-id (term->id, what merge needs) is
-        ;; fine; resolve-id(entity-id) is unreliable in mixed workloads. Orthogonal
-        ;; to branching; track as a substrate follow-up for the substrate-first build.
-        (format t "  [NOTE] resolve-id(eid 1)=~S (clobbered by attribute of same numeric id) ~
-                   -- term->id stays unambiguous; tracked separately.~%"
-                (s::resolve-id 1)))))
+        ;; --- regression: entity-id and attribute-id reverse-lookups no longer
+        ;; collide (resolve-id is width-aware: eid N and aid N are distinct). ---
+        (check "entity-id 1 reverse-resolves to its entity name, not an attribute"
+               (equal (s::resolve-id doc-eid :entity) "doc")
+               (s::resolve-id doc-eid :entity)))))
 
   ;; --- verdict ---
   (format t "~%================ ~A ================~%"

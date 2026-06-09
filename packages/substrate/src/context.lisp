@@ -12,7 +12,9 @@
   (entity-cache (make-hash-table :test 'equal) :type hash-table)
   (value-index (make-hash-table :test 'equal) :type hash-table)
   (intern-table (make-hash-table :test 'equal) :type hash-table)
-  (resolve-table (make-hash-table :test 'eql) :type hash-table)
+  ;; reverse map keyed by (width . id) so entity-id N and attribute-id N
+  ;; (independent counters) never collide -- hence :test 'equal, not 'eql.
+  (resolve-table (make-hash-table :test 'equal) :type hash-table)
   (next-entity-id 1 :type (unsigned-byte 64))
   (next-attribute-id 1 :type (unsigned-byte 32))
   ;; Batch transaction support (Phase 4)

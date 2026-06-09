@@ -85,11 +85,9 @@
           unless (equal tx res) collect u)))
 
 (defun attr-as-of (entity attribute tx-id)
-  "Value of (ENTITY, ATTRIBUTE) as of TX-ID: newest EAVT entry with tx<=TX-ID.
-   Uses entity-history (forward term->id lookup) rather than entity-as-of, which
-   currently mis-keys its plist via the resolve-table id-space overlap (entity
-   ids and attribute ids share one reverse table) -- a tracked substrate bug
-   that this slice showed breaks entity-as-of/entity-state in mixed workloads."
+  "Value of (ENTITY, ATTRIBUTE) as of TX-ID: newest EAVT entry with tx<=TX-ID,
+   via entity-history (forward term->id). A single-attribute alternative to
+   entity-as-of (both now correct after the resolve-id width-aware fix)."
   (loop for e in (s:entity-history entity attribute :last-n 100000)
         when (<= (getf e :tx) tx-id) return (getf e :value)))
 
@@ -194,10 +192,13 @@
                                    (equal (third tup) "lead")))
                             why)))
 
-          ;; time-travel: the board BEFORE the builder claimed the ticket
-          (check "time-travel: ticket was :ai-ready before the claim (attr-as-of)"
-                 (eq (attr-as-of ticket :ticket/status tx-before-claim) :ai-ready)
-                 (attr-as-of ticket :ticket/status tx-before-claim))
+          ;; time-travel: the board BEFORE the builder claimed the ticket.
+          ;; entity-as-of now works in mixed workloads (resolve-id is width-aware).
+          (check "time-travel: entity-as-of shows ticket :ai-ready before the claim"
+                 (eq (getf (s:entity-as-of ticket tx-before-claim) :ticket/status) :ai-ready)
+                 (getf (s:entity-as-of ticket tx-before-claim) :ticket/status))
+          (check "time-travel: attr-as-of agrees (entity-history path)"
+                 (eq (attr-as-of ticket :ticket/status tx-before-claim) :ai-ready))
           (check "current ticket status is :done"
                  (eq (s:entity-attr ticket :ticket/status) :done))))))
 

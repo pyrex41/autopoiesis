@@ -24,9 +24,9 @@
   "DEPRECATED: Use (substrate-context-intern-table *substrate*).
    Forward map: object -> interned integer ID")
 
-(defvar *resolve-table* (make-hash-table :test 'eql)
+(defvar *resolve-table* (make-hash-table :test 'equal)
   "DEPRECATED: Use (substrate-context-resolve-table *substrate*).
-   Reverse map: integer ID -> original object")
+   Reverse map: (width . integer-ID) -> original object")
 
 (defun intern-id (term &key (width :entity))
   "Intern TERM to a compact integer. Idempotent.
@@ -50,14 +50,19 @@
                          (prog1 *next-attribute-id*
                            (incf *next-attribute-id*)))))))
           (setf (gethash term intern-tbl) id)
-          (setf (gethash id resolve-tbl) term)
+          ;; reverse keyed by (width . id): entity and attribute id-spaces are
+          ;; independent counters, so a bare id is ambiguous (eid N vs aid N).
+          (setf (gethash (cons width id) resolve-tbl) term)
           id))))
 
-(defun resolve-id (id)
-  "Resolve interned ID back to original term."
+(defun resolve-id (id &optional (width :entity))
+  "Resolve interned ID back to its original term. WIDTH is :entity (default)
+   or :attribute -- required because the two id-spaces are independent counters
+   and a bare ID is ambiguous. Callers resolving attribute IDs (entity-state,
+   entity-as-of) must pass :attribute."
   (let* ((ctx *substrate*)
          (resolve-tbl (if ctx (substrate-context-resolve-table ctx) *resolve-table*)))
-    (gethash id resolve-tbl)))
+    (gethash (cons width id) resolve-tbl)))
 
 (defun reset-intern-tables ()
   "Reset all intern state. For testing only."
