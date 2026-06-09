@@ -37,7 +37,7 @@
 (defparameter *rho* "/Users/reuben/.local/bin/rho")
 (defparameter *grok* "/Users/reuben/.grok/bin/grok")
 (defparameter *opencode* "/Users/reuben/.bun/bin/opencode")
-(defparameter *grok-model* "grok-code-fast-1") ; rho registry id for grok via rho
+(defparameter *grok-model* "grok-4.3") ; xAI model id; rho accepts it as a raw model id
 (defparameter *agent* (or (uiop:getenv "SB_AGENT") "grok"))
 
 (defvar *fails* nil)
