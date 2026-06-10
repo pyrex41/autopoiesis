@@ -312,3 +312,49 @@ export async function getEvalTrials(runId: number): Promise<EvalTrial[]> {
 export async function getEvalComparison(runId: number): Promise<EvalComparison> {
   return get<EvalComparison>(`/eval/runs/${runId}/compare`);
 }
+
+// ── SB product loop (board / deliberation gate / provenance) ──────
+
+export interface SbTicket { id: string; title: string; status: string; }
+export interface SbLane { lane: string; tickets: SbTicket[]; }
+export interface SbBoard { lanes: SbLane[]; }
+export interface SbInput { user: string; text: string; dissent: boolean | null; }
+export interface SbDecision {
+  id: string;
+  question: string;
+  status: string;
+  resolution: string | null;
+  resolved_by: string | null;
+  ticket: string | null;
+  inputs: SbInput[];
+  dissenters: string[];
+}
+export interface SbWhyRow { question: string; resolution: string; resolved_by: string; }
+
+export async function getSbBoard(): Promise<SbBoard> {
+  return get<SbBoard>("/sb/board");
+}
+export async function claimNext(from: string, to: string): Promise<{ claimed: string | null }> {
+  return post<{ claimed: string | null }>("/sb/board/claim", { from, to });
+}
+export async function moveTicket(id: string, to: string): Promise<{ id: string; status: string }> {
+  return post<{ id: string; status: string }>(`/sb/board/${id}/move`, { to });
+}
+export async function listSbDecisions(): Promise<SbDecision[]> {
+  return get<SbDecision[]>("/sb/decisions");
+}
+export async function createSbDecision(name: string, question: string, ticket?: string): Promise<SbDecision> {
+  return post<SbDecision>("/sb/decisions", { name, question, ticket });
+}
+export async function addSbInput(id: string, user: string, text: string): Promise<SbDecision> {
+  return post<SbDecision>(`/sb/decisions/${id}/input`, { user, text });
+}
+export async function resolveSbDecision(id: string, lead: string, resolution: string): Promise<SbDecision> {
+  return post<SbDecision>(`/sb/decisions/${id}/resolve`, { lead, resolution });
+}
+export async function getSbWhy(): Promise<SbWhyRow[]> {
+  return get<SbWhyRow[]>("/sb/why");
+}
+export async function seedSb(): Promise<{ seeded: boolean }> {
+  return post<{ seeded: boolean }>("/sb/seed");
+}

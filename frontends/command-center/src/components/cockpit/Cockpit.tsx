@@ -14,9 +14,11 @@ import { runsStore } from "../../stores/runs";
 import DischargeView from "../../pages/DischargeView";
 import ProjectPicker from "./ProjectPicker";
 import RunPanel from "./RunPanel";
+import ProductLoop from "./ProductLoop";
 
 const Cockpit: Component = () => {
   const [selected, setSelected] = createSignal<ProjectEntry | null>(null);
+  const [view, setView] = createSignal<"project" | "board">("project");
 
   // Open a project: load its lineage, then its newest report. Reflect in URL.
   async function selectProject(p: ProjectEntry) {
@@ -123,6 +125,10 @@ const Cockpit: Component = () => {
         </Show>
 
         <div class="cp-topbar-right">
+          <div class="cp-viewtoggle">
+            <button class={`cp-vt ${view() === "project" ? "active" : ""}`} onClick={() => setView("project")}>project</button>
+            <button class={`cp-vt ${view() === "board" ? "active" : ""}`} onClick={() => setView("board")}>board</button>
+          </div>
           <button
             class="cp-run"
             disabled={!selected() || runsStore.run()?.status === "running" || runsStore.starting()}
@@ -136,9 +142,13 @@ const Cockpit: Component = () => {
       </header>
 
       <div class="cp-body">
-        <Show when={selected()} fallback={<ProjectPicker onSelect={selectProject} />}>
-          <RunPanel />
-          <DischargeView embedded />
+        <Show when={view() === "board"} fallback={
+          <Show when={selected()} fallback={<ProjectPicker onSelect={selectProject} />}>
+            <RunPanel />
+            <DischargeView embedded />
+          </Show>
+        }>
+          <ProductLoop />
         </Show>
       </div>
     </div>
