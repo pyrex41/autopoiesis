@@ -1733,6 +1733,11 @@
                (and (> (length uri) 12)
                     (string= "/api/aether/" (subseq uri 0 12))))
            (rest-handle-aether request))
+          ;; /api/sb/* — Shen-Backpressure product loop (board, gate, provenance)
+          ((or (string= uri "/api/sb")
+               (and (> (length uri) 8)
+                    (string= "/api/sb/" (subseq uri 0 8))))
+           (rest-handle-sb request))
           ;; Unknown API route
           (t
            (json-not-found "API route" uri)))

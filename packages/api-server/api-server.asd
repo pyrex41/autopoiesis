@@ -40,6 +40,7 @@
       (:file "mcp-server")
       (:file "aether-blob-store")
       (:file "aether-runtime")
+      (:file "sb-product")
       (:file "routes")
       (:file "sandbox-routes")
       (:file "rest-server"))))
