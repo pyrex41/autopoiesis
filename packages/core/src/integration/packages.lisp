@@ -248,6 +248,22 @@
    #:make-codex-provider
    #:codex-full-auto
 
+   ;; Codex app-server provider (long-lived JSON-RPC session)
+   #:codex-appserver-provider
+   #:make-codex-appserver-provider
+   #:codex-appserver-approval-policy
+   #:codex-appserver-sandbox
+   #:codex-appserver-auto-approve
+   #:codex-appserver-session
+   #:codex-appserver-session-class
+   #:start-codex-session
+   #:codex-run-turn
+   #:stop-codex-session
+   #:codex-session-thread-id
+   #:codex-session-alive-p
+   #:codex-session-cwd
+   #:codex-session-model
+
    ;; OpenCode provider
    #:opencode-provider
    #:make-opencode-provider

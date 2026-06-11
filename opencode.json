@@ -1,0 +1,20 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "room": {
+      "type": "local",
+      "command": [
+        "sbcl",
+        "--noinform",
+        "--non-interactive",
+        "--load",
+        "/Users/reuben/projects/autopoiesis/packages/api-server/scripts/room-stdio-shim.lisp"
+      ],
+      "environment": {
+        "ROOM_MCP_URL": "http://127.0.0.1:8243/mcp"
+      },
+      "_comment": "Sample wiring: lets opencode/grok join the room over MCP via the stdio shim. Flip enabled=true with a room server running (see run-room-server.lisp; set ROOM_MCP_URL to its port).",
+      "enabled": false
+    }
+  }
+}

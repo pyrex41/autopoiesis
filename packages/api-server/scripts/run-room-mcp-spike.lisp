@@ -59,27 +59,38 @@
 
 (defvar *rpc-id* 0)
 
-;;; The server builds JSON-RPC responses as plain alists, which cl-json
-;;; encodes with object VALUES that are lists-of-pairs serialized as JSON
-;;; arrays, e.g.  "result":[["content",[...]],["isError"]].  So when we
-;;; decode, `result` comes back as a list of (KEY . REST) lists rather than a
-;;; keyword-keyed alist. This helper looks up KEY (a string) in that shape and
-;;; also tolerates a normal alist, returning the associated value.
+;;; The server now serializes JSON-RPC responses with com.inuoe.jzon from
+;;; hash-tables, so every object is a PROPER JSON object on the wire, e.g.
+;;;   "result":{"content":[{"type":"text","text":"..."}],"isError":false}
+;;; cl-json decodes that into a keyword-keyed alist (camelCase splits to
+;;; :CAMEL-CASE, underscores -> hyphens), so "isError" -> :IS-ERROR,
+;;; "content" -> :CONTENT, "fork_tx" -> :FORK-TX. rpc-get maps a JSON string
+;;; key to that keyword; it also still tolerates the legacy array-of-pairs.
+(defun json-key->keyword (key)
+  "Map a JSON object key string to the keyword cl-json decodes it to:
+   camelCase boundaries and underscores become hyphens (isError -> :IS-ERROR,
+   protocolVersion -> :PROTOCOL-VERSION, fork_tx -> :FORK-TX)."
+  (let ((out (make-string-output-stream)))
+    (loop for ch across key
+          do (cond ((char= ch #\_) (write-char #\- out))
+                   ((upper-case-p ch) (write-char #\- out) (write-char ch out))
+                   (t (write-char (char-upcase ch) out))))
+    (intern (get-output-stream-string out) :keyword)))
+
 (defun rpc-get (obj key)
-  "Get string KEY out of a decoded JSON-RPC value, tolerating both the
-   array-of-pairs shape and a keyword-keyed alist."
+  "Get string KEY out of a decoded JSON-RPC value. Primary: keyword-keyed
+   alist (the proper-object shape). Falls back to legacy array-of-pairs."
   (cond
     ((null obj) nil)
-    ;; array-of-pairs: each elt is (\"key\" . rest) where rest is a list
+    ;; keyword-keyed alist (proper JSON object decoded by cl-json)
+    ((and (consp obj) (consp (car obj)) (keywordp (caar obj)))
+     (cdr (assoc (json-key->keyword key) obj)))
+    ;; legacy array-of-pairs: each elt is (\"key\" . rest)
     ((and (consp obj) (consp (car obj)) (stringp (caar obj)))
      (let ((hit (find key obj :key #'car :test #'string=)))
        (when hit
          (let ((rest (cdr hit)))
-           ;; ("content" <val>) -> (<val>) ; ("isError") -> nil
            (if (and (consp rest) (null (cdr rest))) (car rest) rest)))))
-    ;; keyword-keyed alist fallback
-    ((and (consp obj) (consp (car obj)) (keywordp (caar obj)))
-     (cdr (assoc (intern (string-upcase key) :keyword) obj)))
     (t nil)))
 
 (defun jrpc-post (body &key session-id)
@@ -124,11 +135,9 @@
     (multiple-value-bind (resp) (jrpc-post body :session-id session-id)
       (let* ((result (rpc-get resp "result"))
              (is-error (rpc-get result "isError"))
-             ;; result is [["content", {obj}...],["isError"]]; pull the rest
-             ;; after "content" = the array of content objects.
-             (content-pair (and (consp result)
-                                (find "content" result :key #'car :test #'string=)))
-             (content (cdr content-pair)) ; list of {type,text} keyword alists
+             ;; result is {"content":[{type,text}...],"isError":false};
+             ;; content decodes to a list of {:type :text} keyword alists.
+             (content (rpc-get result "content"))
              (text (cdr (assoc :text (first content)))))
         (when is-error
           (error "MCP tool ~a returned error: ~a" tool-name text))

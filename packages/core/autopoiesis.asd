@@ -13,6 +13,7 @@
                 #:alexandria
                 #:bordeaux-threads
                 #:cl-json
+                #:com.inuoe.jzon    ; Unambiguous JSON object encoding (MCP server responses)
                 #:local-time
                 #:cl-ppcre
                 #:log4cl
@@ -132,6 +133,7 @@
        (:file "provider-macro")
        (:file "provider-claude-code")
        (:file "provider-codex")
+       (:file "provider-codex-appserver")
        (:file "provider-opencode")
        (:file "provider-cursor")
        (:file "provider-pi")

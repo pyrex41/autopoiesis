@@ -257,36 +257,60 @@
 ;;; Tool Definition Serialization
 ;;; ===================================================================
 
+(defun mcp-json-object (&rest pairs)
+  "Build a string-keyed hash-table from alternating key/value PAIRS. Keys
+   must be strings. jzon encodes the result as an unambiguous JSON object.
+   (Local copy so this works in the core :autopoiesis system, which compiles
+   mcp-server.lisp without loading serializers.lisp.)"
+  (let ((ht (make-hash-table :test 'equal :size (max 1 (ceiling (length pairs) 2)))))
+    (loop for (key val) on pairs by #'cddr
+          do (setf (gethash key ht) val))
+    ht))
+
 (defun tool-def-to-mcp-json (tool-def)
-  "Convert an internal tool definition alist to MCP JSON format."
+  "Convert an internal tool definition alist to an MCP JSON hash-table.
+   Hash-tables encode unambiguously as JSON objects under jzon (no
+   array-of-pairs ambiguity)."
   (let ((name (cdr (assoc :name tool-def)))
         (description (cdr (assoc :description tool-def)))
         (input-schema (cdr (assoc :input-schema tool-def))))
-    `(("name" . ,name)
-      ("description" . ,description)
-      ("inputSchema" . ,(schema-to-json-alist input-schema)))))
+    (mcp-json-object "name" name
+                 "description" description
+                 "inputSchema" (schema-to-json-ht input-schema))))
 
-(defun schema-to-json-alist (schema)
-  "Convert a schema alist to a JSON-ready alist with camelCase keys."
+(defun schema-to-json-ht (schema)
+  "Convert a schema alist to a JSON-ready hash-table with camelCase keys.
+   Returns a hash-table (a JSON object under jzon) so nested property maps
+   are never confused with arrays-of-pairs.
+
+   The schema grammar (see mcp-tool-definitions) is:
+     ((:type . \"object\") (:properties . PROPS) (:required . LIST) ...)
+   where PROPS is a keyword-keyed alist of property-name -> PROPDEF, and
+   each PROPDEF is itself a keyword-keyed alist ((:type . \"string\") ...)."
   (when schema
-    (loop for (key . value) in schema
-          collect (cons (schema-key-to-json key)
-                        (cond
-                          ;; Nested alist (properties, etc.)
-                          ((and (consp value) (consp (car value))
-                                (keywordp (caar value)))
-                           (schema-to-json-alist value))
-                          ;; Property definitions (each is an alist)
-                          ((and (consp value) (consp (car value))
-                                (not (keywordp (caar value))))
-                           (mapcar (lambda (pair)
-                                     (cons (car pair)
-                                           (if (and (consp (cdr pair))
-                                                    (consp (cadr pair)))
-                                               (schema-to-json-alist (cdr pair))
-                                               (cdr pair))))
-                                   value))
-                          (t value))))))
+    (let ((ht (make-hash-table :test 'equal)))
+      (loop for (key . value) in schema
+            for json-key = (schema-key-to-json key)
+            do (setf (gethash json-key ht)
+                     (cond
+                       ;; :properties -> a map of property-name -> propdef
+                       ((eq key :properties)
+                        (if (null value)
+                            (make-hash-table :test 'equal) ; empty object {}
+                            (let ((props (make-hash-table :test 'equal)))
+                              (loop for (pname . pdef) in value
+                                    do (setf (gethash (schema-key-to-json pname) props)
+                                             (schema-to-json-ht pdef)))
+                              props)))
+                       ;; :required -> a flat list of strings (JSON array)
+                       ((eq key :required) value)
+                       ;; nested keyword-keyed alist -> recurse into object
+                       ((and (consp value) (consp (car value))
+                             (keywordp (caar value)))
+                        (schema-to-json-ht value))
+                       ;; scalar (type / description / additionalProperties)
+                       (t value))))
+      ht)))
 
 (defun schema-key-to-json (key)
   "Convert a schema keyword to JSON key string."
@@ -303,16 +327,82 @@
 ;;; MCP Tool Dispatch
 ;;; ===================================================================
 
+(defun mcp-json-key (key)
+  "Render an alist KEY as a JSON object key string, matching cl-json's
+   historical convention so the on-the-wire field names are stable:
+   keyword :FORK--TX becomes \"fork_tx\" (a double hyphen collapses to a
+   single underscore), and a single hyphen :BASE-NOW becomes \"base_now\".
+   Strings pass through unchanged (already JSON keys)."
+  (cond
+    ((stringp key) key)
+    ((symbolp key)
+     ;; collapse double hyphen -> single underscore first, then any
+     ;; remaining single hyphen -> underscore (mirrors cl-json's encoder).
+     (let* ((name (string-downcase (symbol-name key)))
+            (s1 (with-output-to-string (out)
+                  (loop with i = 0 with n = (length name)
+                        while (< i n)
+                        do (if (and (< (1+ i) n)
+                                    (char= (char name i) #\-)
+                                    (char= (char name (1+ i)) #\-))
+                               (progn (write-char #\_ out) (incf i 2))
+                               (progn (write-char (char name i) out) (incf i)))))))
+       (substitute #\_ #\- s1)))
+    (t (princ-to-string key))))
+
+(defun alist->jzon (value)
+  "Recursively convert a Lisp VALUE (as produced by mcp-execute-tool and the
+   room layer) into a jzon-friendly structure: keyword/string-keyed alists
+   become hash-tables (JSON objects), proper lists of such items become
+   lists (JSON arrays), and scalars pass through. This removes the
+   array-of-pairs ambiguity that bites cl-json on object-valued fields."
+  (cond
+    ;; nil -> JSON null (jzon encodes the symbol NULL as null; an empty
+    ;; alist/list is indistinguishable from nil, so treat nil as null).
+    ((null value) 'null)
+    ;; A cons whose elements are all (key . val) pairs with symbol/string
+    ;; keys is an association list -> JSON object.
+    ((and (consp value) (alist-of-pairs-p value))
+     (let ((ht (make-hash-table :test 'equal)))
+       (dolist (pair value)
+         (setf (gethash (mcp-json-key (car pair)) ht)
+               (alist->jzon (cdr pair))))
+       ht))
+    ;; A proper list of non-pair items -> JSON array.
+    ((and (consp value) (listp (cdr (last value))))
+     (mapcar #'alist->jzon value))
+    ;; Scalar.
+    (t value)))
+
+(defun alist-of-pairs-p (x)
+  "True if X is a non-empty proper list whose every element is a cons whose
+   CAR is a symbol or string (an association-list shaped object)."
+  (and (consp x)
+       (listp (cdr (last x)))         ; proper list
+       (every (lambda (e)
+                (and (consp e)
+                     ;; key is an atom symbol/string, and NOT nil (so a list of
+                     ;; alists -- whose elements are conses with cons CARs --
+                     ;; is treated as an array, not an object)
+                     (car e)
+                     (atom (car e))
+                     (or (symbolp (car e)) (stringp (car e)))))
+              x)))
+
+(defun mcp-text-content (text)
+  "Build a single MCP text-content hash-table {type:text, text:...}."
+  (mcp-json-object "type" "text" "text" text))
+
 (defun mcp-call-tool-dispatch (tool-name arguments)
   "Dispatch an MCP tools/call request to the appropriate handler.
-   Returns a content list for the MCP response."
+   Returns a list of content hash-tables for the MCP response. The tool
+   result is serialized with jzon as a proper JSON object."
   (handler-case
       (let ((result (mcp-execute-tool tool-name arguments)))
-        (list `(("type" . "text")
-                ("text" . ,(cl-json:encode-json-to-string result)))))
+        (list (mcp-text-content
+               (com.inuoe.jzon:stringify (alist->jzon result)))))
     (error (e)
-      (list `(("type" . "text")
-              ("text" . ,(format nil "Error: ~a" e)))))))
+      (list (mcp-text-content (format nil "Error: ~a" e))))))
 
 (defun mcp-arg (key arguments)
   "Look up KEY in cl-json decoded ARGUMENTS alist.
@@ -505,18 +595,20 @@
 ;;; ===================================================================
 
 (defun make-jsonrpc-result (id result)
-  "Create a JSON-RPC 2.0 success response."
-  `(("jsonrpc" . "2.0")
-    ("id" . ,id)
-    ("result" . ,result)))
+  "Create a JSON-RPC 2.0 success response as a hash-table (a JSON object
+   under jzon). RESULT must already be a jzon-friendly value (hash-table,
+   list/vector, or scalar)."
+  (mcp-json-object "jsonrpc" "2.0"
+               "id" id
+               "result" result))
 
 (defun make-jsonrpc-error (id code message &optional data)
-  "Create a JSON-RPC 2.0 error response."
-  `(("jsonrpc" . "2.0")
-    ("id" . ,id)
-    ("error" . (("code" . ,code)
-                ("message" . ,message)
-                ,@(when data `(("data" . ,data)))))))
+  "Create a JSON-RPC 2.0 error response as a hash-table."
+  (mcp-json-object "jsonrpc" "2.0"
+               "id" id
+               "error" (let ((err (mcp-json-object "code" code "message" message)))
+                         (when data (setf (gethash "data" err) data))
+                         err)))
 
 (defun handle-mcp-jsonrpc-message (message session-id)
   "Process a single JSON-RPC message and return the response (or nil for notifications)."
@@ -531,13 +623,13 @@
          (register-mcp-session new-session :client-info client-info)
          (values
           (make-jsonrpc-result id
-            `(("protocolVersion" . "2025-03-26")
-              ("capabilities" .
-               (("tools" . (("listChanged" . t)))))
-              ("serverInfo" .
-               (("name" . "autopoiesis")
-                ("version" . "0.1.0")))
-              ("instructions" . "Autopoiesis cognitive backend. Use tools to manage agents, snapshots, branches, and human-in-the-loop requests.")))
+            (mcp-json-object
+             "protocolVersion" "2025-03-26"
+             "capabilities" (mcp-json-object
+                             "tools" (mcp-json-object "listChanged" t))
+             "serverInfo" (mcp-json-object "name" "autopoiesis"
+                                       "version" "0.1.0")
+             "instructions" "Autopoiesis cognitive backend. Use tools to manage agents, snapshots, branches, and human-in-the-loop requests."))
           new-session)))
 
       ;; --- notifications/initialized ---
@@ -554,7 +646,8 @@
       ((string= method "tools/list")
        (values
         (make-jsonrpc-result id
-          `(("tools" . ,(mapcar #'tool-def-to-mcp-json (mcp-tool-definitions)))))
+          (mcp-json-object "tools"
+                       (mapcar #'tool-def-to-mcp-json (mcp-tool-definitions))))
         session-id))
 
       ;; --- tools/call ---
@@ -565,15 +658,16 @@
              (let ((content (mcp-call-tool-dispatch tool-name arguments)))
                (values
                 (make-jsonrpc-result id
-                  `(("content" . ,content)
-                    ("isError" . nil)))
+                  ;; CONTENT is a list of text-content hash-tables; nil
+                  ;; isError stringifies as JSON false under jzon.
+                  (mcp-json-object "content" content
+                               "isError" nil))
                 session-id))
            (error (e)
              (values
               (make-jsonrpc-result id
-                `(("content" . ((("type" . "text")
-                                 ("text" . ,(format nil "~a" e)))))
-                  ("isError" . t)))
+                (mcp-json-object "content" (list (mcp-text-content (format nil "~a" e)))
+                             "isError" t))
               session-id)))))
 
       ;; --- Unknown method ---
@@ -614,8 +708,8 @@
       (t
        (setf (hunchentoot:return-code*) 405)
        (setf (hunchentoot:content-type*) "application/json")
-       (cl-json:encode-json-to-string
-        '(("error" . "Method not allowed")))))))
+       (com.inuoe.jzon:stringify
+        (mcp-json-object "error" "Method not allowed"))))))
 
 (defun handle-mcp-post (request)
   "Handle POST /mcp - process JSON-RPC message from client."
@@ -634,8 +728,8 @@
             (setf (hunchentoot:return-code*) 404)
             (setf (hunchentoot:content-type*) "application/json")
             (return-from handle-mcp-post
-              (cl-json:encode-json-to-string
-               '(("error" . "Session not found or expired")))))
+              (com.inuoe.jzon:stringify
+               (mcp-json-object "error" "Session not found or expired"))))
           ;; Handle single message (not batching for now)
           (multiple-value-bind (response new-session-id)
               (handle-mcp-jsonrpc-message message session-id)
@@ -645,7 +739,8 @@
             (if response
                 (progn
                   (setf (hunchentoot:content-type*) "application/json")
-                  (cl-json:encode-json-to-string response))
+                  ;; RESPONSE is a jzon-friendly hash-table tree.
+                  (com.inuoe.jzon:stringify response))
                 ;; Notification - no response body
                 (progn
                   (setf (hunchentoot:return-code*) 202)
@@ -654,7 +749,7 @@
         (declare (ignore e))
         (setf (hunchentoot:content-type*) "application/json")
         (setf (hunchentoot:return-code*) 400)
-        (cl-json:encode-json-to-string
+        (com.inuoe.jzon:stringify
          (make-jsonrpc-error nil -32700 "Parse error"))))))
 
 (defun handle-mcp-sse-stream (request)
@@ -664,8 +759,8 @@
       (setf (hunchentoot:return-code*) 400)
       (setf (hunchentoot:content-type*) "application/json")
       (return-from handle-mcp-sse-stream
-        (cl-json:encode-json-to-string
-         '(("error" . "No active session. Send initialize first via POST.")))))
+        (com.inuoe.jzon:stringify
+         (mcp-json-object "error" "No active session. Send initialize first via POST."))))
     ;; Set SSE headers
     (setf (hunchentoot:content-type*) "text/event-stream")
     (setf (hunchentoot:header-out :cache-control) "no-cache")
@@ -700,10 +795,10 @@
           (remove-mcp-session session-id)
           (setf (hunchentoot:return-code*) 200)
           (setf (hunchentoot:content-type*) "application/json")
-          (cl-json:encode-json-to-string
-           `(("terminated" . t) ("session" . ,session-id))))
+          (com.inuoe.jzon:stringify
+           (mcp-json-object "terminated" t "session" session-id)))
         (progn
           (setf (hunchentoot:return-code*) 404)
           (setf (hunchentoot:content-type*) "application/json")
-          (cl-json:encode-json-to-string
-           '(("error" . "Session not found")))))))
+          (com.inuoe.jzon:stringify
+           (mcp-json-object "error" "Session not found"))))))
