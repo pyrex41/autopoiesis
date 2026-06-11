@@ -56,6 +56,14 @@
 
 (defun mcp-tool-definitions ()
   "Return the list of MCP tool definitions exposed by this server."
+  (append
+   (mcp-core-tool-definitions)
+   ;; Room tools (defined in room-mcp.lisp, loaded after this file).
+   (when (fboundp 'room-mcp-tool-definitions)
+     (funcall 'room-mcp-tool-definitions))))
+
+(defun mcp-core-tool-definitions ()
+  "Return the built-in (non-room) MCP tool definitions."
   (list
    ;; --- Agent Lifecycle ---
    `((:name . "list_agents")
@@ -239,7 +247,11 @@
      (:description . "Get Autopoiesis system status: version, agent count, running state")
      (:input-schema . ((:type . "object")
                        (:properties)
-                       (:additional-properties . nil))))))
+                       (:additional-properties . nil))))
+
+   ;; --- Shared Room (multi-agent substrate branch + merge) ---
+   ;; Defined in room-mcp.lisp; appended here so a real MCP client sees them.
+   ))
 
 ;;; ===================================================================
 ;;; Tool Definition Serialization
@@ -310,6 +322,11 @@
 
 (defun mcp-execute-tool (tool-name arguments)
   "Execute an MCP tool and return the result as an alist."
+  ;; Route shared-room tools to the room layer (room-mcp.lisp).
+  (when (and (fboundp 'room-mcp-tool-p)
+             (funcall 'room-mcp-tool-p tool-name))
+    (return-from mcp-execute-tool
+      (funcall 'room-mcp-execute-tool tool-name arguments)))
   (let ((agent-id (mcp-arg :agent--id arguments))
         (snapshot-id (mcp-arg :snapshot--id arguments)))
     (cond

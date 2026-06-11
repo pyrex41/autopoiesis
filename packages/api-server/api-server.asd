@@ -38,6 +38,7 @@
       (:file "sse")
       (:file "serialization")
       (:file "mcp-server")
+      (:file "room-mcp")
       (:file "aether-blob-store")
       (:file "aether-runtime")
       (:file "sb-product")
