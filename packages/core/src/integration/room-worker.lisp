@@ -33,11 +33,16 @@
    turn and STAGES its output onto its own branch (no merge -- the orchestrator
    fans in later via fan-in-room). EVENT-DATA plist:
      :problem entity the work is about   :prompt turn prompt
-     :provider provider instance         :worker worker/branch name
+     :backend agent-backend spec (any tool: codex/claude/grok/rho/pi/opencode),
+              e.g. (:kind :rho :model \"grok-4.3\")  -- or :provider instance
+     :worker worker/branch name
    Caller declares cardinalities for :room/proposal (:one) and :room/note (:many)."
   (let* ((problem  (getf event-data :problem))
          (prompt   (getf event-data :prompt))
-         (provider (getf event-data :provider))
+         ;; backend-agnostic: a serializable :backend spec (any agent tool) or a
+         ;; pre-built :provider. (:backend (:kind :rho :model "grok-4.3") ...)
+         (provider (or (getf event-data :provider)
+                       (make-agent-backend-from-spec (getf event-data :backend))))
          (worker   (or (getf event-data :worker) "worker"))
          (task-id  (format nil "room-worker-~A-~A" problem worker))
          (cap-sub   autopoiesis.substrate:*substrate*)

@@ -138,6 +138,7 @@
        (:file "provider-cursor")
        (:file "provider-pi")
        (:file "provider-rho")
+       (:file "provider-grok")
        (:file "provider-nanobot")
        (:file "provider-nanosquash")
        (:file "integrate-primitives")
@@ -148,6 +149,7 @@
        (:file "agentic-persistent")
        (:file "provider-persistent")
        (:file "sandbox-tools")
+       (:file "agent-backend")
        (:file "room-worker")))
      (:module "skel"
       :serial t
