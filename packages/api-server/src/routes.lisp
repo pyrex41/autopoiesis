@@ -1642,6 +1642,53 @@
 ;;; Main Router
 ;;; ===================================================================
 
+;;; ===================================================================
+;;; Ingress Endpoints (pluggable sources -> rooms)  [ingress.lisp]
+;;; ===================================================================
+
+(defun ingress-backend-from-json (raw)
+  "Convert a JSON backend spec (alist {kind:\"rho\",model:\"grok-4.3\"}) into a
+   Lisp plist (:kind :rho :model \"grok-4.3\"). NIL passes through."
+  (when (and raw (listp raw))
+    (let ((kind (cdr (assoc :kind raw)))
+          (model (cdr (assoc :model raw))))
+      (append (when kind (list :kind (intern (string-upcase kind) :keyword)))
+              (when model (list :model model))))))
+
+(defun rest-ingress-open (adapter-name body)
+  "Open a room via ADAPTER-NAME from a decoded JSON BODY alist."
+  (handler-case
+      (let* ((backend (or (ingress-backend-from-json (cdr (assoc :backend body)))
+                          *default-room-backend*))
+             (room-eid (ingest adapter-name body :backend backend)))
+        (json-ok `((:opened . t) (:room . ,(room-to-json-alist room-eid)))))
+    (error (e)
+      (json-error (format nil "~a" e) :status 400 :error-type "Ingress Error"))))
+
+(defun rest-handle-ingress (request)
+  "Dispatch /api/ingress/* requests.
+     POST /api/ingress/webhook  -- {problem,title,prompt?,pointer?,source?,backend?}
+     POST /api/ingress/slack    -- Slack Events API app_mention envelope
+     GET  /api/ingress/rooms    -- list open rooms"
+  (let* ((uri (hunchentoot:request-uri request))
+         (qpos (position #\? uri))
+         (path (if qpos (subseq uri 0 qpos) uri))
+         (method (hunchentoot:request-method request)))
+    (cond
+      ((and (eq method :get) (string= path "/api/ingress/rooms"))
+       (require-permission :read)
+       (json-ok (or (mapcar #'room-to-json-alist (list-rooms)) #())))
+      ((and (eq method :post) (string= path "/api/ingress/webhook"))
+       (require-permission :write)
+       (rest-ingress-open :webhook (parse-json-body)))
+      ((and (eq method :post) (string= path "/api/ingress/slack"))
+       (require-permission :write)
+       (let ((body (parse-json-body)))
+         (if (string= (or (cdr (assoc :type body)) "") "url_verification")
+             (json-ok `((:challenge . ,(cdr (assoc :challenge body)))))
+             (rest-ingress-open :slack body))))
+      (t (json-error "Method not allowed" :status 405 :error-type "Method Not Allowed")))))
+
 (defun api-dispatch-handler ()
   "Main dispatcher for the /api/ prefix.
    Routes requests to the appropriate handler based on URL path."
@@ -1738,6 +1785,10 @@
                (and (> (length uri) 8)
                     (string= "/api/sb/" (subseq uri 0 8))))
            (rest-handle-sb request))
+          ;; /api/ingress/* — pluggable sources (webhook/slack/...) open rooms
+          ((and (> (length uri) 13)
+                (string= "/api/ingress/" (subseq uri 0 13)))
+           (rest-handle-ingress request))
           ;; Unknown API route
           (t
            (json-not-found "API route" uri)))

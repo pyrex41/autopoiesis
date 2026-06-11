@@ -163,6 +163,35 @@
     #:*session-cookie-path*
     #:*session-cookie-max-age*
 
+    ;; === Pluggable Ingress + Slack decision routing (ingress.lisp) ===
+    #:source-adapter
+    #:source-adapter-name
+    #:adapter-normalize
+    #:register-source-adapter
+    #:find-source-adapter
+    #:list-source-adapters
+    #:ingest
+    #:open-room
+    #:ingress-room-state
+    #:list-rooms
+    #:*default-room-backend*
+    #:register-fetcher
+    #:find-fetcher
+    #:fetch-context
+    #:*default-fetcher*
+    #:slack-client
+    #:make-mock-slack-client
+    #:slack-post-message
+    #:slack-fetch-replies
+    #:mock-slack-posted
+    #:mock-slack-inject-reply
+    #:raise-decision
+    #:route-decision-to-slack
+    #:ingest-decision-replies
+    #:decision-state
+    #:decision-input-ids
+    #:rest-handle-ingress
+
     ;; Sandbox API
     #:*api-sandbox-manager*
     #:rest-handle-sandboxes))

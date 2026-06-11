@@ -42,6 +42,7 @@
       (:file "aether-blob-store")
       (:file "aether-runtime")
       (:file "sb-product")
+      (:file "ingress")
       (:file "routes")
       (:file "sandbox-routes")
       (:file "rest-server"))))
