@@ -174,6 +174,11 @@
            (status (getf event-data :status)))
        (when task-id
          (handle-task-result conductor task-id status result))))
+    ;; Room work — orchestrator spawns a worker that runs an agent turn into a
+    ;; shared room and merges the result. Defined in the integration module
+    ;; (loaded later); call by runtime symbol to avoid a read-time dependency.
+    (:room-work
+     (uiop:symbol-call :autopoiesis.integration '#:run-room-work conductor event-data))
     ;; Team coordination events — increment metrics
     ((:team-created :team-started :team-completed :team-failed)
      (increment-metric conductor :team-events))

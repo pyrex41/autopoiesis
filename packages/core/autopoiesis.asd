@@ -147,7 +147,8 @@
        (:file "provider-inference")
        (:file "agentic-persistent")
        (:file "provider-persistent")
-       (:file "sandbox-tools")))
+       (:file "sandbox-tools")
+       (:file "room-worker")))
      (:module "skel"
       :serial t
       :depends-on ("core" "integration")

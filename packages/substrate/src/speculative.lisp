@@ -57,7 +57,8 @@
 
 (defun branch-stage (branch entity attribute value)
   "Stage a write into BRANCH's overlay. Intern-free: records the base value
-   observed now. Does not touch the base store."
+   observed now. Does not touch the base store. (Conflict detection assumes a
+   barrier: all branches stage before any merges -- the orchestrator fans in.)"
   (push (make-branch-write :entity entity :attribute attribute :value value
                            :cardinality (attribute-cardinality attribute)
                            :base-at-fork (entity-attr entity attribute))
