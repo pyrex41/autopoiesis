@@ -13,6 +13,9 @@ substrate Datalog engine.
 | [`00-architecture.md`](./00-architecture.md) | The design. CAS + Merkle manifest reuse, linear-trunk demotion of the snapshot DAG, the serialized land queue, the Raft RSM (hashes in the log, **bytes out of band**), the Shen/Datalog policy split, path-scoped ACLs, the NFS-loopback VFS, and the P0–P7 phase sequence. | draft → **to be revised** per the roadmap's G0 deltas |
 | [`01-aphyr-review.md`](./01-aphyr-review.md) | Adversarial Jepsen-style review (Kyle Kingsbury persona). Verdict: *salvageable, not broken.* **4 Critical, 7 Major, 2 Minor**, each with a concrete failure history. | review |
 | [`02-roadmap.md`](./02-roadmap.md) | Reconciliation. Commits a resolution for each Critical (the **G0 spec gate** that blocks Raft work), assigns the Majors to phases, and lays out the gate-annotated build plan + the `raft-jepsen-tests` strategy. | draft |
+| [`03-torvalds-review.md`](./03-torvalds-review.md) | VCS-design review (Linus Torvalds persona). The parts Aphyr couldn't see: **no real merge**, **O(repo) `status` with no dirstate**, virtualization shipped last, missing stacked-changes, whole-file blobs, Raft-before-usable-VCS. 3 Showstopper, 4 Serious. | review |
+| [`04-fukamachi-review.md`](./04-fukamachi-review.md) | CL-implementation review (Eitaro Fukamachi persona). **NFS-in-SBCL = invent 4 missing libs (use 9P)**, the **substrate global lock** throttles the VFS, GC/perf hot-path fixes, **shen-cl is a deploy liability**. 3 Blocker, 6 Significant. | review |
+| [`05-synthesis.md`](./05-synthesis.md) | **Panel synthesis.** Where the four reviewers independently converged, the **polyglot boundary** (Lisp core vs native edges; Shen as any-language sidecar), the resolved decision log, and the **revised VCS-first phase plan** (merge/dirstate/change-id added; Raft + mount deferred off the critical path). | draft |
 
 ## The one-paragraph version
 
