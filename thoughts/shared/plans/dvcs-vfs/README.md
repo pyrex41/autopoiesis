@@ -23,6 +23,8 @@ substrate Datalog engine.
 | [`10-fukamachi-review-v2.md`](./10-fukamachi-review-v2.md) | Shippability. Blocker = Irmin **dependency posture** (seam+pin+vendor+migration drill), not Irmin. Cut the 2nd replication system. Rust-vs-OCaml: OCaml conditionally. 1 Blocker, 4 Significant. | review |
 | [`11-minsky-review.md`](./11-minsky-review.md) | OCaml/types/Irmin fit. Inverts the risk: **abstract Irmin** (Blocker), **no Eio day-one** (Blocker), **use the type system or don't use OCaml** (with `.mli` sketches), honest alt = **split-stack** (Rust data plane + OCaml control plane). 2 Blocker, 4 Major. | review |
 | [`12-synthesis-v2.md`](./12-synthesis-v2.md) | **Panel-v2 synthesis.** Convergences (abstract Irmin; one replication system; Lwt-first; fencing token; close merge/dirstate gaps), surviving problems w/ owners, amended P0, and the **one open decision**: the language/stack fork (all-OCaml / split-stack / all-Rust), which hinges on team language depth. | draft |
+| [`13-plan-ocaml.md`](./13-plan-ocaml.md) | **All-OCaml build plan** (`mvfs`). Monday-ready: `Object_store` seam over irmin-pack + pin/vendor/migration-drill, the four domain `.mli` (land-FSM GADT, `Lease.witness`, total `merge_tree`, `Acl.proof`), Lwt-single-domain + 2 gating spikes, 9p mount, landed-log replication + fencing, restack-on-land, P0–P6. | draft |
+| [`14-plan-shen.md`](./14-plan-shen.md) | **All-Shen build plan** (`shenvfs`). Same product on shen-cl/SBCL: Shen-Prolog `defprolog` ACL control plane, sequent-calculus `datatype` invariants (stale-leader land = type error), homoiconic policy-as-data; same obligations discharged. Honest verdict: wins the control plane, loses the IO/mount half (assumed ports don't exist; CL FUSE is weak). | draft |
 
 ## The one-paragraph version
 
