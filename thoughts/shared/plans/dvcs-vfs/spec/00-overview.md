@@ -158,23 +158,22 @@ read-replicas (no Raft); proven-brain/trusted-shell.
 (moderate scale); proving the shelled-out oracles (git/fs/nginx are trusted); hyperscale (10k-eng)
 parallel landing; an in-kernel FUSE *requirement* (mount is a thin client; checkout-first is fine).
 
-## 6a. Open decisions & residual risks (reconciled from the spec authors)
+## 6a. Decisions ruled & residual risks (reconciled from the spec authors)
 
-Two items the design surfaces but does not unilaterally close — both flagged for an explicit ruling:
+Both items below were **ruled on 2026-06-25** (user approved the recommendations):
 
-- **[Open product decision] Stack-land atomicity / partial-land visibility** (`06` §12). Bottom-up
-  stack landing can publish a stack partially (B lands without C) — correct for independent changes,
-  wrong for a stack valid only as a unit. Options: (a) independent / CI-gated lands, (b) true
-  atomic multi-seq land, (c) squash-on-land. **Recommended:** ship (a) first, spec (c) as fast-follow.
-  Touches the single-change FSM (`02`) + restack/Change-Id (`06`). **Needs a ruling.**
-- **[Residual risk, accepted] Generated-matcher correctness drift** (`04` T14 / `03`). The decidable
-  Datalog policy *model* is provable, but the partial-eval'd matcher that runs on the hot path is
-  *generated code on the trusted-shell side* — an over-permissive codegen bug ships fleet-wide
-  cleanly (consistent, fail-closed, basis-versioned, **wrong**). The read boundary cannot be safer
-  than the authz decision it enforces. **Mitigation (mandatory, not optional):** keep the interpreted
-  Datalog **oracle as a runtime kill-switch**; **CI-blocking differential diff** of generated matcher
-  vs oracle; **canary** policy rollout. This is the standing exception to "proven brain" — the *model*
-  is proven, the *codegen* is conformance-tested.
+- **[RULED] Stack-land atomicity = (a) independent / CI-gated lands for v1; (c) squash-on-land as a
+  fast-follow.** (`06` §12.) v1 publishes a stack bottom-up, one landed `seq` per change, each
+  independently admissible; a stack that is only valid as a unit is the developer's responsibility in
+  v1 (CI gates partial states). Atomic multi-seq land (b) is explicitly out of v1. The single-change
+  land FSM (`02`) is unchanged; restack-on-land (`06`) drives the per-change sequence.
+- **[RULED — accepted] Generated-matcher correctness drift** (`04` T14 / `03`): the decidable Datalog
+  policy *model* is proven; the partial-eval'd matcher on the hot path is *generated code on the
+  trusted-shell side*, so it is **conformance-tested, not verified**. **Accepted with mandatory
+  controls:** the interpreted Datalog **oracle is a runtime kill-switch**; a **CI-blocking
+  differential diff** of generated matcher vs oracle gates every policy/codegen change; policy
+  rollout is **canaried**. This is the one standing exception to "proven brain" — *model proven,
+  codegen conformance-tested* — and it is now a permanent build-plan obligation (`07`).
 
 ## 7. How the exploration maps in (so nothing is lost)
 - Verdict + premises corrected for the toolchain author: `../25`, `../32`.
