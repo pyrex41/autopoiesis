@@ -1,9 +1,7 @@
 \* mvfs/cli.shen — P0 thin entry points (spec/06 CLI surface; clone + log).
    Full surface (status/diff/submit/stack/restack/land/resolve/sparse/acl)
    arrives in P1+. *\
-(package mvfs.cli [clone log-cmd main]
-
-(import mvfs.boundary mvfs.log mvfs.types)
+(package mvfs []
 
 \* clone: materialize a working copy at HEAD (P0 = git checkout-first; the
    virtualized mount is spec/05 P6). *\

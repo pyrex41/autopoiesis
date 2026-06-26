@@ -26,30 +26,45 @@ This directory is **P0** from `spec/07-build-plan.md`: the core spine, written i
   fence (the `acl-proof` carries `acl-version`) · **I7** fenced authority (the fence = lease *epoch*,
   CAS'd at the durable append; `lease-witness` is the type-level half).
 
-## Building (on your toolchain)
-
-> ⚠️ This sandbox has no Shen toolchain; the code here is written to spec and **has not been
-> compiled/typechecked in this environment**. Run it where `pyrex41/shen-lua` and shen-cl live.
+## Building
 
 ```sh
-# point these at your installs:
-export SHEN_LUA=/path/to/shen-lua      # the LuaJIT port
-export SHEN_CL=/path/to/shen-cl        # the Common Lisp port (for the land tier)
+# build LuaJIT 2.1 + fetch shen-lua into ./.toolchain (idempotent):
+eval "export SHEN=$(scripts/bootstrap-toolchain.sh)"   # adds luajit to PATH internally
+# (or point SHEN at your own shen-lua launcher: export SHEN=/path/to/shen-lua/bin/shen)
 
-make typecheck            # typecheck the core (must pass)
-make typecheck-negative   # MUST FAIL: rejects test/illegal.shen (the 4 illegal programs)
-make test                 # run positive tests
-make cl                   # build the land-tier image (shen-cl)
-make lua                  # build the read-tier artifact (shen-lua)
+make typecheck            # typecheck the core under Shen's tc + (must pass)
+make typecheck-negative   # MUST FAIL: rejects test/illegal.shen (illegal programs)
+make test                 # positive runtime smoke: submit->admit->base yields a `based`
 ```
 
-The `boundary.shen` host primitives (`shell-run`, `fsync-append`, `cas-head`, `crc64`, `xor64`) are
+The `boundary.shen` host primitives (`shell-run`, `durable-cas-append!`, `crc64`, `xor64`, …) are
 the **per-backend** extension point: shen-lua provides them via LuaJIT FFI / `os`/`io`; shen-cl via
-`uiop`/`ironclad`. P0 ships portable signatures + a reference behavior; wire the backend impls in
-`src/host-lua.shen` / `src/host-cl.shen` (next).
+`uiop`/`ironclad`. P0 ships portable signatures + erroring stubs; wire the backend impls in
+`src/host-lua.shen` / `src/host-cl.shen` (P0.5).
 
-## Status
+## Status — VERIFIED on shen-lua / LuaJIT 2.1
 
-P0 skeleton, design-faithful, **unbuilt in this environment**. Next per `spec/07`: run **spike S0**
-(`jit.dump` the read decision path) and wire the two host backends, then P1 (dirstate + git 3-way
-merge + stacks).
+Built and run on the real toolchain (bootstrapped via `scripts/bootstrap-toolchain.sh`):
+
+- ✅ **Core typechecks** under Shen's sequent-calculus checker (`tc +`), 0 errors.
+- ✅ **Illegal programs rejected**: loading `test/illegal.shen` under `tc +` fails with
+  `type error in rule 1 of mvfs.illegal-1` — i.e. `land` applied to a `submitted` change does not
+  typecheck. The I7 "illegal states unrepresentable" property is demonstrated by the typechecker.
+- ✅ **FSM runs**: `submit → check → admit → base` yields
+  `[mvfs.mk-based c1 k1 ttree tbase alice [mvfs.mk-proof alice [] 0]]`.
+
+### Notes learned wiring this to the real typechecker
+- All core modules live in **one `mvfs` package, exporting nothing** — Shen's `tc` only shares a
+  function's `{ }` signature with callers when the function is *not* exported (internal/prefixed).
+- `synonyms` must be declared **inside** the package; functions must be defined **callee-before-caller**.
+- Datatype constructors are list terms `[tag ..]`; comments cannot appear inside a `(datatype ...)` body;
+  `if`-guarded rules can't be mixed with `[tag ..]` rules in one datatype.
+- **shen-lua typechecker edge case (worth a `pyrex41/shen-lua` issue):** a function that *both*
+  destructures a datatype constructor in its rule head *and* constructs a state value, while a sibling
+  also constructs that constructor, fails to typecheck. Minimal repro: a `base` that builds `[mk-based …]`
+  plus a `land` whose head matches `[mk-based …]`. Worked around by reading `based`'s fields via accessor
+  functions (`based-tree`/`based-onto`/…) instead of head-destructuring — type discipline unchanged.
+
+Next per `spec/07`: spike **S0** (`jit.dump` the read decision path), wire the host backends
+(`crc64`/`xor64`/`shell-run`/`durable-cas-append!`), then P1 (dirstate + git 3-way merge + stacks).

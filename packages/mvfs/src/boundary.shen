@@ -4,12 +4,7 @@
    overridden per backend (src/host-lua.shen via LuaJIT FFI/os/io;
    src/host-cl.shen via uiop/ironclad). The git verbs are built on shell-run
    and constitute the trusted CAS oracle. *\
-(package mvfs.boundary [shell-run shell-run-stdin
-                        durable-head durable-cas-append!
-                        crc64 xor64
-                        git-hash-object git-hash-bytes git-cat-file
-                        git-mktree git-commit-tree git-merge-tree
-                        verify-blob chomp]
+(package mvfs []
 
 \* ===== raw host primitives (backend MUST override) ===== *\
 

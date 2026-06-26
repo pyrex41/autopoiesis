@@ -3,9 +3,7 @@
    here — the canonical contrib field set and the prev==post chain invariant —
    is pure, proven Shen. The contrib field list is NORMATIVE for the
    differential oracle (spec/00 §5.1, spec/07). *\
-(package mvfs.checksum [contrib roll chain-ok?]
-
-(import mvfs.boundary)
+(package mvfs []
 
 \* CONTRIB: the canonical serialization of a landed-entry over ALL fields
    EXCEPT prev-checksum / post-checksum. Fields are joined by US (\x1f) in the
