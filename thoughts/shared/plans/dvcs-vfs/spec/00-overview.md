@@ -107,20 +107,28 @@ These shapes are normative; downstream docs refine but must not redefine them.
 ### 5.1 Landed-log entry (the spine; `01`/`02`)
 ```
 landed-entry := {
-  seq            : u64        ; monotonic, gapless (I1/I2)
-  change-id      : id         ; stable across revisions/rebase (Gerrit-style)
-  commit-hash    : hash       ; git commit object for this landed change
-  parent-hash    : hash       ; predecessor commit (single parent; trunk is linear)
-  root-tree      : hash       ; git tree = content identity of the trunk at this seq
-  paths-touched  : sorted[path]
-  author         : principal
-  acl-version    : u64        ; log seq of the policy entry this land was authorized against (I6)
-  fence          : u64        ; fencing token = leader lease epoch; CAS'd on durable append (I7)
-  prev-checksum  : u64        ; == prior entry post-checksum (chain integrity)
-  post-checksum  : u64        ; rolling checksum after this entry
-  ts             : i64        ; taken at submit time (apply must be clock-free)
+  seq             : u64        ; monotonic, gapless (I1/I2)
+  change-id       : id         ; stable across revisions/rebase (Gerrit-style)
+  idempotency-key : id         ; client-chosen per logical submission; dedup authority (I3) [added per 01]
+  commit-hash     : hash       ; git commit object for this landed change
+  parent-hash     : hash       ; predecessor commit (single parent; trunk is linear)
+  root-tree       : hash       ; git tree = content identity of the trunk at this seq
+  paths-touched   : sorted[path]
+  author          : principal
+  acl-version     : u64        ; log seq of the policy entry this land was authorized against (I6)
+  fence           : u64        ; fencing token = leader lease EPOCH; CAS'd >= last-fence on durable append (I7)
+  prev-checksum   : u64        ; == prior entry post-checksum (chain integrity)
+  post-checksum   : u64        ; rolling checksum after this entry
+  ts              : i64        ; taken at submit time (apply must be clock-free)
 }
 ```
+**Pinned (reconciled from `01`/`02`):**
+- `hash` = **git SHA-256** for v1 (fixes as-of token & serve-token HMAC input widths).
+- Rolling checksum = **ISO/ECMA CRC-64 with XOR-fold** (commutative, O(changed) incremental). The
+  checksum `contrib` covers all fields **except** `prev-checksum`/`post-checksum`; the exact field
+  list is normative for the differential oracle (`07`).
+- `fence` is the **lease epoch**, never the trunk tip (`02` §3); it is CAS'd against a fresh read of
+  the durable head, atomically with fsync, with a post-fsync lease re-check before ack.
 A **policy entry** is a distinguished landed-entry whose payload is a Datalog ruleset delta;
 `acl-version` is the `seq` of the most recent committed policy entry (`03`).
 
@@ -149,6 +157,24 @@ read-replicas (no Raft); proven-brain/trusted-shell.
 **Out (non-goals):** branches/merraging of published history; multi-master writes; Raft/consensus
 (moderate scale); proving the shelled-out oracles (git/fs/nginx are trusted); hyperscale (10k-eng)
 parallel landing; an in-kernel FUSE *requirement* (mount is a thin client; checkout-first is fine).
+
+## 6a. Open decisions & residual risks (reconciled from the spec authors)
+
+Two items the design surfaces but does not unilaterally close — both flagged for an explicit ruling:
+
+- **[Open product decision] Stack-land atomicity / partial-land visibility** (`06` §12). Bottom-up
+  stack landing can publish a stack partially (B lands without C) — correct for independent changes,
+  wrong for a stack valid only as a unit. Options: (a) independent / CI-gated lands, (b) true
+  atomic multi-seq land, (c) squash-on-land. **Recommended:** ship (a) first, spec (c) as fast-follow.
+  Touches the single-change FSM (`02`) + restack/Change-Id (`06`). **Needs a ruling.**
+- **[Residual risk, accepted] Generated-matcher correctness drift** (`04` T14 / `03`). The decidable
+  Datalog policy *model* is provable, but the partial-eval'd matcher that runs on the hot path is
+  *generated code on the trusted-shell side* — an over-permissive codegen bug ships fleet-wide
+  cleanly (consistent, fail-closed, basis-versioned, **wrong**). The read boundary cannot be safer
+  than the authz decision it enforces. **Mitigation (mandatory, not optional):** keep the interpreted
+  Datalog **oracle as a runtime kill-switch**; **CI-blocking differential diff** of generated matcher
+  vs oracle; **canary** policy rollout. This is the standing exception to "proven brain" — the *model*
+  is proven, the *codegen* is conformance-tested.
 
 ## 7. How the exploration maps in (so nothing is lost)
 - Verdict + premises corrected for the toolchain author: `../25`, `../32`.
