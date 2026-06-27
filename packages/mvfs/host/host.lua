@@ -188,4 +188,22 @@ function M.pijul_conflicted(channel)
   return out:find("There were conflicts", 1, true) ~= nil
 end
 
+-- the order-independent trunk state/version hash of a channel (the "State: ..."
+-- line of `pijul log --state`). "" if the channel has no changes.
+function M.pijul_state(channel)
+  local out = M.shell_run("pijul", { "log", "--channel", channel, "--state", "--limit", "1" })
+  return (out:match("State:%s*([A-Z0-9]+)")) or ""
+end
+
+-- ---- recovery helpers (Aphyr: log is truth, pristine is a rebuildable cache) --
+-- non-base change hashes currently in a channel's pristine (for the orphan sweep).
+function M.pijul_trunk_changes(channel, base)
+  local out = M.shell_run("pijul", { "log", "--channel", channel, "--hash-only" })
+  local hs = {}
+  for h in out:gmatch("[A-Z0-9]+") do
+    if h ~= base and #h > 40 then hs[#hs + 1] = h end
+  end
+  return hs
+end
+
 return M

@@ -81,6 +81,10 @@ make typecheck            # typecheck the core under Shen's tc + (must pass)
 make typecheck-lore       # typecheck the optional lore backend host (must pass; no server needed)
 make typecheck-negative   # MUST FAIL: rejects test/illegal.shen (illegal programs)
 make test                 # positive runtime smoke: submit->admit->base yields a `based`
+
+# P1 — the FSM running for real (needs SHEN, PIJUL, PIJUL_CONFIG_DIR + git/pijul):
+make e2e                  # real git + real pijul + fsync'd log: oracle, land path, I7
+make t1                   # two-store crash atomicity (Aphyr ship-decider): 8/8
 ```
 
 The `boundary.shen` host primitives (`shell-run`, `durable-cas-append!`, `crc64`, `xor64`, …) are

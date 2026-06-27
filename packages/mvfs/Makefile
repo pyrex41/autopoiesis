@@ -15,7 +15,7 @@ NEG  = test/illegal.shen
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -51,3 +51,9 @@ test:
 # Requires SHEN, PIJUL, PIJUL_CONFIG_DIR (an ssh-agent identity), git+pijul on PATH.
 e2e:
 	bash test/e2e.sh
+
+# T1: two-store crash-atomicity (Aphyr's ship-decider). Injects a crash at the
+# W1/W2 windows and asserts the log-first recovery (forward re-apply + backward
+# orphan sweep) restores the invariants. Same env requirements as `e2e`.
+t1:
+	bash test/t1-crash.sh

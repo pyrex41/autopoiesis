@@ -50,6 +50,45 @@
 \* ---- pijul structural conflict probe (Aphyr MF-2) ---- *\
 (define pijul-graph-conflicted? { string --> boolean } Ch -> (lua.call "mvfs.pijul_conflicted" [Ch]))
 
+\* ---- order-independent trunk state hash (extract the "State:" line) ---- *\
+(define pijul-state { string --> hash } Ch -> (lua.call "mvfs.pijul_state" [Ch]))
+
+\* ---- two-store recovery (Aphyr: log = truth, pristine = rebuildable cache) ----
+   A pijul land records the change-hash in the entry's Commit field and the
+   post-apply trunk state in Root (reusing the frozen schema; no change needed).
+   recover! makes the pristine agree with the log:
+     forward  — re-apply every logged change to the trunk (idempotent: a present
+                change is a no-op). Fixes W1 (log fsync'd, pristine apply lost).
+     backward — unrecord any trunk change with NO log entry (an orphan from a
+                crash after pristine-apply-before-log, or a stale leader). Fixes
+                W2. You can always drop an un-blessed pristine change; you can
+                never invent a log entry for one. *\
+(define entry-commit { landed-entry --> hash } [mk-entry _ _ _ C _ _ _ _ _ _ _ _ _] -> C)
+(define entry-root   { landed-entry --> hash } [mk-entry _ _ _ _ _ R _ _ _ _ _ _ _] -> R)
+(define pijul-unrecord { string --> hash --> boolean }
+  Ch H -> (do (shell-run "pijul" ["unrecord" "--channel" Ch H]) true))
+(define trunk-changes { string --> hash --> (list hash) }
+  Ch Base -> (lua.call "mvfs.pijul_trunk_changes" [Ch Base]))
+(define h-member? { hash --> (list hash) --> boolean }
+  _ [] -> false
+  X [Y | Ys] -> (if (= X Y) true (h-member? X Ys)))
+(define entry-commits { (list landed-entry) --> (list hash) }
+  [] -> []
+  [E | Es] -> [(entry-commit E) | (entry-commits Es)])
+(define ensure-applied { string --> (list landed-entry) --> boolean }   \* forward *\
+  _ [] -> true
+  Ch [E | Es] -> (do (pijul-apply Ch (entry-commit E)) (ensure-applied Ch Es)))
+(define sweep-orphans { string --> (list hash) --> (list hash) --> boolean }   \* backward *\
+  _ _ [] -> true
+  Ch Keep [H | Hs] -> (do (if (h-member? H Keep) true (pijul-unrecord Ch H))
+                          (sweep-orphans Ch Keep Hs)))
+(define recover!
+  { string --> string --> hash --> boolean }   \* logpath trunk-channel base-change -> ok *\
+  Logpath Ch Base
+  -> (let Entries (read-all Logpath)
+       (do (ensure-applied Ch Entries)
+           (sweep-orphans Ch (entry-commits Entries) (trunk-changes Ch Base)))))
+
 \* ---- git tip + lease epoch ---- *\
 (define tip-commit { hash --> hash } _ -> (chomp (shell-run "git" ["rev-parse" "HEAD"])))
 (define acquire-epoch { lease --> number } L -> (lua.call "mvfs.acquire_epoch" [L]))
