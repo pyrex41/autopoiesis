@@ -57,6 +57,24 @@
   { string --> boolean }
   Path -> (fold-chain (read-all Path) 0))
 
+\* ---- I3 idempotency-key index over the durable log ----
+   at-most-once land: a retried submission carries the same idempotency-key; if
+   the log already has an entry for it, the land is a no-op (return the prior
+   entry). This is the AUTHORITATIVE I3 guard (pijul apply-idempotency is only a
+   merge-layer backstop — a re-recorded change can get a different hash). *\
+(define key-find-in
+  { id --> (list landed-entry) --> (list landed-entry) }   \* [] = not found, [E] = found *\
+  _ [] -> []
+  K [E | Es] -> (if (= K (entry-key E)) [E] (key-find-in K Es)))
+
+(define key-find
+  { string --> id --> (list landed-entry) }   \* logpath key -> [] | [entry] *\
+  Path K -> (key-find-in K (read-all Path)))
+
+(define key-present?
+  { string --> id --> boolean }
+  Path K -> (cons? (key-find Path K)))
+
 \* append-fenced!: re-read durable head; reject if our epoch is behind the
    head's fence; roll the post-checksum over this entry's contrib; then
    atomically {CAS fence, append framed bytes, fsync}. false => a concurrent

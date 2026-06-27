@@ -180,6 +180,24 @@
   { string --> hash --> hash }                     \* trunk-channel candidate -> new-state-hash *\
   Trunk Cand -> (do (pijul-apply Trunk Cand) (pijul-state Trunk)))
 
+\* Speculative would-be state WITHOUT mutating the trunk: fork the tip, apply the
+   candidate, read the (order-independent) state, discard the fork. Used by pland!
+   to record the post-apply Root in the landed-entry BEFORE the real apply. *\
+(define pijul-probe-state
+  { string --> hash --> hash }                     \* trunk-channel candidate -> would-be state *\
+  Trunk Cand -> (let Spec (spec-channel Cand)
+                  (do (pijul-fork Trunk Spec)
+                   (do (pijul-apply Spec Cand)
+                    (let S (pijul-state Spec)
+                     (do (pijul-drop-channel Spec) S))))))
+
+\* MF-1: are all of the candidate's pijul dependencies already in the trunk? If
+   not, a real apply would silently pull un-seq'd changes into the trunk (I1/I2
+   violation). Host-provided (parses `pijul change`'s dependency section). *\
+(define pijul-deps-in-trunk?
+  { hash --> string --> boolean }                  \* candidate trunk-channel -> all deps present? *\
+  _ _ -> (error "host: pijul-deps-in-trunk?"))
+
 \* ===== pluggable merge oracle (doc 34) — ORTHOGONAL to storage-backend =====
    git-merge:   git 3-way heuristic (merge-tree). Default; daemon-free; the kept
                 fallback (Torvalds: keep git warm).

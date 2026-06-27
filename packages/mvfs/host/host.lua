@@ -196,6 +196,30 @@ function M.pijul_state(channel)
 end
 
 -- ---- recovery helpers (Aphyr: log is truth, pristine is a rebuildable cache) --
+-- MF-1: are ALL of a candidate's pijul dependencies already in the trunk channel?
+-- Parse the "# Dependencies" section of `pijul change <cand>` (lines "[n] <hash>
+-- # name") and check each hash is present in `pijul log --channel CH --hash-only`.
+-- If a dep is missing, applying the candidate would silently pull un-seq'd
+-- changes into the trunk — an I1/I2 violation. Returns true iff all deps present.
+function M.pijul_deps_in_trunk(cand, channel)
+  local chg = M.shell_run("pijul", { "change", cand })
+  local deps = {}
+  local in_deps = false
+  for line in (chg .. "\n"):gmatch("(.-)\n") do
+    if line:find("# Dependencies", 1, true) then in_deps = true
+    elseif line:find("# Hunks", 1, true) then in_deps = false
+    elseif in_deps then
+      local h = line:match("%[%d+%]%s+([A-Z0-9]+)")
+      if h then deps[#deps + 1] = h end
+    end
+  end
+  local trunk = M.shell_run("pijul", { "log", "--channel", channel, "--hash-only" })
+  for _, d in ipairs(deps) do
+    if not trunk:find(d, 1, true) then return false end
+  end
+  return true
+end
+
 -- non-base change hashes currently in a channel's pristine (for the orphan sweep).
 function M.pijul_trunk_changes(channel, base)
   local out = M.shell_run("pijul", { "log", "--channel", channel, "--hash-only" })

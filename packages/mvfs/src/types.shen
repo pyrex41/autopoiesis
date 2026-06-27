@@ -32,10 +32,14 @@
     : landed-entry;)
 
 \* ===== accessors the log needs ===== *\
-(define entry-seq   { landed-entry --> number } [mk-entry S _ _ _ _ _ _ _ _ _ _ _ _] -> S)
-(define entry-fence { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ F _ _ _] -> F)
-(define entry-prev  { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ _ P _ _] -> P)
-(define entry-post  { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ _ _ Q _] -> Q)
+(define entry-seq    { landed-entry --> number } [mk-entry S _ _ _ _ _ _ _ _ _ _ _ _] -> S)
+(define entry-cid    { landed-entry --> id }     [mk-entry _ C _ _ _ _ _ _ _ _ _ _ _] -> C)
+(define entry-key    { landed-entry --> id }     [mk-entry _ _ K _ _ _ _ _ _ _ _ _ _] -> K)
+(define entry-commit { landed-entry --> hash }   [mk-entry _ _ _ C _ _ _ _ _ _ _ _ _] -> C)
+(define entry-root   { landed-entry --> hash }   [mk-entry _ _ _ _ _ R _ _ _ _ _ _ _] -> R)
+(define entry-fence  { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ F _ _ _] -> F)
+(define entry-prev   { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ _ P _ _] -> P)
+(define entry-post   { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ _ _ Q _] -> Q)
 
 \* entry-cells: the contrib field set in frozen order, pre-serialized to string
    cells (excludes Prev/Post). Feeds (contrib ...). Numbers -> decimal,

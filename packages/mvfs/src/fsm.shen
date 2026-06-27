@@ -144,4 +144,43 @@
           (if (append-fenced! Logpath Entry E)
               LC
               (error "fenced append rejected: stale leader, land aborted (I7)")))))))))
+
+\* ===== pland! — the unified pijul two-phase land (spec/02 §3; doc 34/35) =====
+   Folds the merge oracle + the fenced log + the two-store discipline into one
+   driver. Order (Aphyr, log-first):
+     I3  — if the idempotency-key is already in the log, return the prior landed
+           (a retried submission is a no-op; this is the AUTHORITATIVE I3 guard).
+     MF-1— reject if the candidate has dependencies not yet in the trunk (else
+           apply would silently pull un-seq'd changes in).
+     MF-3— re-run the speculative conflict check against the COMMITTED tip inside
+           the lease (admission-time freedom is not stable across tip advance).
+     (B) — append the entry to the fenced log [CAS + fsync] = linearization point;
+           Commit = change-hash, Root = the probed would-be trunk state.
+     (C) — only on a successful fenced append, apply the change to the pristine.
+   A stale leader fails the fence CAS at (B) and NEVER reaches (C): log-first means
+   a rejected land leaves the pristine untouched (no orphan). *\
+(define landed-of-entry
+  { landed-entry --> landed }
+  E -> [mk-landed (entry-cid E) (entry-key E) (entry-commit E) (entry-seq E)])
+
+(define pland!
+  { lease --> id --> id --> hash --> principal --> number --> string --> string --> landed }
+  L Cid Key Change Author AclV Trunk Logpath ->
+  (let Hit (key-find Logpath Key)
+    (if (cons? Hit)
+        (landed-of-entry (head Hit))
+        (with-leadership L
+          (/. W
+            (if (not (pijul-deps-in-trunk? Change Trunk))
+                (error "MF-1: candidate has dependencies not yet landed on the trunk")
+                (if (not (pijul-admits? Trunk Change))
+                    (error "MF-3: candidate conflicts with the trunk tip at the land point")
+                    (let E     (witness-epoch W)
+                     (let State (pijul-probe-state Trunk Change)
+                      (let Prior (pijul-state Trunk)
+                       (let Seq   (+ 1 (head-seq Logpath))
+                        (let Entry [mk-entry Seq Cid Key Change Prior State [] Author AclV E 0 0 0]
+                         (if (append-fenced! Logpath Entry E)
+                             (do (pijul-apply Trunk Change) [mk-landed Cid Key Change Seq])
+                             (error "I7: fenced append rejected (stale leader)"))))))))))))))
 )

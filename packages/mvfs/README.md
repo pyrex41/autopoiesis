@@ -85,6 +85,7 @@ make test                 # positive runtime smoke: submit->admit->base yields a
 # P1 — the FSM running for real (needs SHEN, PIJUL, PIJUL_CONFIG_DIR + git/pijul):
 make e2e                  # real git + real pijul + fsync'd log: oracle, land path, I7
 make t1                   # two-store crash atomicity (Aphyr ship-decider): 8/8
+make t2                   # fenced split-brain + idempotency via pland!: 12/12
 ```
 
 The `boundary.shen` host primitives (`shell-run`, `durable-cas-append!`, `crc64`, `xor64`, …) are

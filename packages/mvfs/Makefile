@@ -15,7 +15,7 @@ NEG  = test/illegal.shen
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t2 all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -57,3 +57,9 @@ e2e:
 # orphan sweep) restores the invariants. Same env requirements as `e2e`.
 t1:
 	bash test/t1-crash.sh
+
+# T2: fenced split-brain + idempotency, driven through pland! (the unified
+# two-phase land). Asserts I7 (stale leader rejected, no orphan), I3 (retry is a
+# no-op), MF-3 (land-point conflict rejected), and live forward progress.
+t2:
+	bash test/t2-split-brain.sh

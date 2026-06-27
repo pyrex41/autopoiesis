@@ -63,8 +63,8 @@
                 crash after pristine-apply-before-log, or a stale leader). Fixes
                 W2. You can always drop an un-blessed pristine change; you can
                 never invent a log entry for one. *\
-(define entry-commit { landed-entry --> hash } [mk-entry _ _ _ C _ _ _ _ _ _ _ _ _] -> C)
-(define entry-root   { landed-entry --> hash } [mk-entry _ _ _ _ _ R _ _ _ _ _ _ _] -> R)
+(define pijul-deps-in-trunk? { hash --> string --> boolean }
+  Cand Ch -> (lua.call "mvfs.pijul_deps_in_trunk" [Cand Ch]))
 (define pijul-unrecord { string --> hash --> boolean }
   Ch H -> (do (shell-run "pijul" ["unrecord" "--channel" Ch H]) true))
 (define trunk-changes { string --> hash --> (list hash) }
