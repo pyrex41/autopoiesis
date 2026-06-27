@@ -15,7 +15,7 @@ NEG  = test/illegal.shen
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -69,3 +69,9 @@ t2:
 # asserts MF-4a (the blob byte-backup survives loss of pijul's own change store).
 t1-kill:
 	bash test/t1-kill.sh
+
+# T3: TOCTOU race (clean@T -> conflict@T+1 with a competing land between admission
+# and land) caught by pland!'s MF-3 land-point re-check; plus MF-5 version pinning
+# (recover! refuses a log whose meta names an incompatible pijul version).
+t3:
+	bash test/t3-toctou.sh

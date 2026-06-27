@@ -185,6 +185,8 @@
                              (do (blob-put! Change Logpath)              \* MF-4a: body to fenced blob store FIRST *\
                               (if (append-fenced! Logpath Entry E)
                                   (do (crash-point "after-append")       \* T1 fault seam (inert unless CRASH_AT) *\
-                                   (do (pijul-apply Trunk Change) [mk-landed Cid Key Change Seq]))
+                                   (do (pijul-apply Trunk Change)        \* (C) durable pristine apply *\
+                                    (do (sync-pristine! Logpath)         \* MF-4c: best-effort fsync the pristine *\
+                                     [mk-landed Cid Key Change Seq])))
                                   (error "I7: fenced append rejected (stale leader)"))))))))))))))))
 )

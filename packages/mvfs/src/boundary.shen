@@ -222,6 +222,19 @@
   { string --> boolean }                           \* logpath -> set the recovery token *\
   _ -> (error "host: mark-recovered!"))
 
+\* ===== MF-4c: best-effort fsync of the pijul pristine after a land apply ===== *\
+(define sync-pristine!
+  { string --> boolean }                           \* logpath (placeholder; repo = cwd) -> synced *\
+  _ -> true)                                        \* default no-op; host fsyncs the pristine *\
+
+\* ===== MF-5: pin the pijul hash-algo/version in the log meta ===== *\
+(define version-ok?
+  { string --> boolean }                           \* logpath -> meta absent or == current pijul *\
+  _ -> (error "host: version-ok?"))
+(define version-pin!
+  { string --> boolean }                           \* logpath -> record current pijul version if absent *\
+  _ -> (error "host: version-pin!"))
+
 \* ===== pluggable merge oracle (doc 34) — ORTHOGONAL to storage-backend =====
    git-merge:   git 3-way heuristic (merge-tree). Default; daemon-free; the kept
                 fallback (Torvalds: keep git warm).

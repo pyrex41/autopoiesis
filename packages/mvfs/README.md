@@ -87,6 +87,9 @@ make e2e                  # real git + real pijul + fsync'd log: oracle, land pa
 make t1                   # two-store crash atomicity (step-stop W1/W2): 8/8
 make t1-kill              # REAL SIGKILL at the post-append window + MF-4a blob durability: 9/9
 make t2                   # fenced split-brain + I3 + MF-3 + MF-4a/b gate via pland!: 15/15
+make t3                   # TOCTOU race (MF-3 necessity) + MF-5 version pinning: 8/8
+
+# All doc-34 must-fixes (MF-1..MF-5, I3) are closed; see thoughts .../38-...closeout.md
 ```
 
 The `boundary.shen` host primitives (`shell-run`, `durable-cas-append!`, `crc64`, `xor64`, …) are

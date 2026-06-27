@@ -275,6 +275,43 @@ function M.blob_restore(hash, logpath)
   return copy_file(blob_path(hash, logpath), change_path(hash))
 end
 
+-- ---- MF-4c: best-effort fsync of the pijul pristine after a land apply ------
+-- pijul beta.15 exposes no fsync-on-commit knob (the `--sync-data` flag belongs
+-- to lore, not pijul), and Sanakirja's commit durability is not CLI-controllable.
+-- Our correctness does NOT depend on it (the log is truth; recovery re-applies
+-- any logged change missing from the pristine). As defense-in-depth we fsync the
+-- pristine files at OUR layer after the land-path apply, so a crash is less likely
+-- to leave recovery work. Coarse but real.
+function M.sync_pristine()
+  local p = io.popen("find .pijul/pristine -type f 2>/dev/null", "r")
+  if p then
+    for path in p:lines() do fsync_fd(path) end
+    p:close()
+  end
+  return true
+end
+
+-- ---- MF-5: pin the pijul hash-algo/version in the log's meta sidecar --------
+-- The order-independent state hash (entry Root) is in the audit chain and depends
+-- on pijul's (pre-1.0) hash construction. We record the producing pijul version
+-- in <logpath>.meta at genesis; a different pijul's state hashes would not match,
+-- so we refuse to operate on a log written by an incompatible version.
+function M.pijul_version()
+  return (M.shell_run("pijul", { "--version" }):gsub("%s+$", ""))
+end
+function M.version_pin(logpath)   -- record current version if not already pinned
+  local meta = logpath .. ".meta"
+  if not read_file(meta) then
+    local f = assert(io.open(meta, "wb")); f:write(M.pijul_version()); f:close()
+  end
+  return true
+end
+function M.version_ok(logpath)    -- meta absent (fresh) OR meta == current version
+  local pinned = read_file(logpath .. ".meta")
+  if not pinned then return true end
+  return pinned == M.pijul_version()
+end
+
 -- ---- recovery-before-writes gate (MF-4b) ----------------------------------
 -- A leader must run recovery before accepting writes. recover! marks the token;
 -- pland! refuses to land until it is set. Keyed on the logpath (the land domain).

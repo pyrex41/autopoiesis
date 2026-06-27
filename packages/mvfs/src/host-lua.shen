@@ -74,6 +74,9 @@
 (define crash-point { string --> boolean } Name -> (lua.call "mvfs.crash_point" [Name]))
 (define recovered? { string --> boolean } Log -> (lua.call "mvfs.is_recovered" [Log]))
 (define mark-recovered! { string --> boolean } Log -> (lua.call "mvfs.mark_recovered" [Log]))
+(define sync-pristine! { string --> boolean } _ -> (lua.call "mvfs.sync_pristine" []))
+(define version-ok? { string --> boolean } Log -> (lua.call "mvfs.version_ok" [Log]))
+(define version-pin! { string --> boolean } Log -> (lua.call "mvfs.version_pin" [Log]))
 (define pijul-unrecord { string --> hash --> boolean }
   Ch H -> (do (shell-run "pijul" ["unrecord" "--channel" Ch H]) true))
 (define trunk-changes { string --> hash --> (list hash) }
@@ -97,11 +100,14 @@
 (define recover!
   { string --> string --> hash --> boolean }   \* logpath trunk-channel base-change -> ok *\
   Logpath Ch Base
-  -> (let Entries (read-all Logpath)
-       (do (restore-bodies Logpath Entries)          \* MF-4a: restore missing bodies from blobs *\
-        (do (ensure-applied Ch Entries)              \* forward: re-apply logged changes (W1) *\
-         (do (sweep-orphans Ch (entry-commits Entries) (trunk-changes Ch Base))  \* backward: orphans (W2) *\
-          (mark-recovered! Logpath))))))            \* MF-4b: open the write gate *\
+  -> (if (not (version-ok? Logpath))                 \* MF-5: refuse a log written by an incompatible pijul *\
+         (error "MF-5: log meta pins a different pijul hash-algo/version than the running pijul")
+         (do (version-pin! Logpath)                  \* MF-5: pin current version on a fresh log *\
+          (let Entries (read-all Logpath)
+            (do (restore-bodies Logpath Entries)     \* MF-4a: restore missing bodies from blobs *\
+             (do (ensure-applied Ch Entries)         \* forward: re-apply logged changes (W1) *\
+              (do (sweep-orphans Ch (entry-commits Entries) (trunk-changes Ch Base))  \* backward: orphans (W2) *\
+               (mark-recovered! Logpath))))))))      \* MF-4b: open the write gate *\
 
 \* ---- git tip + lease epoch ---- *\
 (define tip-commit { hash --> hash } _ -> (chomp (shell-run "git" ["rev-parse" "HEAD"])))
