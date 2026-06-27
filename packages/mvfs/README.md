@@ -18,6 +18,25 @@ This directory is **P0** from `spec/07-build-plan.md`: the core spine, written i
 | `src/cli.shen` | `06` | Thin `clone` / `log` entry points (P0 stubs). |
 | `test/illegal.shen` | `02` §1 | The **four illegal programs** that MUST be rejected by the typechecker (land-without-admission, land-without-lease, base-without-admission, forge-a-witness). |
 | `test/log-test.shen` | `01` | Positive tests: checksum chaining, append/verify round-trip. |
+| `src/host-lore.shen` | `00` §5.4 / [doc 33](../../thoughts/shared/plans/dvcs-vfs/33-storage-backend-decision.md) | **Optional** lore fragment-store backend host (BLAKE3 CAS + chunking + sparse hydration), over the verified `lore` CLI. Loaded only when `lore-be` is enabled. |
+
+## Storage backend (doc 33 — grounded by running the candidates)
+
+mvfs's storage tier is **pluggable** behind `boundary.shen` (a `storage-backend` datatype:
+`git-be` | `lore-be`, with generic `cas-read-blob` / `cas-locate` / `cas-put-blob`).
+The decision, reached by actually running EpicGames/lore v0.8.4 and reading rvcs:
+
+- **git = trunk source-of-truth + merge oracle** (default, daemon-free). `git-commit-tree`
+  / `git-merge-tree` are **git-only by design** and are *not* routed through the selector —
+  a trunk-only code monorepo needs real 3-way text merge and lore has none (server-side CR).
+- **lore = optional large-binary / sparse-hydration fragment tier** (BLAKE3 48-byte
+  addresses, content-defined chunking, lazy working trees). Adopted as a *second* backend,
+  not a git replacement: it is pre-1.0 (unstable formats), server-of-record (needs a
+  `loreserver`), and its VFS is roadmap-not-shipped.
+- **rvcs = rejected** (snapshot/publish/sign/mirror model; experimental & unsupported).
+
+See [doc 33](../../thoughts/shared/plans/dvcs-vfs/33-storage-backend-decision.md) for the
+full evidence, object-model mapping table, and impedance notes.
 
 ## Invariants embodied (see `spec/00` §4)
 
@@ -34,6 +53,7 @@ eval "export SHEN=$(scripts/bootstrap-toolchain.sh)"   # adds luajit to PATH int
 # (or point SHEN at your own shen-lua launcher: export SHEN=/path/to/shen-lua/bin/shen)
 
 make typecheck            # typecheck the core under Shen's tc + (must pass)
+make typecheck-lore       # typecheck the optional lore backend host (must pass; no server needed)
 make typecheck-negative   # MUST FAIL: rejects test/illegal.shen (illegal programs)
 make test                 # positive runtime smoke: submit->admit->base yields a `based`
 ```

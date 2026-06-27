@@ -62,6 +62,53 @@
   Base Ours Theirs ->
     (shell-run "git" ["merge-tree" "--write-tree" "--merge-base" Base Ours Theirs]))
 
+(define git-cat-type
+  { hash --> string }                             \* hash -> object type (errors if absent) *\
+  H -> (chomp (shell-run "git" ["cat-file" "-t" H])))
+
+\* ===== lore CAS verbs (fragment store; spec/00 §5.4, doc 33) =====
+   lore is server-of-record (a local loreserver). These shell out to the
+   verified `lore` CLI (v0.8.4). Reads are address-keyed; writes are
+   working-tree-oriented (materialize -> dirty -> stage), so the bytes->addr
+   put lives in the host (src/host-lore.shen), not here. A lore address is
+   <64hex BLAKE3>-<32hex context>; whole objects use the zero context. *\
+
+(define lore-cat-file
+  { hash --> string }                             \* address -> bytes (file write to stdout) *\
+  Addr -> (shell-run "lore" ["file" "write" "--address" Addr "--output" "-"]))
+
+(define lore-query
+  { hash --> string }                             \* address -> immutable-store status report *\
+  Addr -> (shell-run "lore" ["repository" "store" "immutable" "query" Addr]))
+
+\* ===== pluggable storage backend (doc 33) =====
+   git-be:  self-contained CAS + merge oracle (default; no daemon).
+   lore-be: BLAKE3 fragment store for large/binary content + sparse hydration.
+   NOTE: 3-way text merge stays git-only BY DESIGN — git-commit-tree /
+   git-merge-tree are NOT routed through this selector (see doc 33). Only the
+   blob/fragment storage tier is pluggable. *\
+(datatype storage-backend
+  ___________________________
+  git-be : storage-backend;
+
+  ___________________________
+  lore-be : storage-backend;)
+
+(define cas-read-blob
+  { storage-backend --> hash --> string }         \* address -> bytes *\
+  git-be  H -> (git-cat-file H)
+  lore-be A -> (lore-cat-file A))
+
+(define cas-locate
+  { storage-backend --> hash --> string }         \* address -> presence/status report *\
+  git-be  H -> (git-cat-type H)
+  lore-be A -> (lore-query A))
+
+(define cas-put-blob
+  { storage-backend --> string --> hash }         \* bytes -> address *\
+  git-be  Bytes -> (git-hash-bytes Bytes)
+  lore-be _     -> (error "mvfs.cas-put-blob: lore writes are working-tree-oriented; use host-lore.lore-stage-path"))
+
 \* ===== I5: content integrity — a hash names exactly one byte string ===== *\
 (define verify-blob
   { hash --> string --> boolean }                 \* hash bytes -> re-hash matches? *\

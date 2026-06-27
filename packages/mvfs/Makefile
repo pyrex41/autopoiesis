@@ -11,9 +11,12 @@ CORE = src/scalars.shen src/boundary.shen src/checksum.shen src/types.shen \
        src/log.shen src/fsm.shen src/cli.shen
 POS  = test/log-test.shen
 NEG  = test/illegal.shen
+# Optional lore fragment backend host (doc 33). Not part of CORE: the trunk land
+# path is git (daemon-free). Typechecked separately; needs no running loreserver.
+LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative test all help
-all: typecheck typecheck-negative
+.PHONY: typecheck typecheck-negative typecheck-lore test all help
+all: typecheck typecheck-negative typecheck-lore
 
 help:
 	@echo "targets: typecheck typecheck-negative test"
@@ -22,6 +25,10 @@ help:
 # Typecheck the core under Shen's sequent-calculus checker (tc +). Expect exit 0.
 typecheck:
 	$(SHEN) -e "(tc +)" $(CORE) $(POS)
+
+# Typecheck the optional lore fragment backend host (doc 33). Expect exit 0.
+typecheck-lore:
+	$(SHEN) -e "(tc +)" $(CORE) $(LORE)
 
 # The four illegal programs MUST be rejected. This target SUCCEEDS only when the
 # typechecker FAILS to load test/illegal.shen after the core (negative test).
