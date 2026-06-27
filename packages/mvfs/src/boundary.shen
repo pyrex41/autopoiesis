@@ -258,6 +258,27 @@
   git-merge   Base Ours Theirs -> (merged-tree (git-merge-tree Base Ours Theirs))
   pijul-merge _    Cand Tip     -> (pijul-land-state Tip Cand))
 
+\* ===== read tier (spec/04, spec/05) — host primitives =====
+   The brain decides (resolve + authz + mint token); nginx serves the bytes
+   zero-copy (sendfile), so NO blob byte ever crosses this boundary. *\
+(define resolve-path                                \* §5.2: (root-tree, path) -> blob hash ("" if absent) *\
+  { hash --> path --> hash }
+  _ _ -> (error "host: resolve-path (git tree walk)"))
+(define hmac-sha256                                 \* §5.3: key, msg -> hex tag (HMAC-SHA256) *\
+  { string --> string --> string }
+  _ _ -> (error "host: hmac-sha256"))
+(define b64url   { string --> string } _ -> (error "host: b64url"))
+(define unb64url { string --> string } _ -> (error "host: unb64url"))
+(define consttime-eq { string --> string --> boolean }   \* constant-time MAC compare *\
+  _ _ -> (error "host: consttime-eq"))
+(define now-secs { string --> number } _ -> (error "host: now-secs"))   \* dummy arg: nullary tc *\
+(define str->num { string --> number } _ -> (error "host: str->num"))
+(define random-nonce { string --> string } _ -> (error "host: random-nonce (128-bit hex)"))
+(define nonce-seen?   { string --> string --> boolean }  \* store, nonce -> already used? (I9 single-use) *\
+  _ _ -> (error "host: nonce-seen?"))
+(define nonce-record! { string --> string --> boolean }  \* store, nonce -> recorded *\
+  _ _ -> (error "host: nonce-record!"))
+
 \* ===== I5: content integrity — a hash names exactly one byte string ===== *\
 (define verify-blob
   { hash --> string --> boolean }                 \* hash bytes -> re-hash matches? *\

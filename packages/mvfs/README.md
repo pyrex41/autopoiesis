@@ -89,7 +89,12 @@ make t1-kill              # REAL SIGKILL at the post-append window + MF-4a blob 
 make t2                   # fenced split-brain + I3 + MF-3 + MF-4a/b gate via pland!: 15/15
 make t3                   # TOCTOU race (MF-3 necessity) + MF-5 version pinning: 8/8
 
+# Read tier (spec/04, spec/05): brain decides, nginx serves zero-copy (doc 39):
+make read                 # §5.2 resolve + §5.3 token mint/verify + I8/I9 on a real git tree: 15/15
+make read-edge            # OpenResty edge (serve/verify.lua) verifies a brain-minted token: 5/5
+
 # All doc-34 must-fixes (MF-1..MF-5, I3) are closed; see thoughts .../38-...closeout.md
+# Read-tier serve artifacts (nginx.conf + access.lua + verify.lua) live in serve/.
 ```
 
 The `boundary.shen` host primitives (`shell-run`, `durable-cas-append!`, `crc64`, `xor64`, …) are

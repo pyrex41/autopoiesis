@@ -8,14 +8,14 @@ SHEN ?= shen
 
 # Load order matters: scalars (synonyms) first; then callee-before-caller.
 CORE = src/scalars.shen src/boundary.shen src/checksum.shen src/types.shen \
-       src/log.shen src/fsm.shen src/cli.shen
+       src/log.shen src/fsm.shen src/read.shen src/cli.shen
 POS  = test/log-test.shen
 NEG  = test/illegal.shen
 # Optional lore fragment backend host (doc 33). Not part of CORE: the trunk land
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 read read-edge all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -75,3 +75,13 @@ t1-kill:
 # (recover! refuses a log whose meta names an incompatible pijul version).
 t3:
 	bash test/t3-toctou.sh
+
+# Read tier (spec/04, spec/05): the brain decision path on a real git tree —
+# §5.2 resolve, §5.3 serve-token mint/verify, I8 basis gate, I9 authz. Needs SHEN+git.
+read:
+	bash test/read.sh
+
+# Read tier cross-language: the OpenResty edge (serve/verify.lua under luajit)
+# verifies a token minted by the shen-lua brain. Needs SHEN + LUAJIT.
+read-edge:
+	bash test/read-edge.sh

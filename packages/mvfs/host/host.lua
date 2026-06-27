@@ -323,4 +323,100 @@ function M.is_recovered(logpath)
   return false
 end
 
+-- ---- read tier (spec/04, spec/05) -----------------------------------------
+-- §5.2 resolve: (root-tree, path) -> blob hash, via git's tree walk. "" if absent.
+function M.resolve_path(root, path)
+  local out, rc = run("git rev-parse " .. shquote(root .. ":" .. path) .. " 2>/dev/null")
+  if rc ~= 0 then return "" end
+  return (out:gsub("%s+$", ""))
+end
+
+-- §5.3 HMAC-SHA256 (hex) via libcrypto FFI (agentzh: keep crypto off the Lua GC).
+local hmac_sha256
+do
+  local ok, ffi = pcall(require, "ffi")
+  local okc, crypto = pcall(ffi.load, "crypto")
+  if ok and okc then
+    pcall(ffi.cdef, "unsigned char *HMAC(const void*, const void*, int, const unsigned char*, size_t, unsigned char*, unsigned int*); const void *EVP_sha256(void);")
+    local md = ffi.new("unsigned char[32]"); local mlen = ffi.new("unsigned int[1]")
+    local hex = ffi.new("char[65]")
+    hmac_sha256 = function(key, msg)
+      crypto.HMAC(crypto.EVP_sha256(), key, #key, msg, #msg, md, mlen)
+      local t = {}
+      for i = 0, 31 do t[i + 1] = string.format("%02x", md[i]) end
+      return table.concat(t)
+    end
+  else
+    hmac_sha256 = function() error("mvfs: libcrypto (HMAC) unavailable") end
+  end
+end
+M.hmac_sha256 = function(key, msg) return hmac_sha256(key, msg) end
+
+-- base64url (no padding).
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+function M.b64url(s)
+  local out, i = {}, 1
+  while i <= #s do
+    local a, b, c = s:byte(i), s:byte(i + 1), s:byte(i + 2)
+    local n = a * 65536 + (b or 0) * 256 + (c or 0)
+    local c1 = math.floor(n / 262144) % 64
+    local c2 = math.floor(n / 4096) % 64
+    local c3 = math.floor(n / 64) % 64
+    local c4 = n % 64
+    out[#out + 1] = B64:sub(c1 + 1, c1 + 1) .. B64:sub(c2 + 1, c2 + 1)
+    if b then out[#out + 1] = B64:sub(c3 + 1, c3 + 1) else out[#out + 1] = "" end
+    if c then out[#out + 1] = B64:sub(c4 + 1, c4 + 1) else out[#out + 1] = "" end
+    i = i + 3
+  end
+  return table.concat(out)
+end
+local B64R = {}; for i = 1, #B64 do B64R[B64:byte(i)] = i - 1 end
+function M.unb64url(s)
+  local out, i = {}, 1
+  while i <= #s do
+    local c1 = B64R[s:byte(i)] or 0
+    local c2 = B64R[s:byte(i + 1)] or 0
+    local c3 = B64R[s:byte(i + 2)]
+    local c4 = B64R[s:byte(i + 3)]
+    local n = c1 * 262144 + c2 * 4096 + (c3 or 0) * 64 + (c4 or 0)
+    out[#out + 1] = string.char(math.floor(n / 65536) % 256)
+    if c3 then out[#out + 1] = string.char(math.floor(n / 256) % 256) end
+    if c4 then out[#out + 1] = string.char(n % 256) end
+    i = i + 4
+  end
+  return table.concat(out)
+end
+
+-- constant-time string compare (no early exit; length-independent within equal len).
+function M.consttime_eq(a, b)
+  if #a ~= #b then return false end
+  local diff = 0
+  for i = 1, #a do diff = bit.bor(diff, bit.bxor(a:byte(i), b:byte(i))) end
+  return diff == 0
+end
+
+function M.now_secs() return os.time() end
+
+-- 128-bit random nonce (hex) from /dev/urandom (falls back to time+pid if absent).
+function M.random_nonce()
+  local f = io.open("/dev/urandom", "rb")
+  if f then
+    local r = f:read(16); f:close()
+    local t = {}; for i = 1, #r do t[i] = string.format("%02x", r:byte(i)) end
+    return table.concat(t)
+  end
+  return string.format("%x%x", os.time(), os.clock() * 1e6)
+end
+
+-- single-use nonce store (I9): a directory of touched files, one per seen nonce.
+function M.nonce_seen(store, nonce)
+  local f = io.open(store .. "/" .. nonce, "rb"); if f then f:close(); return true end
+  return false
+end
+function M.nonce_record(store, nonce)
+  os.execute("mkdir -p " .. shquote(store))
+  local f = assert(io.open(store .. "/" .. nonce, "wb")); f:write("1"); f:close()
+  return true
+end
+
 return M

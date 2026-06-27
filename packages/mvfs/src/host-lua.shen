@@ -75,6 +75,18 @@
 (define recovered? { string --> boolean } Log -> (lua.call "mvfs.is_recovered" [Log]))
 (define mark-recovered! { string --> boolean } Log -> (lua.call "mvfs.mark_recovered" [Log]))
 (define sync-pristine! { string --> boolean } _ -> (lua.call "mvfs.sync_pristine" []))
+
+\* ---- read tier (spec/04, spec/05) ---- *\
+(define resolve-path { hash --> path --> hash } Root Path -> (lua.call "mvfs.resolve_path" [Root Path]))
+(define hmac-sha256 { string --> string --> string } K M -> (lua.call "mvfs.hmac_sha256" [K M]))
+(define b64url { string --> string } S -> (lua.call "mvfs.b64url" [S]))
+(define unb64url { string --> string } S -> (lua.call "mvfs.unb64url" [S]))
+(define consttime-eq { string --> string --> boolean } A B -> (lua.call "mvfs.consttime_eq" [A B]))
+(define now-secs { string --> number } _ -> (lua.call "mvfs.now_secs" []))
+(define str->num { string --> number } S -> (lua.call "mvfs.str_to_num" [S]))
+(define random-nonce { string --> string } _ -> (lua.call "mvfs.random_nonce" []))
+(define nonce-seen? { string --> string --> boolean } Store N -> (lua.call "mvfs.nonce_seen" [Store N]))
+(define nonce-record! { string --> string --> boolean } Store N -> (lua.call "mvfs.nonce_record" [Store N]))
 (define version-ok? { string --> boolean } Log -> (lua.call "mvfs.version_ok" [Log]))
 (define version-pin! { string --> boolean } Log -> (lua.call "mvfs.version_pin" [Log]))
 (define pijul-unrecord { string --> hash --> boolean }
