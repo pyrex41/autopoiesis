@@ -419,4 +419,67 @@ function M.nonce_record(store, nonce)
   return true
 end
 
+-- ---- VFS mount client (spec/05): trusted-shell checkout helpers --------------
+-- recursive tree listing: [{path, mode, hash, size}, ...] for every blob in a tree
+-- (git ls-tree -r --long emits "mode type hash size\tpath").
+function M.git_ls_tree_r(tree)
+  local out = M.shell_run("git", { "ls-tree", "-r", "--long", tree })
+  local rows = {}
+  for line in (out .. "\n"):gmatch("(.-)\n") do
+    if #line > 0 then
+      local mode, _typ, hash, size, path = line:match("^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)\t(.+)$")
+      if path then rows[#rows + 1] = { path, mode, hash, tostring(tonumber(size) or 0) } end
+    end
+  end
+  return rows
+end
+
+-- materialize a blob to a working-tree path (mkdir parents; git cat-file -> file).
+function M.write_blob(hash, dest)
+  local dir = dest:match("^(.*)/[^/]+$")
+  if dir then os.execute("mkdir -p " .. shquote(dir)) end
+  local bytes = M.shell_run("git", { "cat-file", "blob", hash })
+  local f = assert(io.open(dest, "wb")); f:write(bytes); f:close()
+  return true
+end
+
+-- the git blob hash of a working-tree file ("" if missing) — for O(changes) status.
+function M.hash_file(path)
+  local f = io.open(path, "rb"); if not f then return "" end
+  f:close()
+  return (M.shell_run("git", { "hash-object", path }):gsub("%s+$", ""))
+end
+
+function M.file_size(path)
+  local f = io.open(path, "rb"); if not f then return -1 end
+  local sz = f:seek("end"); f:close(); return sz
+end
+
+-- mtime epoch seconds (-1 if missing) for the status (size,mtime) quickcheck.
+function M.file_mtime(path)
+  local out, rc = run("stat -c %Y " .. shquote(path) .. " 2>/dev/null")
+  if rc ~= 0 then return -1 end
+  return tonumber((out:gsub("%s+$", ""))) or -1
+end
+
+-- dirstate persistence (spec §2.3): one TAB-joined row per line at .mvfs/dirstate.
+function M.dirstate_save(rows, path)
+  local lines = {}
+  for _, r in ipairs(rows) do lines[#lines + 1] = table.concat(r, "\t") end
+  local f = assert(io.open(path, "wb")); f:write(table.concat(lines, "\n")); f:close()
+  fsync_fd(path); return true
+end
+function M.dirstate_load(path)
+  local c = read_file(path); if not c or c == "" then return {} end
+  local rows = {}
+  for line in (c .. "\n"):gmatch("(.-)\n") do
+    if #line > 0 then
+      local r = {}
+      for cell in (line .. "\t"):gmatch("(.-)\t") do r[#r + 1] = cell end
+      rows[#rows + 1] = r
+    end
+  end
+  return rows
+end
+
 return M

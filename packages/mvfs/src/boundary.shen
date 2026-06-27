@@ -279,6 +279,15 @@
 (define nonce-record! { string --> string --> boolean }  \* store, nonce -> recorded *\
   _ _ -> (error "host: nonce-record!"))
 
+\* ===== VFS mount client (spec/05) — trusted-shell checkout host verbs ===== *\
+(define git-ls-tree-r { hash --> (list (list string)) }   \* tree -> [[path mode hash size]...] *\
+  _ -> (error "host: git-ls-tree-r"))
+(define write-blob! { hash --> string --> boolean }       \* blob-hash, dest-path -> materialized *\
+  _ _ -> (error "host: write-blob!"))
+(define hash-file { string --> hash } _ -> (error "host: hash-file"))   \* working file -> blob hash ("" if absent) *\
+(define file-size { string --> number } _ -> (error "host: file-size"))  \* working file size (-1 if absent) *\
+(define file-mtime { string --> number } _ -> (error "host: file-mtime"))  \* working file mtime epoch (-1 if absent) *\
+
 \* ===== I5: content integrity — a hash names exactly one byte string ===== *\
 (define verify-blob
   { hash --> string --> boolean }                 \* hash bytes -> re-hash matches? *\

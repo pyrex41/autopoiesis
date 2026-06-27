@@ -93,6 +93,10 @@ make t3                   # TOCTOU race (MF-3 necessity) + MF-5 version pinning:
 make read                 # §5.2 resolve + §5.3 token mint/verify + I8/I9 on a real git tree: 15/15
 make read-edge            # OpenResty edge (serve/verify.lua) verifies a brain-minted token: 5/5
 
+# Policy + mount (spec/03, spec/05; doc 40):
+make acl                  # decidable ACL: longest-prefix-deny-wins + §6a matcher≡oracle diff: 11/11
+make vfs                  # checkout-first mount: sparse materialize, dirstate, O(changes) status: 12/12
+
 # All doc-34 must-fixes (MF-1..MF-5, I3) are closed; see thoughts .../38-...closeout.md
 # Read-tier serve artifacts (nginx.conf + access.lua + verify.lua) live in serve/.
 ```

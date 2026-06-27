@@ -8,7 +8,7 @@ SHEN ?= shen
 
 # Load order matters: scalars (synonyms) first; then callee-before-caller.
 CORE = src/scalars.shen src/boundary.shen src/checksum.shen src/types.shen \
-       src/log.shen src/fsm.shen src/read.shen src/acl.shen src/cli.shen
+       src/log.shen src/fsm.shen src/read.shen src/acl.shen src/vfs.shen src/cli.shen
 POS  = test/log-test.shen
 NEG  = test/illegal.shen
 # Optional lore fragment backend host (doc 33). Not part of CORE: the trunk land
@@ -90,3 +90,8 @@ read-edge:
 # + the §6a conformance differential (fast matcher ≡ independent oracle). Needs SHEN.
 acl:
 	bash test/acl.sh
+
+# VFS mount client, checkout-first v1 (spec/05): sparse profile, lazy materialize,
+# git-index dirstate, O(changes) status, profile widening. Needs SHEN + git.
+vfs:
+	bash test/vfs.sh

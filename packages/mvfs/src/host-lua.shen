@@ -87,6 +87,15 @@
 (define random-nonce { string --> string } _ -> (lua.call "mvfs.random_nonce" []))
 (define nonce-seen? { string --> string --> boolean } Store N -> (lua.call "mvfs.nonce_seen" [Store N]))
 (define nonce-record! { string --> string --> boolean } Store N -> (lua.call "mvfs.nonce_record" [Store N]))
+
+\* ---- VFS mount client (spec/05) ---- *\
+(define git-ls-tree-r { hash --> (list (list string)) } T -> (lua.call "mvfs.git_ls_tree_r" [T]))
+(define write-blob! { hash --> string --> boolean } H Dest -> (lua.call "mvfs.write_blob" [H Dest]))
+(define hash-file { string --> hash } P -> (lua.call "mvfs.hash_file" [P]))
+(define file-size { string --> number } P -> (lua.call "mvfs.file_size" [P]))
+(define file-mtime { string --> number } P -> (lua.call "mvfs.file_mtime" [P]))
+(define save-dirstate! { (list (list string)) --> string --> boolean } Rows Path -> (lua.call "mvfs.dirstate_save" [Rows Path]))
+(define load-dirstate { string --> (list (list string)) } Path -> (lua.call "mvfs.dirstate_load" [Path]))
 (define version-ok? { string --> boolean } Log -> (lua.call "mvfs.version_ok" [Log]))
 (define version-pin! { string --> boolean } Log -> (lua.call "mvfs.version_pin" [Log]))
 (define pijul-unrecord { string --> hash --> boolean }
