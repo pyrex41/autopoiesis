@@ -8,14 +8,14 @@ SHEN ?= shen
 
 # Load order matters: scalars (synonyms) first; then callee-before-caller.
 CORE = src/scalars.shen src/boundary.shen src/checksum.shen src/types.shen \
-       src/log.shen src/fsm.shen src/read.shen src/cli.shen
+       src/log.shen src/fsm.shen src/read.shen src/acl.shen src/cli.shen
 POS  = test/log-test.shen
 NEG  = test/illegal.shen
 # Optional lore fragment backend host (doc 33). Not part of CORE: the trunk land
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 read read-edge all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 read read-edge acl vfs all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -85,3 +85,8 @@ read:
 # verifies a token minted by the shen-lua brain. Needs SHEN + LUAJIT.
 read-edge:
 	bash test/read-edge.sh
+
+# Policy/ACL matcher (spec/03): longest-prefix-deny-wins, groups, default-deny,
+# + the §6a conformance differential (fast matcher ≡ independent oracle). Needs SHEN.
+acl:
+	bash test/acl.sh
