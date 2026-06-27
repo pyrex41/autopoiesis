@@ -15,7 +15,7 @@ NEG  = test/illegal.shen
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t2 all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -63,3 +63,9 @@ t1:
 # no-op), MF-3 (land-point conflict rejected), and live forward progress.
 t2:
 	bash test/t2-split-brain.sh
+
+# T1-kill: REAL crash (SIGKILL) at the post-append window via pland!'s fault seam,
+# then recovery. The fidelity upgrade over t1's deterministic step-stops. Also
+# asserts MF-4a (the blob byte-backup survives loss of pijul's own change store).
+t1-kill:
+	bash test/t1-kill.sh

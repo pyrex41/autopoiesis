@@ -166,21 +166,25 @@
 (define pland!
   { lease --> id --> id --> hash --> principal --> number --> string --> string --> landed }
   L Cid Key Change Author AclV Trunk Logpath ->
-  (let Hit (key-find Logpath Key)
-    (if (cons? Hit)
-        (landed-of-entry (head Hit))
-        (with-leadership L
-          (/. W
-            (if (not (pijul-deps-in-trunk? Change Trunk))
-                (error "MF-1: candidate has dependencies not yet landed on the trunk")
-                (if (not (pijul-admits? Trunk Change))
-                    (error "MF-3: candidate conflicts with the trunk tip at the land point")
-                    (let E     (witness-epoch W)
-                     (let State (pijul-probe-state Trunk Change)
-                      (let Prior (pijul-state Trunk)
-                       (let Seq   (+ 1 (head-seq Logpath))
-                        (let Entry [mk-entry Seq Cid Key Change Prior State [] Author AclV E 0 0 0]
-                         (if (append-fenced! Logpath Entry E)
-                             (do (pijul-apply Trunk Change) [mk-landed Cid Key Change Seq])
-                             (error "I7: fenced append rejected (stale leader)"))))))))))))))
+  (if (not (recovered? Logpath))
+      (error "MF-4b: recovery must run before this leader accepts writes")
+      (let Hit (key-find Logpath Key)
+        (if (cons? Hit)
+            (landed-of-entry (head Hit))
+            (with-leadership L
+              (/. W
+                (if (not (pijul-deps-in-trunk? Change Trunk))
+                    (error "MF-1: candidate has dependencies not yet landed on the trunk")
+                    (if (not (pijul-admits? Trunk Change))
+                        (error "MF-3: candidate conflicts with the trunk tip at the land point")
+                        (let E     (witness-epoch W)
+                         (let State (pijul-probe-state Trunk Change)
+                          (let Prior (pijul-state Trunk)
+                           (let Seq   (+ 1 (head-seq Logpath))
+                            (let Entry [mk-entry Seq Cid Key Change Prior State [] Author AclV E 0 0 0]
+                             (do (blob-put! Change Logpath)              \* MF-4a: body to fenced blob store FIRST *\
+                              (if (append-fenced! Logpath Entry E)
+                                  (do (crash-point "after-append")       \* T1 fault seam (inert unless CRASH_AT) *\
+                                   (do (pijul-apply Trunk Change) [mk-landed Cid Key Change Seq]))
+                                  (error "I7: fenced append rejected (stale leader)"))))))))))))))))
 )

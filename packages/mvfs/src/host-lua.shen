@@ -65,6 +65,15 @@
                 never invent a log entry for one. *\
 (define pijul-deps-in-trunk? { hash --> string --> boolean }
   Cand Ch -> (lua.call "mvfs.pijul_deps_in_trunk" [Cand Ch]))
+
+\* ---- MF-4a blob store + MF-4b recovery gate + T1 crash seam ---- *\
+(define blob-put! { hash --> string --> boolean } H Log -> (lua.call "mvfs.blob_put" [H Log]))
+(define blob-has? { hash --> string --> boolean } H Log -> (lua.call "mvfs.blob_has" [H Log]))
+(define blob-matches? { hash --> string --> boolean } H Log -> (lua.call "mvfs.blob_matches" [H Log]))
+(define blob-restore! { hash --> string --> boolean } H Log -> (lua.call "mvfs.blob_restore" [H Log]))
+(define crash-point { string --> boolean } Name -> (lua.call "mvfs.crash_point" [Name]))
+(define recovered? { string --> boolean } Log -> (lua.call "mvfs.is_recovered" [Log]))
+(define mark-recovered! { string --> boolean } Log -> (lua.call "mvfs.mark_recovered" [Log]))
 (define pijul-unrecord { string --> hash --> boolean }
   Ch H -> (do (shell-run "pijul" ["unrecord" "--channel" Ch H]) true))
 (define trunk-changes { string --> hash --> (list hash) }
@@ -75,6 +84,9 @@
 (define entry-commits { (list landed-entry) --> (list hash) }
   [] -> []
   [E | Es] -> [(entry-commit E) | (entry-commits Es)])
+(define restore-bodies { string --> (list landed-entry) --> boolean }   \* MF-4a restore *\
+  _ [] -> true
+  Log [E | Es] -> (do (blob-restore! (entry-commit E) Log) (restore-bodies Log Es)))
 (define ensure-applied { string --> (list landed-entry) --> boolean }   \* forward *\
   _ [] -> true
   Ch [E | Es] -> (do (pijul-apply Ch (entry-commit E)) (ensure-applied Ch Es)))
@@ -86,8 +98,10 @@
   { string --> string --> hash --> boolean }   \* logpath trunk-channel base-change -> ok *\
   Logpath Ch Base
   -> (let Entries (read-all Logpath)
-       (do (ensure-applied Ch Entries)
-           (sweep-orphans Ch (entry-commits Entries) (trunk-changes Ch Base)))))
+       (do (restore-bodies Logpath Entries)          \* MF-4a: restore missing bodies from blobs *\
+        (do (ensure-applied Ch Entries)              \* forward: re-apply logged changes (W1) *\
+         (do (sweep-orphans Ch (entry-commits Entries) (trunk-changes Ch Base))  \* backward: orphans (W2) *\
+          (mark-recovered! Logpath))))))            \* MF-4b: open the write gate *\
 
 \* ---- git tip + lease epoch ---- *\
 (define tip-commit { hash --> hash } _ -> (chomp (shell-run "git" ["rev-parse" "HEAD"])))

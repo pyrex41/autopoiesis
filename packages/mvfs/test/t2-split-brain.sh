@@ -40,15 +40,23 @@ record_cand(){ # $1=channel-name $2=line-edit-content -> echoes change hash
 "$PIJUL" init >/dev/null 2>&1
 printf 'A\nB\nC\nD\nE\nF\nG\n' > a.txt; "$PIJUL" add a.txt >/dev/null 2>&1
 "$PIJUL" record -a -m base --author tester >/dev/null 2>&1
+BASE=$("$PIJUL" log --channel main --hash-only --limit 1 2>/dev/null)
 LOG="$WORK/landed.log"; LEASE="$WORK/lease"
 C1=$(record_cand c1 'A\nB1\nC\nD\nE\nF\nG\n')        # edits line 2
 C2=$(record_cand c2 'A\nB\nC\nD\nE\nF2\nG\n')        # edits line 6 (independent of C1)
 CX=$(record_cand cx 'A\nB\nC\nD\nE\nFx\nG\n')        # edits line 6 (CONFLICTS with C2)
 echo "C1=$C1  C2=$C2  CX=$CX"
 
-echo "===== leader B (epoch 2) lands C1 via pland! ====="
+echo "===== MF-4b: a leader that has NOT recovered is refused writes ====="
 echo 2 > "$LEASE.epoch"
+shen -e "(mvfs.pland! \"$LEASE\" \"c1\" \"k1\" \"$C1\" \"alice\" 0 \"main\" \"$LOG\")" >/dev/null 2>&1 || true
+chk "pre-recovery land refused (no entry)" "$(nentries)" "0"
+chk "pre-recovery land refused (C1 not in pristine)" "$(in_trunk "$C1")" "no"
+
+echo "===== leader B (epoch 2) recovers, then lands C1 via pland! ====="
+shen -e "(mvfs.recover! \"$LOG\" \"main\" \"$BASE\")" >/dev/null
 shen -e "(mvfs.pland! \"$LEASE\" \"c1\" \"k1\" \"$C1\" \"alice\" 0 \"main\" \"$LOG\")"
+chk "MF-4a: blob stored for C1" "$(shen -e "(mvfs.blob-has? \"$C1\" \"$LOG\")" 2>/dev/null || echo missing)" "true"
 chk "C1 in trunk pristine" "$(in_trunk "$C1")" "yes"
 chk "log has 1 entry" "$(nentries)" "1"
 S1=$(shen -e "(mvfs.pijul-state \"main\")"); echo "  trunk state S1=$S1"

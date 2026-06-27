@@ -198,6 +198,30 @@
   { hash --> string --> boolean }                  \* candidate trunk-channel -> all deps present? *\
   _ _ -> (error "host: pijul-deps-in-trunk?"))
 
+\* ===== MF-4a: fenced blob store (off-pijul byte backup of change bodies) =====
+   blob-put! mirrors a raw change body into <logpath>.blobs/<hash> BEFORE the log
+   append, so the durable truth is the log + this store (not pijul's own store).
+   blob-restore! is the recovery counterpart. *\
+(define blob-put!
+  { hash --> string --> boolean }                  \* change-hash logpath -> stored? *\
+  _ _ -> (error "host: blob-put!"))
+(define blob-restore!
+  { hash --> string --> boolean }                  \* change-hash logpath -> restored/present? *\
+  _ _ -> (error "host: blob-restore!"))
+
+\* ===== T1 fault-injection seam — INERT in production (no-op unless CRASH_AT) ===== *\
+(define crash-point
+  { string --> boolean }                           \* named window -> true (host SIGKILLs iff CRASH_AT matches) *\
+  _ -> true)
+
+\* ===== MF-4b: recovery-before-writes gate ===== *\
+(define recovered?
+  { string --> boolean }                           \* logpath -> has recovery run this epoch? *\
+  _ -> (error "host: recovered?"))
+(define mark-recovered!
+  { string --> boolean }                           \* logpath -> set the recovery token *\
+  _ -> (error "host: mark-recovered!"))
+
 \* ===== pluggable merge oracle (doc 34) — ORTHOGONAL to storage-backend =====
    git-merge:   git 3-way heuristic (merge-tree). Default; daemon-free; the kept
                 fallback (Torvalds: keep git warm).

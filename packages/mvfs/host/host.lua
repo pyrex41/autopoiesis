@@ -18,19 +18,28 @@ _G.mvfs = M
 local US = string.char(31)   -- \x1f field separator
 local RS = string.char(30)   -- \x1e record terminator
 
--- ---- best-effort fsync via FFI (LuaJIT) ------------------------------------
-local fsync_fd
+-- ---- best-effort fsync + self-SIGKILL via FFI (LuaJIT) ---------------------
+local fsync_fd, ffi_kill
 do
   local ok, ffi = pcall(require, "ffi")
   if ok then
-    pcall(ffi.cdef, "int open(const char*, int); int close(int); int fsync(int);")
+    pcall(ffi.cdef, "int open(const char*, int); int close(int); int fsync(int); int getpid(void); int kill(int,int);")
     fsync_fd = function(path)
       local fd = ffi.C.open(path, 2)        -- O_RDWR
       if fd >= 0 then ffi.C.fsync(fd); ffi.C.close(fd) end
     end
+    ffi_kill = function() io.flush(); ffi.C.kill(ffi.C.getpid(), 9) end
   else
     fsync_fd = function(_) end
+    ffi_kill = function() os.exit(137) end
   end
+end
+
+-- fault-injection seam (T1): SIGKILL self iff env CRASH_AT == name. Inert in
+-- production (CRASH_AT unset). pland! calls this at the post-append window.
+function M.crash_point(name)
+  if os.getenv("CRASH_AT") == name then ffi_kill() end
+  return true
 end
 
 local function read_file(path)
@@ -228,6 +237,53 @@ function M.pijul_trunk_changes(channel, base)
     if h ~= base and #h > 40 then hs[#hs + 1] = h end
   end
   return hs
+end
+
+-- ---- fenced blob store (MF-4a): off-pijul byte backup of raw change bodies ---
+-- A change body lives in pijul's content-addressed change store at
+-- .pijul/changes/<h[0:2]>/<h[2:]>.change. We mirror it into OUR durable store
+-- (<logpath>.blobs/<hash>) BEFORE the log append, so the body survives even if
+-- pijul's store is lost — the log + this blob store are the durable truth.
+local function change_path(hash)
+  return ".pijul/changes/" .. hash:sub(1, 2) .. "/" .. hash:sub(3) .. ".change"
+end
+local function blob_path(hash, logpath) return logpath .. ".blobs/" .. hash end
+local function copy_file(src, dst)
+  local f = io.open(src, "rb"); if not f then return false end
+  local data = f:read("*a"); f:close()
+  os.execute("mkdir -p " .. shquote(dst:match("^(.*)/[^/]+$") or "."))
+  local g = assert(io.open(dst, "wb")); g:write(data); g:flush(); g:close()
+  fsync_fd(dst)
+  return true
+end
+
+function M.blob_put(hash, logpath)   -- mirror the raw change body into the blob store
+  return copy_file(change_path(hash), blob_path(hash, logpath))
+end
+function M.blob_has(hash, logpath)
+  local f = io.open(blob_path(hash, logpath), "rb"); if f then f:close(); return true end
+  return false
+end
+-- faithful-backup check: blob bytes == the live change body.
+function M.blob_matches(hash, logpath)
+  local a = read_file(blob_path(hash, logpath)); local b = read_file(change_path(hash))
+  return a ~= nil and a == b
+end
+-- best-effort restore of a missing change body from the blob store (recovery).
+function M.blob_restore(hash, logpath)
+  if io.open(change_path(hash), "rb") then return true end   -- already present
+  return copy_file(blob_path(hash, logpath), change_path(hash))
+end
+
+-- ---- recovery-before-writes gate (MF-4b) ----------------------------------
+-- A leader must run recovery before accepting writes. recover! marks the token;
+-- pland! refuses to land until it is set. Keyed on the logpath (the land domain).
+function M.mark_recovered(logpath)
+  local f = assert(io.open(logpath .. ".recovered", "wb")); f:write("1"); f:close(); return true
+end
+function M.is_recovered(logpath)
+  local f = io.open(logpath .. ".recovered", "rb"); if f then f:close(); return true end
+  return false
 end
 
 return M
