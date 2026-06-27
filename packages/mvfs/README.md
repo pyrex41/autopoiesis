@@ -11,7 +11,7 @@ This directory is **P0** from `spec/07-build-plan.md`: the core spine, written i
 | File | Spec | Purpose |
 |---|---|---|
 | `src/types.shen` | `02` §1 | The **sequent-typed land FSM** (`submitted → admitted → based → landed`) + the unforgeable capability types (`acl-proof`, `lease-witness`, `merge-result`). Illegal transitions don't typecheck. |
-| `src/boundary.shen` | `00` §5.4 | The **audited Shen↔shell surface**: git CAS verbs (`hash-object`/`cat-file`/`mktree`/`commit-tree`/`merge-tree`), durable fsync-append, fence CAS, `crc64`/`xor64`. The *only* side-effecting primitives. |
+| `src/boundary.shen` | `00` §5.4 / [doc 34](../../thoughts/shared/plans/dvcs-vfs/34-pijul-merge-oracle.md) | The **audited Shen↔shell surface**: git CAS verbs, the pluggable **`storage-backend`** (git/lore) + **`merge-oracle`** (git/pijul) axes, pijul patch-theory verbs (`record`/`apply`/`fork`/`state`/structural conflict probe), durable fsync-append, fence CAS, `crc64`/`xor64`. The *only* side-effecting primitives. |
 | `src/checksum.shen` | `01` §5 | The rolling-checksum **chaining protocol** (contrib field set, `prev==post` chain invariant) over the trusted `crc64`/`xor64` host primitives. |
 | `src/log.shen` | `01`/`02` | The **landed-log**: serialize entry, `durable-append-fenced!` (fence-epoch CAS at the durable head + fsync + post-fsync lease re-check), `verify-chain`. |
 | `src/fsm.shen` | `02` | The transitions: `admit` (needs `acl-proof`), `base` (OCC + git 3-way merge), `land` (needs `lease-witness`); `with-leadership` (the only minter of a witness). |
@@ -37,6 +37,31 @@ The decision, reached by actually running EpicGames/lore v0.8.4 and reading rvcs
 
 See [doc 33](../../thoughts/shared/plans/dvcs-vfs/33-storage-backend-decision.md) for the
 full evidence, object-model mapping table, and impedance notes.
+
+## Merge oracle (doc 34 — Pijul / patch theory replaces git's heuristic merge)
+
+Merge is a **second pluggable axis**, orthogonal to storage (a `merge-oracle` datatype:
+`git-merge` | `pijul-merge`; `base` routes through `oracle-admits?` / `oracle-merged`).
+git-as-CAS is fine; git-as-*merge* was the un-principled part — `merge-tree` is a heuristic
+line diff3. **Pijul's merge is sound by construction**, proven by running pijul
+1.0.0-beta.15:
+
+- **Commutativity** — independent changes in either order → byte-identical file *and*
+  identical cryptographic state hash (order-independent discrete-log multiset hash).
+- **Conflict determinism** — same-line edits → identical conflict state + state hash in
+  both orders; a conflict is a first-class graph state, detected **structurally** (never by
+  grepping `>>>>>>>` markers).
+- **Rebase dissolved** — a change recorded against the old base applies cleanly onto an
+  advanced trunk, hash unchanged — exactly what a totally-ordered land queue wants.
+
+Pijul is a **sealed merge subroutine**: we **exec the `pijul` CLI, never link libpijul**
+(GPL-2.0); **one channel** only (trunk-only); no pijul branches/remotes/identity leak up.
+git stays the **kept-warm fallback** oracle + CAS source-of-truth; lore = large binary
+bytes; mvfs = control plane (I1–I9). The hard P1 problem is **two-store crash atomicity**
+(fenced log = truth, Sanakirja pristine = rebuildable cache) — see doc 34's must-fix list.
+
+See [doc 34](../../thoughts/shared/plans/dvcs-vfs/34-pijul-merge-oracle.md) for the grounded
+experiments, the Aphyr/Torvalds/Fukamachi panel synthesis, and the MF-1..5 / T1–T3 list.
 
 ## Invariants embodied (see `spec/00` §4)
 

@@ -109,6 +109,100 @@
   git-be  Bytes -> (git-hash-bytes Bytes)
   lore-be _     -> (error "mvfs.cas-put-blob: lore writes are working-tree-oriented; use host-lore.lore-stage-path"))
 
+\* ===== git merge helpers (the git arm of the merge oracle) =====
+   Relocated from fsm.shen so the merge-oracle dispatch (below) is self-contained
+   and loads before fsm.shen. substr?/first-line are host string ops. *\
+(define substr? { string --> string --> boolean } _ _ -> (error "host: substr?"))
+(define first-line { string --> string } _ -> (error "host: first-line"))
+(define merge-clean? { string --> boolean } M -> (not (substr? "CONFLICT" M)))
+(define merged-tree  { string --> hash } M -> (chomp (first-line M)))
+
+\* ===== pijul merge-oracle verbs (patch theory; doc 34) =====
+   We SHELL OUT to the `pijul` CLI (libpijul is GPL-2.0 — exec, never link;
+   Torvalds review). Changes are BLAKE3-base32 addressed; `record` prints
+   "Hash: <h>". Conflicts are first-class graph states; we detect them
+   STRUCTURALLY (Aphyr MF-2: never grep >>>>>>> markers). pijul is used as a
+   pure merge subroutine: ONE channel as trunk, no pijul branches/remotes/
+   identity leak upward (Torvalds). Recording needs an ssh-agent identity
+   supplied by the host. All verbs run in a repo cwd owned by the boundary. *\
+
+(define after-tag { string --> string --> string } _ _ -> (error "host: after-tag (substring after marker)"))
+
+(define pijul-parse-hash
+  { string --> hash }                             \* "...\nHash: <h>\n..." -> h *\
+  Out -> (chomp (after-tag "Hash: " Out)))
+
+(define pijul-record
+  { principal --> string --> hash }               \* author msg -> change-hash (working-copy diff) *\
+  Author Msg -> (pijul-parse-hash (shell-run "pijul" ["record" "-a" "-m" Msg "--author" Author])))
+
+(define pijul-apply
+  { string --> hash --> boolean }                 \* channel hash -> ok (idempotent: present hash = no-op, I3) *\
+  Channel H -> (do (shell-run "pijul" ["apply" "--channel" Channel H]) true))
+
+(define pijul-fork
+  { string --> string --> boolean }               \* from new -> ok (O(log n) Sanakirja CoW) *\
+  From New -> (do (shell-run "pijul" ["fork" "--channel" From New]) true))
+
+(define pijul-drop-channel
+  { string --> boolean }                           \* drop a speculative probe channel *\
+  Channel -> (do (shell-run "pijul" ["channel" "delete" Channel]) true))
+
+(define pijul-state
+  { string --> hash }                              \* channel -> order-independent state/version hash *\
+  Channel -> (chomp (shell-run "pijul" ["log" "--channel" Channel "--state" "--limit" "1"])))
+
+\* STRUCTURAL conflict query (Aphyr MF-2): the host backend inspects the pristine
+   graph for any conflict class (order / zombie / name / overlap), NOT marker
+   text. Errors by default; the backend provides the real graph query. *\
+(define pijul-graph-conflicted? { string --> boolean } _ -> (error "host: pijul-graph-conflicted? (structural)"))
+(define pijul-conflicts?
+  { string --> boolean }                           \* channel -> any conflict in the pristine? *\
+  Channel -> (pijul-graph-conflicted? Channel))
+
+(define spec-channel { hash --> string } H -> (@s "mvfs-probe-" H))
+
+\* Speculative admission (Aphyr MF-3 land-point re-check uses this too): fork the
+   tip, apply the candidate, ask the graph if it conflicts, discard the fork.
+   No mutation of the trunk. Order-independent => the answer is a true OCC test. *\
+(define pijul-admits?
+  { string --> hash --> boolean }                  \* tip-channel candidate -> clean? *\
+  Tip Cand -> (let Spec (spec-channel Cand)
+                (do (pijul-fork Tip Spec)
+                 (do (pijul-apply Spec Cand)
+                  (let Clean (not (pijul-conflicts? Spec))
+                   (do (pijul-drop-channel Spec) Clean))))))
+
+\* Idempotent land-apply: apply candidate to the trunk channel; return the
+   resulting (order-independent) state hash. Re-apply of a present change is a
+   no-op (merge-layer I3 backstop; idempotency-key in log.shen is authoritative). *\
+(define pijul-land-state
+  { string --> hash --> hash }                     \* trunk-channel candidate -> new-state-hash *\
+  Trunk Cand -> (do (pijul-apply Trunk Cand) (pijul-state Trunk)))
+
+\* ===== pluggable merge oracle (doc 34) — ORTHOGONAL to storage-backend =====
+   git-merge:   git 3-way heuristic (merge-tree). Default; daemon-free; the kept
+                fallback (Torvalds: keep git warm).
+   pijul-merge: patch-theory associative merge; conflicts first-class &
+                order-independent. For pijul, Ours = candidate change-hash and
+                Theirs = trunk-tip channel, carried under the `hash` type. *\
+(datatype merge-oracle
+  ___________________________
+  git-merge : merge-oracle;
+
+  ___________________________
+  pijul-merge : merge-oracle;)
+
+(define oracle-admits?
+  { merge-oracle --> hash --> hash --> hash --> boolean }   \* oracle base ours theirs -> clean? *\
+  git-merge   Base Ours Theirs -> (merge-clean? (git-merge-tree Base Ours Theirs))
+  pijul-merge _    Cand Tip     -> (pijul-admits? Tip Cand))
+
+(define oracle-merged
+  { merge-oracle --> hash --> hash --> hash --> hash }       \* oracle base ours theirs -> merged-id *\
+  git-merge   Base Ours Theirs -> (merged-tree (git-merge-tree Base Ours Theirs))
+  pijul-merge _    Cand Tip     -> (pijul-land-state Tip Cand))
+
 \* ===== I5: content integrity — a hash names exactly one byte string ===== *\
 (define verify-blob
   { hash --> string --> boolean }                 \* hash bytes -> re-hash matches? *\

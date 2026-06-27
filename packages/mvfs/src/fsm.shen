@@ -53,11 +53,10 @@
   =========================================================================
   [mk-landed Cid Key Commit Seq] : landed;)
 
-\* ===== helpers (defined before the transitions that use them) ===== *\
-(define substr? { string --> string --> boolean } _ _ -> (error "host: substr?"))
-(define first-line { string --> string } _ -> (error "host: first-line"))
-(define merge-clean? { string --> boolean } M -> (not (substr? "CONFLICT" M)))
-(define merged-tree  { string --> hash } M -> (chomp (first-line M)))
+\* ===== helpers (defined before the transitions that use them) =====
+   merge helpers (substr?/first-line/merge-clean?/merged-tree) and the
+   merge-oracle dispatch (oracle-admits?/oracle-merged) live in boundary.shen so
+   the oracle abstraction is self-contained and loads first. *\
 (define tip-commit { hash --> hash } _ -> (error "host: tip-commit (tree->commit)"))
 (define commit-msg { id --> string } Cid -> (@s "mvfs change " Cid))
 (define acquire-epoch { lease --> number } _ -> (error "host: acquire-epoch (lease)"))
@@ -96,18 +95,18 @@
   [mk-submitted Cid Key Base Tree Paths Author] Pf
   -> [mk-admitted Cid Key Base Tree Paths Author Pf])
 
-\* OCC base-check + git 3-way merge onto the current trunk tip-tree.
-   Conflict = the post-rebase result would overwrite an unobserved value
-   (git-merge-tree decides), NOT mere path overlap (spec/02 §4). *\
+\* OCC base-check + merge onto the current trunk tip, via the chosen merge
+   oracle (doc 34). Conflict = the oracle's decision (git: 3-way merge-tree;
+   pijul: speculative apply + structural conflict query), NOT mere path overlap
+   (spec/02 §4). The merge axis is pluggable & orthogonal to storage-backend. *\
 (define base
-  { admitted --> hash --> based }            \* second arg = current trunk tip tree *\
-  [mk-admitted Cid Key Base Tree Paths Author Pf] Tip
+  { admitted --> hash --> merge-oracle --> based }   \* tip-tree, merge oracle -> based *\
+  [mk-admitted Cid Key Base Tree Paths Author Pf] Tip Oracle
   -> (if (= Base Tip)
          [mk-based Cid Key Tree Tip Author Pf]               \* fast path: no interfering lands *\
-         (let M (git-merge-tree Base Tree Tip)
-              (if (merge-clean? M)
-                  [mk-based Cid Key (merged-tree M) Tip Author Pf]
-                  (error "conflict: needs rebase (P1 surfaces hunks)")))))
+         (if (oracle-admits? Oracle Base Tree Tip)
+             [mk-based Cid Key (oracle-merged Oracle Base Tree Tip) Tip Author Pf]
+             (error "conflict: needs rebase (P1 surfaces hunks)"))))
 
 \* land REQUIRES a lease-witness and a `based` change. Writes the commit. *\
 \* NOTE: the witness is destructured as [mk-witness _] (not a bare variable):

@@ -23,7 +23,7 @@
    not admitted. Type error: submitted =/= admitted. *\
 (define illegal-3
   { hash --> based }
-  Tip -> (base (submit "c3" "k3" "t-base" "t-tree" [] "alice") Tip)))
+  Tip -> (base (submit "c3" "k3" "t-base" "t-tree" [] "alice") Tip git-merge)))
 
 \* (4) FORGE a lease-witness from a FOREIGN package: the tag `mk-witness` here
    binds to mvfs.forge.mk-witness, a different tag than the core's

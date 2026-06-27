@@ -43,4 +43,4 @@ typecheck-negative:
 # primitives needed) must yield a `based` value.
 test:
 	$(SHEN) -e "(tc -)" $(CORE) \
-	  -e "(mvfs.base (mvfs.admit (mvfs.submit \"c1\" \"k1\" \"tbase\" \"ttree\" [] \"alice\") (mvfs.check \"alice\" [] 0)) \"tbase\")"
+	  -e "(mvfs.base (mvfs.admit (mvfs.submit \"c1\" \"k1\" \"tbase\" \"ttree\" [] \"alice\") (mvfs.check \"alice\" [] 0)) \"tbase\" mvfs.git-merge)"
