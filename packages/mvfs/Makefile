@@ -15,7 +15,7 @@ NEG  = test/illegal.shen
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -44,3 +44,10 @@ typecheck-negative:
 test:
 	$(SHEN) -e "(tc -)" $(CORE) \
 	  -e "(mvfs.base (mvfs.admit (mvfs.submit \"c1\" \"k1\" \"tbase\" \"ttree\" [] \"alice\") (mvfs.check \"alice\" [] 0)) \"tbase\" mvfs.git-merge)"
+
+# End-to-end: run the REAL FSM against REAL git + REAL pijul + a fsync'd durable
+# log, via the shen-lua host backend (src/host-lua.shen + host/host.lua). Proves
+# the pijul merge oracle, the fenced land path, and I7 actually RUN (not just tc).
+# Requires SHEN, PIJUL, PIJUL_CONFIG_DIR (an ssh-agent identity), git+pijul on PATH.
+e2e:
+	bash test/e2e.sh
