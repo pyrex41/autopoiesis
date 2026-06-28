@@ -1,6 +1,16 @@
 # 41 — Durable execution on the mvfs substrate (Golem-general, via Firecracker/gVisor/CRIU + squashfs)
 
-**Status:** Design exploration (no code yet). Grounded by a cited research sweep of
+> **⚠ CORRECTED BY [doc 42](42-durable-execution-panel-verdict.md) (panel review).** Three
+> claims below are RETRACTED there: (1) "the fence is the exactly-once primitive" — it is
+> exactly-once for the *log append* only, not for external effects; (2) "rootfs is nearly
+> free / reuse checkout!/switch! / squashfs per revision" — use **composefs**, not
+> squashfs-per-revision, and the overlay-upper→CAS path is a NEW serializer (plain-file
+> reuse silently loses deletions); (3) memory snapshots are NOT just CAS blobs — they need
+> per-tenant encryption (I10) + provenance-verified-before-resume (I11). Read doc 42 for the
+> revised architecture, the must-fix list, and the corrected phasing. This doc is kept as the
+> original exploration.
+
+**Status:** Design exploration (no code yet); superseded by doc 42 on the points above. Grounded by a cited research sweep of
 Golem, gVisor, Firecracker, CRIU, squashfs/composefs, and the durable-execution
 field (Temporal/Restate/Antithesis). Question from the user: *"how could this be
 adapted to support durable state — like Golem does for WASM runtimes but more
