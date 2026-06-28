@@ -95,7 +95,11 @@ make read-edge            # OpenResty edge (serve/verify.lua) verifies a brain-m
 
 # Policy + mount (spec/03, spec/05; doc 40):
 make acl                  # decidable ACL: longest-prefix-deny-wins + §6a matcher≡oracle diff: 11/11
-make vfs                  # checkout-first mount: sparse materialize, dirstate, O(changes) status: 12/12
+make vfs                  # checkout-first mount: sparse materialize, dirstate, O(changes) status: 17/17
+
+# Durable execution P-D0 (spec/08): the moat, verifiably (composefs/Firecracker = deployment):
+make policy               # policy lands fenced; acl-version from the log; effective-policy (I6): 9/9
+make dx                   # overlay-delta serializer + fenced checkpoint + FAITHFUL deletion/restore: 12/12
 
 # All doc-34 must-fixes (MF-1..MF-5, I3) are closed; see thoughts .../38-...closeout.md
 # Read-tier serve artifacts (nginx.conf + access.lua + verify.lua) live in serve/.

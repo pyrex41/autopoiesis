@@ -9,14 +9,14 @@ SHEN ?= shen
 # Load order matters: scalars (synonyms) first; then callee-before-caller.
 CORE = src/scalars.shen src/boundary.shen src/checksum.shen src/types.shen \
        src/log.shen src/fsm.shen src/read.shen src/acl.shen src/policy.shen \
-       src/vfs.shen src/cli.shen
+       src/vfs.shen src/dx.shen src/cli.shen
 POS  = test/log-test.shen
 NEG  = test/illegal.shen
 # Optional lore fragment backend host (doc 33). Not part of CORE: the trunk land
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 read read-edge acl vfs policy all help
+.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 read read-edge acl vfs policy dx all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -101,3 +101,9 @@ vfs:
 # acl-version derived from the log, effective-policy = latest landed ruleset (I6).
 policy:
 	bash test/policy.sh
+
+# Durable execution P-D0 (spec/08): the moat, verifiably — overlay-delta serializer
+# + fenced checkpoint + faithful deletion/restore on git+plain-dirs (composefs/
+# Firecracker are reuse/deployment, not exercised here). Needs SHEN + git.
+dx:
+	bash test/dx.sh

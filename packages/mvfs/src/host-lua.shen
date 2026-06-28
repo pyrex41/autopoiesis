@@ -95,6 +95,8 @@
 (define file-size { string --> number } P -> (lua.call "mvfs.file_size" [P]))
 (define file-mtime { string --> number } P -> (lua.call "mvfs.file_mtime" [P]))
 (define rm-file! { string --> boolean } P -> (lua.call "mvfs.rm_file" [P]))
+(define list-files-r { string --> (list string) } Wd -> (lua.call "mvfs.list_files_r" [Wd]))
+(define sort-lines { string --> string } S -> (lua.call "mvfs.sort_lines" [S]))
 (define save-dirstate! { (list (list string)) --> string --> boolean } Rows Path -> (lua.call "mvfs.dirstate_save" [Rows Path]))
 (define load-dirstate { string --> (list (list string)) } Path -> (lua.call "mvfs.dirstate_load" [Path]))
 (define version-ok? { string --> boolean } Log -> (lua.call "mvfs.version_ok" [Log]))

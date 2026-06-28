@@ -288,6 +288,8 @@
 (define file-size { string --> number } _ -> (error "host: file-size"))  \* working file size (-1 if absent) *\
 (define file-mtime { string --> number } _ -> (error "host: file-mtime"))  \* working file mtime epoch (-1 if absent) *\
 (define rm-file! { string --> boolean } _ -> (error "host: rm-file!"))   \* delete a working-tree file (switch eviction) *\
+(define list-files-r { string --> (list string) } _ -> (error "host: list-files-r"))  \* recursive working-tree file list (sorted) *\
+(define sort-lines { string --> string } _ -> (error "host: sort-lines"))  \* canonical line sort (deterministic delta) *\
 
 \* ===== I5: content integrity — a hash names exactly one byte string ===== *\
 (define verify-blob

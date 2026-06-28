@@ -464,6 +464,25 @@ end
 
 function M.rm_file(path) os.remove(path); return true end
 
+-- recursive list of working-tree files, relative to wd, sorted (P-D0 delta diff).
+function M.list_files_r(wd)
+  local out, rc = run("find " .. shquote(wd) .. " -type f -printf '%P\\n' 2>/dev/null")
+  if rc ~= 0 then return {} end
+  local fs = {}
+  for p in (out):gmatch("(.-)\n") do if #p > 0 then fs[#fs + 1] = p end end
+  table.sort(fs)
+  return fs
+end
+
+-- canonical sort of newline-joined lines (deterministic delta serialization).
+function M.sort_lines(s)
+  if s == "" then return "" end
+  local ls = {}
+  for l in (s .. "\n"):gmatch("(.-)\n") do if #l > 0 then ls[#ls + 1] = l end end
+  table.sort(ls)
+  return table.concat(ls, "\n")
+end
+
 -- dirstate persistence (spec §2.3): one TAB-joined row per line at .mvfs/dirstate.
 function M.dirstate_save(rows, path)
   local lines = {}

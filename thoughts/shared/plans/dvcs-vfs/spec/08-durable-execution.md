@@ -173,6 +173,15 @@ exactly-once requires:
 
 ## 8. Phasing
 
+**P-D0 status: the BUILD half is implemented & verified** (`packages/mvfs/src/dx.shen`,
+`make dx`, 12/12 on shen-lua/LuaJIT): the overlay-delta serializer (set/del nodes,
+deterministic content-addressed delta), `checkpoint!` (fenced land of the delta, C1
+store-before-append), and `restore-checkpoint!` (base + delta with **faithful
+deletions** — a deleted file does NOT reappear; C2 verify-before-resume). The REUSE
+half (composefs base image, kernel overlay mount) is deployment — not exercisable
+without privileged mounts. A real-fix found in the spike: the delta must store working
+content with `git hash-object -w` (not just hash it), or restore can't find the blob.
+
 - **P-D0 — rootfs-only durability (ship first; general, no determinism, no hypervisor).**
   composefs base (digest = a trunk revision) + kernel overlay upper, no FUSE in the I/O
   path. **Checkpoint = land(overlay-upper-delta)** via the §3 serializer with verify-
