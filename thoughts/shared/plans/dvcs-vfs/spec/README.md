@@ -20,6 +20,7 @@ Read `00` first — it is normative.
 | [`05-serving-and-vfs.md`](./05-serving-and-vfs.md) | serving + VFS | shen-lua/OpenResty read tier (mlcache, GC64, kTLS, single-flight, trie matcher, brain-decides/nginx-serves); EdenFS-shape thin mount + dirstate; sparse/lazy checkout; latency budget. |
 | [`06-product-edges.md`](./06-product-edges.md) | product | Change lifecycle + Change-Id; stacked changes + **restack-on-land**; submit→land UX; real conflict resolution; sparse monorepo; ACL-as-landed-change; CLI surface; non-goals. |
 | [`07-build-plan.md`](./07-build-plan.md) | build | VCS-first phased plan on the Shen toolchain; the four gating spikes (S0–S3); the three-pillar test strategy; reimplement-later/oracle; traceability. |
+| [`08-durable-execution.md`](./08-durable-execution.md) | durable execution (extension) | Checkpoint = a **fenced 3-artifact commit** (composefs rootfs delta + encrypted memory snapshot + oplog); reuse Firecracker/composefs/CRIU, build only the moat; **I10** snapshot confidentiality + **I11** restore provenance; effects are at-least-once (egress capability + oplog); restore = re-animate, not replay. Panel-reviewed (doc 42). |
 
 ## The core idea in five lines
 

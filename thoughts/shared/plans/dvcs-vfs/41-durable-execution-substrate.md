@@ -7,8 +7,9 @@
 > squashfs-per-revision, and the overlay-upper→CAS path is a NEW serializer (plain-file
 > reuse silently loses deletions); (3) memory snapshots are NOT just CAS blobs — they need
 > per-tenant encryption (I10) + provenance-verified-before-resume (I11). Read doc 42 for the
-> revised architecture, the must-fix list, and the corrected phasing. This doc is kept as the
-> original exploration.
+> revised architecture, the must-fix list, and the corrected phasing. The **authoritative
+> revised design** now lives in [`spec/08-durable-execution.md`](spec/08-durable-execution.md)
+> (composefs-centered, I10/I11). This doc is kept as the original exploration only.
 
 **Status:** Design exploration (no code yet); superseded by doc 42 on the points above. Grounded by a cited research sweep of
 Golem, gVisor, Firecracker, CRIU, squashfs/composefs, and the durable-execution

@@ -99,6 +99,15 @@ flowchart TB
 | **I7** | Fenced authority: a non-leader / stale-leader **cannot** land (type-level `lease-witness` + storage fencing token) | `02` |
 | **I8** | Read-your-writes + monotonic reads under the scale-out read tier | enforced `as-of` basis; `04` |
 | **I9** | Authorization on every byte path: no content reachable by hash alone | HMAC serve tokens; `04`, `05` |
+| **I10** | Snapshot confidentiality: memory/execution images are per-tenant authenticated-encrypted at rest, given a **distinct** ACL resource-class + serve-token type from code, never cross-tenant-deduped, never CDN-cached | durable-execution tier; `08` |
+| **I11** | Restore provenance: no execution image is resumed without verified capture-component provenance over the **full** chain (base + deltas); trust lives in the fenced log entry (signed), not in the hash | durable-execution tier; `08` |
+
+> **I10/I11 scope.** These bind only the *durable-execution* tier (`08`): execution state
+> capture/restore (rootfs deltas that may hold runtime credentials, and memory snapshots).
+> I1–I9 are unchanged. A memory image is integrity-addressed by hash (I5) but is **not**
+> trusted, shareable, or confidential by virtue of its hash — confidentiality is I10
+> (encryption), trust is I11 (provenance in the fenced log entry). Added per the doc-42
+> panel review (Ptacek).
 
 ## 5. Cross-document contracts (freeze these so docs cohere)
 
