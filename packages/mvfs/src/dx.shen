@@ -103,10 +103,22 @@
   { landed-entry --> boolean }
   E -> (= (git-hash-bytes (git-cat-file (entry-commit E))) (entry-commit E)))
 
+\* C2 pre-flight: every `set` content blob referenced by the delta must be present
+   in CAS BEFORE we materialize anything — otherwise a mid-apply failure leaves a
+   partial (base-version) tree. Atomic-or-nothing fail-closed. *\
+(define set-blobs-present?
+  { (list (list string)) --> boolean }
+  [] -> true
+  [["set" _ H] | Ds] -> (if (blob-exists? H) (set-blobs-present? Ds) false)
+  [_ | Ds] -> (set-blobs-present? Ds))
+
 (define restore-checkpoint!
   { landed-entry --> string --> boolean }            \* entry, dest workdir -> ok *\
-  E Wd -> (if (not (verify-checkpoint? E))
-              (error "C2: checkpoint delta failed verify-before-resume")
-              (do (checkout! (entry-parent E) [""] [] Wd)             \* materialize base (full) *\
-                  (apply-delta! (parse-delta (git-cat-file (entry-commit E))) Wd))))
+  E Wd -> (let Delta (parse-delta (git-cat-file (entry-commit E)))   \* errors if the delta blob is gone (C2) *\
+            (if (not (verify-checkpoint? E))
+                (error "C2: checkpoint delta failed verify-before-resume")
+                (if (not (set-blobs-present? Delta))
+                    (error "C2: a referenced content blob is missing; refusing partial restore")
+                    (do (checkout! (entry-parent E) [""] [] Wd)       \* materialize base (full) *\
+                        (apply-delta! Delta Wd))))))
 )

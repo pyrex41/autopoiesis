@@ -289,6 +289,19 @@
 (define file-mtime { string --> number } _ -> (error "host: file-mtime"))  \* working file mtime epoch (-1 if absent) *\
 (define rm-file! { string --> boolean } _ -> (error "host: rm-file!"))   \* delete a working-tree file (switch eviction) *\
 (define list-files-r { string --> (list string) } _ -> (error "host: list-files-r"))  \* recursive working-tree file list (sorted) *\
+(define blob-exists? { hash --> boolean } _ -> (error "host: blob-exists?"))  \* git object present in CAS? (restore pre-flight) *\
+
+\* ===== composefs/overlay deployment backend (spec/08 §1,§9) — the REUSE half =====
+   Runs ONLY on a real kernel with composefs + privileged mounts (host-composefs.lua).
+   The portable P-D0 (dx.shen) models the same content-addressed delta on git+plain-
+   dirs and is what CI exercises; THIS backend reads a REAL overlayfs upper —
+   char-device whiteouts (deletions) and trusted.overlay.* xattrs (opaque/redirect) —
+   emitting the same {set,del,...} delta the checkpoint kernel lands. Erroring stubs;
+   the deployment host overrides them. *\
+(define composefs-build! { hash --> hash } _ -> (error "host: composefs-build! (deploy: mkcomposefs)"))
+(define overlay-mount!   { hash --> string --> string } _ _ -> (error "host: overlay-mount! (deploy: mount erofs+overlay)"))
+(define overlay-capture! { string --> hash --> (list (list string)) } _ _ -> (error "host: overlay-capture! (deploy: walk upper, whiteouts+xattrs)"))
+(define overlay-apply!   { (list (list string)) --> string --> boolean } _ _ -> (error "host: overlay-apply! (deploy: reconstruct upper)"))
 (define sort-lines { string --> string } _ -> (error "host: sort-lines"))  \* canonical line sort (deterministic delta) *\
 
 \* ===== I5: content integrity — a hash names exactly one byte string ===== *\

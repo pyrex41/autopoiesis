@@ -182,6 +182,18 @@ half (composefs base image, kernel overlay mount) is deployment — not exercisa
 without privileged mounts. A real-fix found in the spike: the delta must store working
 content with `git hash-object -w` (not just hash it), or restore can't find the blob.
 
+**T-D1 (durable-layer fault test) is implemented & green** (`make t-d1`, 10/10):
+fail-closed on a lost delta blob *and* a lost content blob — with an **atomic
+pre-flight** (`set-blobs-present?` verifies every referenced blob *before*
+materializing, so a missing blob yields NO partial tree; a real fix the test forced),
+deterministic delta (the CI bit-identity check), and entry tampering caught by the log
+checksum chain (I5). **The composefs/overlay deployment backend exists as artifacts**
+(`deploy/README.md`, `host/host-composefs.lua`, `src/host-composefs.shen`; boundary
+verbs `composefs-build!`/`overlay-mount!`/`overlay-capture!`/`overlay-apply!` typecheck):
+it reads a REAL overlay upper (char-device whiteouts → `del`, `trusted.overlay.*`
+xattrs → `opaque`/`redirect`) and emits the same delta the kernel lands — runnable only
+on a composefs-capable kernel with privileged mounts, not in CI.
+
 - **P-D0 — rootfs-only durability (ship first; general, no determinism, no hypervisor).**
   composefs base (digest = a trunk revision) + kernel overlay upper, no FUSE in the I/O
   path. **Checkpoint = land(overlay-upper-delta)** via the §3 serializer with verify-

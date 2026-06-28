@@ -464,6 +464,13 @@ end
 
 function M.rm_file(path) os.remove(path); return true end
 
+-- does a git object exist in CAS? (cat-file -e: rc 0 present, 1 missing). For the
+-- restore pre-flight: verify every referenced blob before materializing anything.
+function M.blob_exists(h)
+  local _, rc = run("git cat-file -e " .. shquote(h) .. " 2>/dev/null")
+  return rc == 0
+end
+
 -- recursive list of working-tree files, relative to wd, sorted (P-D0 delta diff).
 function M.list_files_r(wd)
   local out, rc = run("find " .. shquote(wd) .. " -type f -printf '%P\\n' 2>/dev/null")

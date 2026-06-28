@@ -16,7 +16,7 @@ NEG  = test/illegal.shen
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore test e2e t1 t1-kill t2 t3 read read-edge acl vfs policy dx all help
+.PHONY: typecheck typecheck-negative typecheck-lore typecheck-composefs test e2e t1 t1-kill t2 t3 read read-edge acl vfs policy dx t-d1 all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -107,3 +107,15 @@ policy:
 # Firecracker are reuse/deployment, not exercised here). Needs SHEN + git.
 dx:
 	bash test/dx.sh
+
+# T-D1: durable-layer fault test — fail-closed on corrupt/lost artifacts (C1/C2,
+# atomic-or-nothing restore), deterministic delta, entry-tampering caught by the
+# chain. Runs on git+plain-dirs. Needs SHEN + git.
+t-d1:
+	bash test/t-d1.sh
+
+# Load-check the optional composefs/overlay deployment backend (binds the boundary
+# verbs via lua.call — a runtime host backend, loaded under tc- like host-lua; the
+# TYPED surface is the boundary stubs, covered by `make typecheck`). No kernel needed.
+typecheck-composefs:
+	$(SHEN) -q -e "(tc -)" $(CORE) src/host-composefs.shen -e "(intern \"host-composefs binds OK\")"
