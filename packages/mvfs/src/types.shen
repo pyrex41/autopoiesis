@@ -37,6 +37,8 @@
 (define entry-key    { landed-entry --> id }     [mk-entry _ _ K _ _ _ _ _ _ _ _ _ _] -> K)
 (define entry-commit { landed-entry --> hash }   [mk-entry _ _ _ C _ _ _ _ _ _ _ _ _] -> C)
 (define entry-root   { landed-entry --> hash }   [mk-entry _ _ _ _ _ R _ _ _ _ _ _ _] -> R)
+(define entry-paths  { landed-entry --> (list path) } [mk-entry _ _ _ _ _ _ Ps _ _ _ _ _ _] -> Ps)
+(define entry-aclv   { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ V _ _ _ _] -> V)
 (define entry-fence  { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ F _ _ _] -> F)
 (define entry-prev   { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ _ P _ _] -> P)
 (define entry-post   { landed-entry --> number } [mk-entry _ _ _ _ _ _ _ _ _ _ _ Q _] -> Q)

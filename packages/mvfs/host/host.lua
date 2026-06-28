@@ -462,6 +462,8 @@ function M.file_mtime(path)
   return tonumber((out:gsub("%s+$", ""))) or -1
 end
 
+function M.rm_file(path) os.remove(path); return true end
+
 -- dirstate persistence (spec §2.3): one TAB-joined row per line at .mvfs/dirstate.
 function M.dirstate_save(rows, path)
   local lines = {}

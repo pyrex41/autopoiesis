@@ -54,5 +54,19 @@ chk "docs/c.txt now materialized"   "$(pos "$(shen -e "(mvfs.file-size (mvfs.wt-
 chk "docs/c.txt content correct"    "$(cat "$WT/docs/c.txt")" "C1"
 chk "tools/ still excluded"         "$(shen -e "(mvfs.file-size (mvfs.wt-path \"$WT\" \"tools/d.txt\"))")" "-1"
 
+echo "===== switch-revision: edit app/a.txt + remove app/b.txt in a new commit ====="
+# build a second revision: app/a.txt changes content, app/b.txt deleted, app/e.txt added
+git rm -q app/b.txt; printf 'A1-v2\n' > app/a.txt; printf 'E1\n' > app/e.txt
+git add app; git commit -q -m v2
+TREE2=$(git rev-parse 'HEAD^{tree}')
+# switch the wt (profile app/+docs/) from the current dirstate to TREE2
+DS2=$(shen -e "(mvfs.switch! (mvfs.load-dirstate \"$DS\") \"$TREE2\" [\"app/\" \"docs/\"] \"$WT\")")
+shen -e "(mvfs.save-dirstate! (mvfs.switch! (mvfs.load-dirstate \"$DS\") \"$TREE2\" [\"app/\" \"docs/\"] \"$WT\") \"$DS\")" >/dev/null
+chk "app/a.txt updated to v2 content"  "$(cat "$WT/app/a.txt")" "A1-v2"
+chk "app/b.txt evicted (removed in v2)" "$(shen -e "(mvfs.file-size (mvfs.wt-path \"$WT\" \"app/b.txt\"))")" "-1"
+chk "app/e.txt materialized (added in v2)" "$(pos "$(shen -e "(mvfs.file-size (mvfs.wt-path \"$WT\" \"app/e.txt\"))")")" "yes"
+chk "docs/c.txt still present (unchanged)" "$(cat "$WT/docs/c.txt")" "C1"
+chk "status clean after switch"        "$(shen -e "(mvfs.status (mvfs.load-dirstate \"$DS\") \"$WT\")")" "[]"
+
 echo "===== vfs result: $PASS passed, $FAIL failed ====="
 [ "$FAIL" -eq 0 ]

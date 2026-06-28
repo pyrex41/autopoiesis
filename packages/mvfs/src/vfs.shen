@@ -70,4 +70,48 @@
   [] _ -> []
   [D | Ds] Wd -> (let S (entry-status D Wd)
                    (if (= S []) (status Ds Wd) [S | (status Ds Wd)])))
+
+\* ===== switch-revision (spec/05 §B7): rebase the working tree to a new tree =====
+   For each in-profile entry of the NEW tree: keep the file if the old dirstate has
+   it at the same hash (no rewrite), else materialize. Evict in-profile files that
+   the new tree no longer has. Returns the new dirstate. *\
+(define find-row
+  { (list (list string)) --> path --> (list (list string)) }   \* [] | [row] *\
+  [] _ -> []
+  [[P H S M] | Ds] Path -> (if (= P Path) [[P H S M]] (find-row Ds Path))
+  [_ | Ds] Path -> (find-row Ds Path))
+(define row-hash { (list string) --> hash } [_ H _ _] -> H
+                                            _ -> "")
+(define entry-has-path?
+  { (list (list string)) --> path --> boolean }
+  [] _ -> false
+  [[P _ _ _] | Es] Path -> (if (= P Path) true (entry-has-path? Es Path))
+  [_ | Es] Path -> (entry-has-path? Es Path))
+
+(define sync-entries
+  { (list (list string)) --> (list (list string)) --> string --> (list (list string)) }
+  [] _ _ -> []
+  [[Path Mode Hash Size] | Es] Old Wd
+  -> (let R (find-row Old Path)
+       (if (and (not (= R [])) (= (row-hash (head R)) Hash))
+           [(head R) | (sync-entries Es Old Wd)]                  \* unchanged: keep, no rewrite *\
+           (let WF (wt-path Wd Path)
+             (do (write-blob! Hash WF)
+              [[Path Hash (str (file-size WF)) (str (file-mtime WF))] | (sync-entries Es Old Wd)]))))
+  [_ | Es] Old Wd -> (sync-entries Es Old Wd))
+
+(define evict-removed!
+  { (list (list string)) --> (list (list string)) --> string --> boolean }
+  [] _ _ -> true
+  [[Path _ _ _] | Ds] NewEs Wd
+  -> (do (if (entry-has-path? NewEs Path) true (rm-file! (wt-path Wd Path)))
+         (evict-removed! Ds NewEs Wd))
+  [_ | Ds] NewEs Wd -> (evict-removed! Ds NewEs Wd))
+
+(define switch!
+  { (list (list string)) --> hash --> (list string) --> string --> (list (list string)) }
+  Old NewTree Prof Wd
+  -> (let NewEs (want-set (git-ls-tree-r NewTree) Prof [])
+       (do (evict-removed! Old NewEs Wd)
+           (sync-entries NewEs Old Wd))))
 )

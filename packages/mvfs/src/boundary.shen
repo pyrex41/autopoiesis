@@ -287,6 +287,7 @@
 (define hash-file { string --> hash } _ -> (error "host: hash-file"))   \* working file -> blob hash ("" if absent) *\
 (define file-size { string --> number } _ -> (error "host: file-size"))  \* working file size (-1 if absent) *\
 (define file-mtime { string --> number } _ -> (error "host: file-mtime"))  \* working file mtime epoch (-1 if absent) *\
+(define rm-file! { string --> boolean } _ -> (error "host: rm-file!"))   \* delete a working-tree file (switch eviction) *\
 
 \* ===== I5: content integrity — a hash names exactly one byte string ===== *\
 (define verify-blob
