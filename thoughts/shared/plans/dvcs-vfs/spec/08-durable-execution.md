@@ -244,8 +244,12 @@ on a composefs-capable kernel with privileged mounts, not in CI.
   window the external endpoint must dedupe); E1 out-of-guest egress capability
   (`mint-egress` under leadership; `egress-ok?` admits iff HMAC valid AND token epoch ≥
   the log's current head fence — a STALE leader's token is rejected, so effect ownership
-  is enforced outside the guest where the fence cannot reach). The actual egress *proxy*
-  + the worker network path are deployment (P-D1-adjacent).
+  is enforced outside the guest where the fence cannot reach). The worker-facing API
+  is **`durable-effect!`** (the Temporal/Restate "activity" wrapper): replay a recorded
+  outcome if the effect already completed, else intent → run → outcome. Verified
+  exactly-once on a real side effect (`make oplog` shows a counter incremented once
+  across retries of the same key). The actual egress *proxy* + the worker network path
+  are deployment (P-D1-adjacent).
 - **P-D3 — deterministic replay (optional).** WASM (Wasmtime det-mode) or a determinizing
   hypervisor only.
 

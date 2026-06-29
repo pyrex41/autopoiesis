@@ -74,6 +74,23 @@
                     (entry-commit E)
                     (outcome-in K Es)))
 
+\* ===== the worker-facing durable-effect API (composes E2) =====
+   durable-effect! is the one call a durable worker makes around an external effect
+   (the Temporal/Restate "activity" wrapper): if the effect already completed (its
+   outcome is landed), REPLAY the recorded outcome and do NOT re-run it; otherwise
+   land intent -> run the effect (a host command, stdout = outcome) -> land outcome.
+   Exactly-once modulo the intent->outcome window (a crash there re-runs; the
+   external endpoint must dedupe on the key — pair with the egress capability below). *\
+(define durable-effect!
+  { lease --> id --> string --> (list string) --> string --> hash }   \* lease key cmd args logpath -> outcome *\
+  L Key Cmd Args Logpath
+  -> (if (not (should-emit? Logpath Key))
+         (outcome-of Logpath Key)                            \* already done: replay, never re-run *\
+         (do (land-intent! L Key Cmd Logpath)                \* intent BEFORE the effect *\
+          (let Out (git-hash-bytes (shell-run Cmd Args))     \* the external effect (at-least-once window) *\
+           (do (land-outcome! L Key Out Logpath)             \* outcome AFTER the effect *\
+            Out)))))
+
 \* ===== E1: the out-of-guest egress capability ===== *\
 \* token = b64url(msg) "." HMAC(signing-key, msg) ; msg = US-join(key, effect, epoch) *\
 (define egress-msg

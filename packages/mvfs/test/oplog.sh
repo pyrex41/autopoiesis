@@ -11,6 +11,7 @@ SHEN="${SHEN:?}"
 CORE="src/scalars.shen src/boundary.shen src/checksum.shen src/types.shen src/log.shen src/fsm.shen src/read.shen src/acl.shen src/policy.shen src/vfs.shen src/dx.shen src/oplog.shen src/cli.shen"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"; ln -s "$MVFS/src" src; ln -s "$MVFS/host" host
+git init -q .; git config user.email t@e.st; git config user.name t   # durable-effect! content-addresses outcomes
 shen(){ "$SHEN" -q -e "(tc -)" $CORE src/host-lua.shen "$@" 2>&1 | tail -1; }
 PASS=0; FAIL=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1 (got '$2' want '$3')"; FAIL=$((FAIL+1)); fi; }
@@ -32,6 +33,21 @@ echo "===== E2: crash after intent, before outcome -> pending (re-attempt window
 shen -e "(mvfs.land-intent! \"$LEASE\" \"pay2\" \"charge-200\" \"$LOG\")" >/dev/null
 chk "pay2 status pending (system KNOWS it may have fired)" "$(shen -e "(mvfs.effect-status \"$LOG\" \"pay2\")")" "pending"
 chk "pay2 should-emit? true (external endpoint must dedupe)" "$(shen -e "(mvfs.should-emit? \"$LOG\" \"pay2\")")" "true"
+
+echo "===== durable-effect!: a real side effect fires EXACTLY ONCE across retries ====="
+CNT="$WORK/counter"; : > "$CNT"
+APPEND="echo fired >> $CNT"   # the external side effect (appends one line per real run)
+shen -e "(mvfs.durable-effect! \"$LEASE\" \"job1\" \"sh\" [\"-c\" \"$APPEND\"] \"$LOG\")" >/dev/null
+chk "after job1: side effect ran once" "$(wc -l < "$CNT" | tr -d ' ')" "1"
+# retry the SAME key — must NOT re-run the side effect
+shen -e "(mvfs.durable-effect! \"$LEASE\" \"job1\" \"sh\" [\"-c\" \"$APPEND\"] \"$LOG\")" >/dev/null
+chk "retry job1: side effect did NOT re-run (exactly-once)" "$(wc -l < "$CNT" | tr -d ' ')" "1"
+chk "retry job1: returns the SAME recorded outcome" \
+  "$(shen -e "(mvfs.durable-effect! \"$LEASE\" \"job1\" \"sh\" [\"-c\" \"$APPEND\"] \"$LOG\")")" \
+  "$(shen -e "(mvfs.outcome-of \"$LOG\" \"job1\")")"
+# a DIFFERENT key runs once more
+shen -e "(mvfs.durable-effect! \"$LEASE\" \"job2\" \"sh\" [\"-c\" \"$APPEND\"] \"$LOG\")" >/dev/null
+chk "different key job2: side effect ran (total 2)" "$(wc -l < "$CNT" | tr -d ' ')" "2"
 
 echo "===== E1: out-of-guest egress capability (effect ownership = lease epoch) ====="
 chk "current durable epoch == 2 (head fence)" "$(shen -e "(mvfs.current-epoch \"$LOG\")")" "2"
