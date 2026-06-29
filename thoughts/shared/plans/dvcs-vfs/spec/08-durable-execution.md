@@ -45,6 +45,40 @@ overlay is kernel overlayfs; reads/writes never cross into userspace. The VFS
 (`05`) does the *one-time materialize* of the base only. Inside a Firecracker VM the
 guest sees a virtio-block device, so the host-FS question disappears entirely.
 
+### 1a. RULED DECISION — isolation runtime: Firecracker default, gVisor trusted-ML backend
+
+**Ruling:** the P-D1 memory-snapshot runtime is **Firecracker by default**, with
+**gVisor as a pluggable second backend** for trusted, first-party, large-memory ML/
+Python workloads, and **CRIU only as a last resort** for bare processes (accepting the
+TCP/GPU sharp edges). This is a **boundary-backend choice** (`vm-snapshot!`/`vm-restore!`,
+§9), NOT foundational — both emit a content-addressed snapshot blob the *same* fenced
+checkpoint kernel lands, so the platform can ship both. Decision applies only at P-D1;
+P-D0 (rootfs) and P-D2 (effects) are runtime-agnostic.
+
+**Why Firecracker is the default for THIS system (ranked):**
+1. **Restore is the deciding case.** We content-address, land, replicate, and *restore*
+   memory images; restore deserializes attacker-reachable state into the runtime.
+   Firecracker's hardware-VMX boundary contains a malicious restored guest; gVisor's
+   restore reconstitutes kernel objects **in-process** in the large Go Sentry the guest
+   can reach — restore widens that surface more (panel doc 42, Ptacek S3). Firecracker is
+   the security default for restoring attacker-influenceable snapshots.
+2. **Restore latency 0.8–8 ms** (MAP_PRIVATE COW; Zeroboot 0.79 ms p50) vs gVisor's
+   ~1–3.5 s p50 for ML-scale — 100–1000×, which also makes fork/fan-out cheap.
+3. **CAS fit:** the mem file + MAP_PRIVATE COW *is* content-addressing-by-reference,
+   mirroring our O(1) fork; the vmstate+mem blob is the cleanest thing to hash, encrypt
+   per-tenant (I10), sign (I11), and land.
+
+**When gVisor wins (the second backend):** trusted first-party large-memory ML/Python,
+where its **background restore** (execute before memory finishes paging in — Modal's
+13 s → 3.5 s Stable Diffusion cold start) is the win and snapshot provenance is fully
+controlled (so the bigger TCB isn't exposed to hostile images); also where KVM/nested
+virt is unavailable (gVisor Systrap needs no hardware virt). gVisor also virtualizes
+time/RNG, giving marginally better baseline determinism.
+
+**Flip condition:** make gVisor the *default* only if the platform is **single-tenant /
+fully-trusted-code-only AND dominated by big-memory ML cold-starts** — then background
+restore outweighs a VMX boundary you don't need.
+
 ## 2. Checkpoint = a fenced 3-artifact commit
 
 A checkpoint lands ONE log entry referencing the (verified, durable) artifact hashes.
