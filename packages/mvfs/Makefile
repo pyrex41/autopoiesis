@@ -9,14 +9,14 @@ SHEN ?= shen
 # Load order matters: scalars (synonyms) first; then callee-before-caller.
 CORE = src/scalars.shen src/boundary.shen src/checksum.shen src/types.shen \
        src/log.shen src/fsm.shen src/read.shen src/acl.shen src/policy.shen \
-       src/vfs.shen src/dx.shen src/cli.shen
+       src/vfs.shen src/dx.shen src/oplog.shen src/cli.shen
 POS  = test/log-test.shen
 NEG  = test/illegal.shen
 # Optional lore fragment backend host (doc 33). Not part of CORE: the trunk land
 # path is git (daemon-free). Typechecked separately; needs no running loreserver.
 LORE = src/host-lore.shen
 
-.PHONY: typecheck typecheck-negative typecheck-lore typecheck-composefs test e2e t1 t1-kill t2 t3 read read-edge acl vfs policy dx t-d1 all help
+.PHONY: typecheck typecheck-negative typecheck-lore typecheck-composefs test e2e t1 t1-kill t2 t3 read read-edge acl vfs policy dx t-d1 oplog all help
 all: typecheck typecheck-negative typecheck-lore
 
 help:
@@ -113,6 +113,11 @@ dx:
 # chain. Runs on git+plain-dirs. Needs SHEN + git.
 t-d1:
 	bash test/t-d1.sh
+
+# P-D2 (spec/08 §6): exactly-once external effects — intent->outcome journal (E2)
+# + the out-of-guest egress capability tied to the lease epoch (E1). Needs SHEN.
+oplog:
+	bash test/oplog.sh
 
 # Load-check the optional composefs/overlay deployment backend (binds the boundary
 # verbs via lua.call — a runtime host backend, loaded under tc- like host-lua; the

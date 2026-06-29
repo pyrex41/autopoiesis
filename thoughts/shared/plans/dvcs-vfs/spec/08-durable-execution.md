@@ -203,8 +203,15 @@ on a composefs-capable kernel with privileged mounts, not in CI.
 - **P-D1 — full memory snapshot (gate on I10/I11 + C1–C7).** Firecracker vmstate+memory,
   per-tenant encrypted, provenance-verified, fenced `restore!`. Guest disk = block
   device (simplifies the overlay questions).
-- **P-D2 — exactly-once external effects (prerequisite for effectful workers).**
-  Intent→outcome oplog + out-of-guest egress capability (E1/E2).
+- **P-D2 — exactly-once external effects (prerequisite for effectful workers). IMPLEMENTED
+  & green** (`src/oplog.shen`, `make oplog`, 14/14): E2 intent→outcome journal on the
+  fenced log (`land-intent!`/`land-outcome!`/`effect-status`/`should-emit?`/`outcome-of`
+  — skip an effect whose outcome already landed; "pending" = the at-least-once re-attempt
+  window the external endpoint must dedupe); E1 out-of-guest egress capability
+  (`mint-egress` under leadership; `egress-ok?` admits iff HMAC valid AND token epoch ≥
+  the log's current head fence — a STALE leader's token is rejected, so effect ownership
+  is enforced outside the guest where the fence cannot reach). The actual egress *proxy*
+  + the worker network path are deployment (P-D1-adjacent).
 - **P-D3 — deterministic replay (optional).** WASM (Wasmtime det-mode) or a determinizing
   hypervisor only.
 
