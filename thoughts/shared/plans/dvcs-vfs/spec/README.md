@@ -21,6 +21,7 @@ Read `00` first — it is normative.
 | [`06-product-edges.md`](./06-product-edges.md) | product | Change lifecycle + Change-Id; stacked changes + **restack-on-land**; submit→land UX; real conflict resolution; sparse monorepo; ACL-as-landed-change; CLI surface; non-goals. |
 | [`07-build-plan.md`](./07-build-plan.md) | build | VCS-first phased plan on the Shen toolchain; the four gating spikes (S0–S3); the three-pillar test strategy; reimplement-later/oracle; traceability. |
 | [`08-durable-execution.md`](./08-durable-execution.md) | durable execution (extension) | Checkpoint = a **fenced 3-artifact commit** (composefs rootfs delta + encrypted memory snapshot + oplog); reuse Firecracker/composefs/CRIU, build only the moat; **I10** snapshot confidentiality + **I11** restore provenance; effects are at-least-once (egress capability + oplog); restore = re-animate, not replay. Panel-reviewed (doc 42). |
+| [`09-fargate-s3-deployment.md`](./09-fargate-s3-deployment.md) | deployment (applied) | The durable tier on **AWS Fargate + S3 + a standard queue** for crash-prone long-running PDF/zip batch jobs. **S3 = data plane, mvfs = control plane**; one-shot disposable tasks; the lease epoch makes at-least-once SQS safe (no split-brain); all-S3 fenced log (conditional writes) or DynamoDB; **resumable S3 multipart zip assembly** via the oplog cursor; needs *no* Firecracker/composefs/OpenResty. |
 
 ## The core idea in five lines
 

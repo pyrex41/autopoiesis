@@ -19,7 +19,8 @@ This directory is the complete, current documentation. Read in this order:
 
 ## Where the normative specs and design history live
 - **Normative specs:** [`../../../thoughts/shared/plans/dvcs-vfs/spec/`](../../../thoughts/shared/plans/dvcs-vfs/spec/)
-  (`00-overview` is the keystone; `01`–`08` are the layer specs). These are the source
+  (`00-overview` is the keystone; `01`–`08` are the layer specs; `09` is the applied
+  AWS Fargate + S3 deployment design for crash-prone batch jobs). These are the source
   of truth for contracts and invariants; the docs here summarize and index them.
 - **Design history / reviews:** `../../../thoughts/shared/plans/dvcs-vfs/00`–`42` — the
   full exploration corpus, including the expert-panel reviews (Aphyr, Torvalds,

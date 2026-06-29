@@ -42,6 +42,10 @@ Legend: ✅ built & verified in CI · 🟡 artifacts + ruled decision, deploymen
 5. **Replication/HA** of the landed-log + content blobs at a stated durability width.
 6. **Product surfaces**: CLI/UX for clone/submit/land/checkpoint/restore/fork; the
    stacked-change + restack-on-land flow (spec/06).
+7. **Cloud deployment backends**: the AWS Fargate + S3 batch-job pattern (spec/09) —
+   `host-s3.lua` (all-S3 fenced log via conditional writes; optional `host-dynamo.lua`),
+   the disposable-worker entrypoint, the SQS dispatcher, and the resumable S3-multipart
+   zip assembler. Reuses the built P-D0/P-D2 control plane; needs no Firecracker/composefs.
 
 ## Next reasonable increments (in priority order)
 1. The **P-D1 deployment harness** on a Firecracker host (the highest-value gap).
