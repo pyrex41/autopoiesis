@@ -1,140 +1,67 @@
-# mvfs — P0 (core spine)
+# mvfs
 
-`mvfs` is a content-addressable, **trunk-only** (no branches), monorepo distributed VCS with a
-virtual filesystem. Design spec: [`../../thoughts/shared/plans/dvcs-vfs/spec/`](../../thoughts/shared/plans/dvcs-vfs/spec/)
-(read `spec/00-overview.md` first — it is normative).
+A content-addressable, **trunk-only** (no branches) distributed version control system
+with a virtual filesystem and a **durable-execution** tier — built on a
+**proven-brain / trusted-shell** architecture in Shen (shen-lua / LuaJIT).
 
-This directory is **P0** from `spec/07-build-plan.md`: the core spine, written in **Shen**.
+The novel core is a serialized, **fenced, single-leased-leader land queue** onto one
+linear trunk. Shen's sequent type system + decidable Datalog *prove* the decisions
+(admission, authorization, fencing — illegal land states don't even typecheck);
+git / pijul / nginx / the filesystem are *trusted oracles* behind one audited boundary.
+The same substrate (content-addressed, O(1) fork, time-travel, exactly-once under a
+fence) doubles as a durable-execution platform — "Golem for WASM, but general."
 
-## What P0 contains
+## 📖 Documentation
+Full docs are in **[`docs/`](docs/)** — start with [`docs/README.md`](docs/README.md):
 
-| File | Spec | Purpose |
-|---|---|---|
-| `src/types.shen` | `02` §1 | The **sequent-typed land FSM** (`submitted → admitted → based → landed`) + the unforgeable capability types (`acl-proof`, `lease-witness`, `merge-result`). Illegal transitions don't typecheck. |
-| `src/boundary.shen` | `00` §5.4 / [doc 34](../../thoughts/shared/plans/dvcs-vfs/34-pijul-merge-oracle.md) | The **audited Shen↔shell surface**: git CAS verbs, the pluggable **`storage-backend`** (git/lore) + **`merge-oracle`** (git/pijul) axes, pijul patch-theory verbs (`record`/`apply`/`fork`/`state`/structural conflict probe), durable fsync-append, fence CAS, `crc64`/`xor64`. The *only* side-effecting primitives. |
-| `src/checksum.shen` | `01` §5 | The rolling-checksum **chaining protocol** (contrib field set, `prev==post` chain invariant) over the trusted `crc64`/`xor64` host primitives. |
-| `src/log.shen` | `01`/`02` | The **landed-log**: serialize entry, `durable-append-fenced!` (fence-epoch CAS at the durable head + fsync + post-fsync lease re-check), `verify-chain`. |
-| `src/fsm.shen` | `02` | The transitions: `admit` (needs `acl-proof`), `base` (OCC + git 3-way merge), `land` (needs `lease-witness`); `with-leadership` (the only minter of a witness). |
-| `src/cli.shen` | `06` | Thin `clone` / `log` entry points (P0 stubs). |
-| `test/illegal.shen` | `02` §1 | The **four illegal programs** that MUST be rejected by the typechecker (land-without-admission, land-without-lease, base-without-admission, forge-a-witness). |
-| `test/log-test.shen` | `01` | Positive tests: checksum chaining, append/verify round-trip. |
-| `src/host-lore.shen` | `00` §5.4 / [doc 33](../../thoughts/shared/plans/dvcs-vfs/33-storage-backend-decision.md) | **Optional** lore fragment-store backend host (BLAKE3 CAS + chunking + sparse hydration), over the verified `lore` CLI. Loaded only when `lore-be` is enabled. |
+- **[docs/PRODUCT.md](docs/PRODUCT.md)** — what it is, who it's for, positioning, status
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the layers, the land kernel, merge
+  oracle, read tier, ACL, VFS, durable execution, the pluggable backends
+- **[docs/INVARIANTS.md](docs/INVARIANTS.md)** — I1–I11 with enforcement + test traceability
+- **[docs/MODULES.md](docs/MODULES.md)** — the source map
+- **[docs/TESTING.md](docs/TESTING.md)** — the verification matrix (every target, counts)
+- **[docs/DECISIONS.md](docs/DECISIONS.md)** — the ruled choices (shen-lua, pijul, git/lore,
+  composefs, Firecracker)
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — phase status (P0…P-D3)
+- **[docs/GLOSSARY.md](docs/GLOSSARY.md)** — terms
 
-## Storage backend (doc 33 — grounded by running the candidates)
+Normative specs: [`../../thoughts/shared/plans/dvcs-vfs/spec/`](../../thoughts/shared/plans/dvcs-vfs/spec/)
+(`00-overview` is the keystone). Design history + expert-panel reviews: the numbered
+docs alongside it.
 
-mvfs's storage tier is **pluggable** behind `boundary.shen` (a `storage-backend` datatype:
-`git-be` | `lore-be`, with generic `cas-read-blob` / `cas-locate` / `cas-put-blob`).
-The decision, reached by actually running EpicGames/lore v0.8.4 and reading rvcs:
+## Status
+**Verified & runs in CI** (Shen `tc +` + ~137 assertions on real git / pijul / LuaJIT):
+the land kernel, pijul merge oracle, read tier, decidable ACL + policy lands, the
+sparse VFS, and the durable-execution control plane (**P-D0** rootfs checkpoints,
+**P-D2** exactly-once effects). **Deployment-gated** (need a privileged host): the
+composefs rootfs backend, the OpenResty serve tier, and **P-D1** memory snapshots.
+See [docs/ROADMAP.md](docs/ROADMAP.md).
 
-- **git = trunk source-of-truth + merge oracle** (default, daemon-free). `git-commit-tree`
-  / `git-merge-tree` are **git-only by design** and are *not* routed through the selector —
-  a trunk-only code monorepo needs real 3-way text merge and lore has none (server-side CR).
-- **lore = optional large-binary / sparse-hydration fragment tier** (BLAKE3 48-byte
-  addresses, content-defined chunking, lazy working trees). Adopted as a *second* backend,
-  not a git replacement: it is pre-1.0 (unstable formats), server-of-record (needs a
-  `loreserver`), and its VFS is roadmap-not-shipped.
-- **rvcs = rejected** (snapshot/publish/sign/mirror model; experimental & unsupported).
-
-See [doc 33](../../thoughts/shared/plans/dvcs-vfs/33-storage-backend-decision.md) for the
-full evidence, object-model mapping table, and impedance notes.
-
-## Merge oracle (doc 34 — Pijul / patch theory replaces git's heuristic merge)
-
-Merge is a **second pluggable axis**, orthogonal to storage (a `merge-oracle` datatype:
-`git-merge` | `pijul-merge`; `base` routes through `oracle-admits?` / `oracle-merged`).
-git-as-CAS is fine; git-as-*merge* was the un-principled part — `merge-tree` is a heuristic
-line diff3. **Pijul's merge is sound by construction**, proven by running pijul
-1.0.0-beta.15:
-
-- **Commutativity** — independent changes in either order → byte-identical file *and*
-  identical cryptographic state hash (order-independent discrete-log multiset hash).
-- **Conflict determinism** — same-line edits → identical conflict state + state hash in
-  both orders; a conflict is a first-class graph state, detected **structurally** (never by
-  grepping `>>>>>>>` markers).
-- **Rebase dissolved** — a change recorded against the old base applies cleanly onto an
-  advanced trunk, hash unchanged — exactly what a totally-ordered land queue wants.
-
-Pijul is a **sealed merge subroutine**: we **exec the `pijul` CLI, never link libpijul**
-(GPL-2.0); **one channel** only (trunk-only); no pijul branches/remotes/identity leak up.
-git stays the **kept-warm fallback** oracle + CAS source-of-truth; lore = large binary
-bytes; mvfs = control plane (I1–I9). The hard P1 problem is **two-store crash atomicity**
-(fenced log = truth, Sanakirja pristine = rebuildable cache) — see doc 34's must-fix list.
-
-See [doc 34](../../thoughts/shared/plans/dvcs-vfs/34-pijul-merge-oracle.md) for the grounded
-experiments, the Aphyr/Torvalds/Fukamachi panel synthesis, and the MF-1..5 / T1–T3 list.
-
-## Invariants embodied (see `spec/00` §4)
-
-- **I1** linear trunk · **I3** at-most-once (idempotency-key in the entry) · **I4** no-lost-acked-land
-  (fsync-before-ack) · **I5** content integrity (re-hash assert in the git boundary) · **I6** acl
-  fence (the `acl-proof` carries `acl-version`) · **I7** fenced authority (the fence = lease *epoch*,
-  CAS'd at the durable append; `lease-witness` is the type-level half).
-
-## Building
-
+## Build & test
 ```sh
 # build LuaJIT 2.1 + fetch shen-lua into ./.toolchain (idempotent):
-eval "export SHEN=$(scripts/bootstrap-toolchain.sh)"   # adds luajit to PATH internally
-# (or point SHEN at your own shen-lua launcher: export SHEN=/path/to/shen-lua/bin/shen)
+eval "export SHEN=$(scripts/bootstrap-toolchain.sh)"
 
-make typecheck            # typecheck the core under Shen's tc + (must pass)
-make typecheck-lore       # typecheck the optional lore backend host (must pass; no server needed)
-make typecheck-negative   # MUST FAIL: rejects test/illegal.shen (illegal programs)
-make test                 # positive runtime smoke: submit->admit->base yields a `based`
-
-# P1 — the FSM running for real (needs SHEN, PIJUL, PIJUL_CONFIG_DIR + git/pijul):
-make e2e                  # real git + real pijul + fsync'd log: oracle, land path, I7
-make t1                   # two-store crash atomicity (step-stop W1/W2): 8/8
-make t1-kill              # REAL SIGKILL at the post-append window + MF-4a blob durability: 9/9
-make t2                   # fenced split-brain + I3 + MF-3 + MF-4a/b gate via pland!: 15/15
-make t3                   # TOCTOU race (MF-3 necessity) + MF-5 version pinning: 8/8
-
-# Read tier (spec/04, spec/05): brain decides, nginx serves zero-copy (doc 39):
-make read                 # §5.2 resolve + §5.3 token mint/verify + I8/I9 on a real git tree: 15/15
-make read-edge            # OpenResty edge (serve/verify.lua) verifies a brain-minted token: 5/5
-
-# Policy + mount (spec/03, spec/05; doc 40):
-make acl                  # decidable ACL: longest-prefix-deny-wins + §6a matcher≡oracle diff: 11/11
-make vfs                  # checkout-first mount: sparse materialize, dirstate, O(changes) status: 17/17
-
-# Durable execution P-D0 (spec/08): the moat, verifiably (composefs/Firecracker = deployment):
-make policy               # policy lands fenced; acl-version from the log; effective-policy (I6): 9/9
-make dx                   # overlay-delta serializer + fenced checkpoint + FAITHFUL deletion/restore: 12/12
-make t-d1                 # durable-layer fault test: fail-closed (atomic) restore + determinism + chain: 10/10
-make oplog                # P-D2 exactly-once effects: intent→outcome journal + egress capability (E1/E2): 14/14
-make typecheck-composefs  # load-check the composefs/overlay deployment backend (deploy/, src/host-composefs.shen)
-
-# All doc-34 must-fixes (MF-1..MF-5, I3) are closed; see thoughts .../38-...closeout.md
-# Read-tier serve artifacts (nginx.conf + access.lua + verify.lua) live in serve/.
+make typecheck            # core typechecks under Shen's sequent checker (tc +)
+make typecheck-negative   # MUST FAIL: the 4 illegal programs are rejected (I7 type half)
+make test                 # runtime smoke: submit->admit->base yields a `based`
 ```
+The full suites (need `PIJUL` / `LUAJIT` / `PIJUL_CONFIG_DIR` for the merge/durable
+tests; pijul needs an ssh-agent identity):
+```sh
+make e2e t1 t1-kill t2 t3        # kernel: merge oracle, fenced land, crash atomicity, split-brain
+make read read-edge acl policy vfs   # read tier, ACL, policy lands, sparse mount
+make dx t-d1 oplog               # durable execution: checkpoints, fault test, exactly-once effects
+```
+See [docs/TESTING.md](docs/TESTING.md) for what each proves and the pass counts.
 
-The `boundary.shen` host primitives (`shell-run`, `durable-cas-append!`, `crc64`, `xor64`, …) are
-the **per-backend** extension point: shen-lua provides them via LuaJIT FFI / `os`/`io`; shen-cl via
-`uiop`/`ironclad`. P0 ships portable signatures + erroring stubs; wire the backend impls in
-`src/host-lua.shen` / `src/host-cl.shen` (P0.5).
-
-## Status — VERIFIED on shen-lua / LuaJIT 2.1
-
-Built and run on the real toolchain (bootstrapped via `scripts/bootstrap-toolchain.sh`):
-
-- ✅ **Core typechecks** under Shen's sequent-calculus checker (`tc +`), 0 errors.
-- ✅ **Illegal programs rejected**: loading `test/illegal.shen` under `tc +` fails with
-  `type error in rule 1 of mvfs.illegal-1` — i.e. `land` applied to a `submitted` change does not
-  typecheck. The I7 "illegal states unrepresentable" property is demonstrated by the typechecker.
-- ✅ **FSM runs**: `submit → check → admit → base` yields
-  `[mvfs.mk-based c1 k1 ttree tbase alice [mvfs.mk-proof alice [] 0]]`.
-
-### Notes learned wiring this to the real typechecker
-- All core modules live in **one `mvfs` package, exporting nothing** — Shen's `tc` only shares a
-  function's `{ }` signature with callers when the function is *not* exported (internal/prefixed).
-- `synonyms` must be declared **inside** the package; functions must be defined **callee-before-caller**.
-- Datatype constructors are list terms `[tag ..]`; comments cannot appear inside a `(datatype ...)` body;
-  `if`-guarded rules can't be mixed with `[tag ..]` rules in one datatype.
-- **shen-lua typechecker edge case (worth a `pyrex41/shen-lua` issue):** a function that *both*
-  destructures a datatype constructor in its rule head *and* constructs a state value, while a sibling
-  also constructs that constructor, fails to typecheck. Minimal repro: a `base` that builds `[mk-based …]`
-  plus a `land` whose head matches `[mk-based …]`. Worked around by reading `based`'s fields via accessor
-  functions (`based-tree`/`based-onto`/…) instead of head-destructuring — type discipline unchanged.
-
-Next per `spec/07`: spike **S0** (`jit.dump` the read decision path), wire the host backends
-(`crc64`/`xor64`/`shell-run`/`durable-cas-append!`), then P1 (dirstate + git 3-way merge + stacks).
+## Layout
+```
+src/      the Shen core (typechecked) + host backends
+host/     the Lua host implementations (the trusted shell)
+serve/    the OpenResty read-tier edge (deployment artifacts)
+deploy/   composefs/overlay durable-execution backend (deployment)
+test/     the suites
+scripts/  toolchain bootstrap
+docs/     this documentation
+```
